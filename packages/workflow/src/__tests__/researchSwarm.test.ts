@@ -263,9 +263,9 @@ function swarmFakeProvider() {
           proposed_sources: [src(`src_lane_${n}`)],
         }
       }
-      if (schemaName === 'BuffettMungerRedTeam') {
+      if (schemaName === 'BuffettMungerInversion') {
         return {
-          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
           shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
           proposed_sources: [src('src_shariah_reasoning')],
         }
@@ -380,9 +380,9 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
           proposed_sources: [src(`src_${lane}_1`)],
         }
       }
-      if (schemaName === 'BuffettMungerRedTeam') {
+      if (schemaName === 'BuffettMungerInversion') {
         return {
-          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
           shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_partial_1'] },
           proposed_sources: [src('src_qs_partial_1')],
         }
@@ -720,9 +720,9 @@ describe('runStrategyResearchSwarm', () => {
               proposed_sources: [src(`src_lane${n}_good_1`), src(`src_lane${n}_bad_1`)],
             }
           }
-          if (schemaName === 'BuffettMungerRedTeam') {
+          if (schemaName === 'BuffettMungerInversion') {
             return {
-              strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+              strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
               shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_good_1'] },
               proposed_sources: [src('src_rt_good_1'), src('src_rt_bad_1')],
             }
@@ -1469,10 +1469,10 @@ function configurableSwarmProvider(opts: {
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
-      if (schemaName === 'BuffettMungerRedTeam') {
+      if (schemaName === 'BuffettMungerInversion') {
         if (rtFails > 0) { rtFails--; throw new Error('Codex CLI timed out') }
         return {
-          strongest_bear_case: 'Valuation prices in flawless execution.',
+          strongest_case_against: 'Valuation prices in flawless execution.',
           weakest_rubric_items: [{ lane: 'moat', item: 'M5', why: 'thin switching evidence' }],
           moat_decay_scenario: 'A funded entrant erodes share over 5 years.',
           growth_credit_attack: 'Incremental ROIC mean-reverts below cost of capital.',
@@ -2486,11 +2486,11 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
 // deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
 // ---------------------------------------------------------------------------
-describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
-  async function runRedTeam(opts: Omit<Parameters<typeof configurableSwarmProvider>[0], 'laneCount'>, id: string) {
+describe('E1 — the inversion pass (replaces the red team; lattice-owned, no obligation machinery)', () => {
+  async function runInv(opts: Omit<Parameters<typeof configurableSwarmProvider>[0], 'laneCount'>, id: string) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, ...opts })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-rt-${id}-`))
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-inv-${id}-`))
     const result = await runStrategyResearchSwarm(
       store, provider as never,
       {
@@ -2502,167 +2502,44 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     )
     const events = await store.list()
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    return { events, result, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+    return { events, result, provider, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('runs the red team and records its output on the analysis; no flag when synthesis answers with evidence', async () => {
-    const { cp, result } = await runRedTeam(
-      { synthesisResponse: { mode: 'answered_with_evidence', text: 'Top customer <10% of revenue per the 10-K.' } },
-      'answered',
-    )
-    expect(result.decision).toBeDefined()
-    expect(cp?.red_team?.status).toBe('complete')
-    expect(cp?.red_team?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
-    // Cite-checked against the corpus (src_lane_moat is a verified lane source).
-    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_lane_moat'])
-    expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-    // No red_team_objection_unaddressed open question.
+  it('records the inversion on the analysis payload (cite-checked objection, no obligation fields)', async () => {
+    const { cp, events } = await runInv({}, 'inv-complete')
+    expect(cp?.inversion?.status).toBe('complete')
+    expect(cp?.inversion?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
+    expect(cp?.inversion?.strongest_objection?.citations).toEqual(['src_lane_moat'])
+    // The obligation machinery is retired: no response, no unaddressed flag, no red_team payload key.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const payload = analysis?.payload as Record<string, unknown>
+    expect(payload['red_team']).toBeUndefined()
+    const inv = payload['inversion'] as Record<string, unknown>
+    expect(inv['synthesis_response']).toBeUndefined()
+    expect(inv['objection_unaddressed']).toBeUndefined()
     expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
   })
 
-  it('flags red_team_objection_unaddressed + appends to open_questions when synthesis is silent', async () => {
-    const { cp } = await runRedTeam({ /* synthesisResponse undefined → silent */ }, 'unaddressed')
-    expect(cp?.red_team?.status).toBe('complete')
-    expect(cp?.red_team?.objection_unaddressed).toBe(true)
-    expect(cp?.red_team?.synthesis_response).toBeUndefined()
-    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(true)
+  it('makes exactly ONE inversion provider call (the response pass is retired)', async () => {
+    const { provider } = await runInv({}, 'inv-one-call')
+    const calls = (provider.structured as { mock: { calls: unknown[][] } }).mock.calls
+    const schemaOf = (c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name
+    expect(calls.filter((c) => schemaOf(c) === 'BuffettMungerInversion')).toHaveLength(1)
+    expect(calls.some((c) => schemaOf(c) === 'BuffettMungerRedTeamResponse')).toBe(false)
   })
 
-  it('records the downgrade when synthesis accepts the objection (mode accepted_downgraded)', async () => {
-    const { cp } = await runRedTeam(
-      {
-        synthesisResponse: {
-          mode: 'accepted_downgraded', text: 'Concentration justifies a tier cut.',
-          downgrade: { dimension: 'tier', from: 'wide', to: 'moderate' },
-        },
-      },
-      'downgraded',
-    )
-    expect(cp?.red_team?.synthesis_response?.mode).toBe('accepted_downgraded')
-    expect(cp?.red_team?.synthesis_response?.downgrade?.to).toBe('moderate')
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-    // The downgrade is recorded in the verdict rationale.
-    expect(cp?.reason ?? '').toMatch(/downgraded tier \(wide → moderate\)/)
+  it('degrades to inversion_incomplete on timeout — the run still completes, with ONE honesty open question', async () => {
+    const { cp } = await runInv({ failRedTeam: 2 }, 'inv-timeout')
+    expect(cp?.inversion?.status).toBe('inversion_incomplete')
+    expect(cp?.investment_verdict).toBeDefined()
+    expect((cp?.open_questions ?? []).some((q) => /inversion_incomplete/.test(q))).toBe(true)
   })
 
-  it('degrades to red_team_incomplete on red-team timeout — run still completes through synthesis', async () => {
-    const { cp, events, result } = await runRedTeam({ failRedTeam: 99 }, 'incomplete')
-    // The run completed: synthesis + decision were still drafted.
-    expect(result.decision).toBeDefined()
-    expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(true)
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
-    // Red team recorded as incomplete (case not adversarially tested) + surfaced as an open question.
-    expect(cp?.red_team?.status).toBe('red_team_incomplete')
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-    expect((cp?.open_questions ?? []).some((q) => /red_team_incomplete/.test(q))).toBe(true)
-  })
-
-  it('drops an objection whose citations are not in the verified corpus (no synthesis obligation, no flag)', async () => {
-    // The red team cites a fabricated source id; cite-check strips it → no live objection → no flag even
-    // though synthesis is silent (we never force the synthesis to answer a fabricated objection).
-    const { cp } = await runRedTeam({ redTeamCitations: ['src_fabricated'] }, 'fabricated')
-    expect(cp?.red_team?.strongest_objection?.citations ?? []).toEqual([])
-    expect(cp?.red_team?.uncited_objection_refs).toEqual(['src_fabricated'])
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
-  })
-
-  it('drops an objection whose only citation is CAPTURED-BUT-UNVERIFIED (no content_hash) — hardens verifiedCitationHashes', async () => {
-    // Hardening repro for the verifiedCitationHashes hole. The red team cites src_qs_bad_1 — a source that
-    // WAS captured (present in accumulated) but FAILED to ground (no content_hash, excluded from
-    // verified_ids). The old cite-check set added every captured source_id unconditionally, so the
-    // objection would have wrongly counted as a LIVE (grounded) objection. After the fix only verified
-    // sources enter the set → the objection is stripped exactly like a fabricated one.
-    const groundGoodCaptureBad = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => {
-        const ok = !s.source_id.includes('bad')
-        return {
-          source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
-          availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
-          fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
-        }
-      }),
-      verified_ids: sources.filter((s) => !s.source_id.includes('bad')).map((s) => s.source_id),
-    })
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({
-      laneCount: buffettMungerDeepDiveLanes.length,
-      quickScreenProposesGoodBad: true,
-      redTeamCitations: ['src_qs_bad_1'],
-    })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-captured-unverified-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_rt_cap_unver', company_id: 'c', ticker: 'TST',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_cap_unver_k',
-        model_id: 'mock', decision_id: 'decision_rt_cap_unver', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: groundGoodCaptureBad as GroundFn, laneConcurrency: 4 },
-    )
-    const events = await store.list()
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_rt_cap_unver')
-    // The captured-but-unverified citation must be stripped: no live objection, no synthesis obligation.
-    expect(cp?.red_team?.strongest_objection?.citations ?? []).toEqual([])
-    expect(cp?.red_team?.uncited_objection_refs).toEqual(['src_qs_bad_1'])
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-  })
-
-  it('SKIPS the dedicated red-team-response call entirely when there is no live objection', async () => {
-    // The red team cites only a fabricated id → cite-check strips it → no live objection → the dedicated
-    // red-team-response call must NOT run (no synthesis_response needed when there is nothing to answer).
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({
-      laneCount: buffettMungerDeepDiveLanes.length,
-      redTeamCitations: ['src_fabricated'],
-    })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-skip-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_rt_skip', company_id: 'c', ticker: 'TST',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_skip_k',
-        model_id: 'mock', decision_id: 'decision_rt_skip', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const responseCalls = provider.structured.mock.calls.filter(
-      (c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerRedTeamResponse',
-    )
-    expect(responseCalls.length).toBe(0)
-  })
-
-  it('records the answer from the dedicated red-team-response call (no unaddressed flag) when it answers', async () => {
-    // A live objection (src_lane_moat verified) → the dedicated call runs and answers it → the answer is
-    // recorded on the red-team layer and there is NO red_team_objection_unaddressed flag.
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({
-      laneCount: buffettMungerDeepDiveLanes.length,
-      synthesisResponse: { mode: 'answered_with_evidence', text: 'Renewal rates (cited) keep the moat intact.' },
-    })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-dedicated-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_rt_dedicated', company_id: 'c', ticker: 'TST',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_ded_k',
-        model_id: 'mock', decision_id: 'decision_rt_dedicated', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const responseCalls = provider.structured.mock.calls.filter(
-      (c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerRedTeamResponse',
-    )
-    // The dedicated call ran exactly once (answered on the first attempt).
-    expect(responseCalls.length).toBe(1)
-    const events = await store.list()
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_rt_dedicated')
-    expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
-    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
-    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
+  it('drops an objection whose citations are not in the verified corpus (recorded as uncited, never hidden)', async () => {
+    const { cp } = await runInv({ redTeamCitations: ['src_fabricated'] }, 'inv-uncited')
+    expect(cp?.inversion?.status).toBe('complete')
+    expect(cp?.inversion?.strongest_objection?.citations ?? []).toEqual([])
+    expect(cp?.inversion?.uncited_objection_refs).toEqual(['src_fabricated'])
   })
 })
 
@@ -3402,9 +3279,9 @@ function swarmFakeProviderWithShariah(
         const n = laneCall++
         return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
       }
-      if (schemaName === 'BuffettMungerRedTeam') {
+      if (schemaName === 'BuffettMungerInversion') {
         return {
-          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
           shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
           proposed_sources: [src('src_shariah_reasoning')],
         }
@@ -3587,9 +3464,9 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
           const n = laneCall++
           return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
         }
-        if (schemaName === 'BuffettMungerRedTeam') {
+        if (schemaName === 'BuffettMungerInversion') {
           return {
-            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
             shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
             proposed_sources: [src('src_shariah_reasoning')],
           }
@@ -4916,8 +4793,8 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
           const n = laneCall++
           return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
         }
-        if (schemaName === 'BuffettMungerRedTeam') {
-          return { strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g', shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] }, proposed_sources: [src('src_qs_1')] }
+        if (schemaName === 'BuffettMungerInversion') {
+          return { strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g', shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] }, proposed_sources: [src('src_qs_1')] }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
           return { synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted.' }, proposed_sources: [src('src_qs_1')] }
@@ -5178,9 +5055,9 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             proposed_sources: [src('src_shariah_reasoning')],
           }
         }
-        if (schemaName === 'BuffettMungerRedTeam') {
+        if (schemaName === 'BuffettMungerInversion') {
           return {
-            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
             shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
             proposed_sources: [src('src_shariah_reasoning')],
           }
@@ -5236,35 +5113,17 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     }
   }
 
-  it('retries the dedicated red-team-response when synthesis_response is omitted, then succeeds on the 2nd attempt (no flag)', async () => {
-    const { provider, responseCalls } = retrySwarmProvider({ responseAttemptsToOmit: 1 })
-    const { analysisPayload, decisionPayload } = await run(provider, 'retry-recover')
-    // The wrapper issued a SECOND red-team-response call (the retry that bounced the missing field back).
-    expect(responseCalls()).toBe(2)
+  it('E1: never issues a red-team-response call (the obligation machinery is retired)', async () => {
+    const { provider, responseCalls } = retrySwarmProvider({ responseAttemptsToOmit: 99 })
+    const { analysisPayload, decisionPayload } = await run(provider, 'inv-no-response')
+    expect(responseCalls()).toBe(0)
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // Recovered on retry -> no retry-exhausted flag, and the objection IS addressed (no unaddressed flag).
     expect(degraded.join(' ')).not.toMatch(/red_team_response_retry_exhausted/)
-    expect(degraded.join(' ')).not.toMatch(/rubric_not_emitted/)
-    expect(degraded.join(' ')).not.toMatch(/shariah_ratios_unverified/)
     const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
     expect(openQuestions.join(' ')).not.toMatch(/red_team_objection_unaddressed/)
-  })
-
-  it('marks the red-team-response degraded after 2 failed attempts and the run still completes (visible fallback)', async () => {
-    const { provider, responseCalls } = retrySwarmProvider({ responseAttemptsToOmit: 99 })
-    const { analysisPayload, decisionPayload } = await run(provider, 'retry-exhaust')
-    // 2 attempts (initial + 1 retry), then fall back visibly — the run did NOT abort.
-    expect(responseCalls()).toBe(2)
-    expect(analysisPayload).toBeDefined()
-    const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
-    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // The retry exhaustion is surfaced (the dedicated red-team-response call) — never silent. The
-    // deterministic red_team_objection_unaddressed enforcement also fires (the objection is unaddressed).
-    expect(degraded.join(' ')).toMatch(/red_team_response_retry_exhausted/)
-    expect(degraded.join(' ')).toMatch(/synthesis_response/)
-    const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
-    expect(openQuestions.join(' ')).toMatch(/red_team_objection_unaddressed/)
+    // The inversion itself persisted.
+    expect((analysisPayload?.['inversion'] as { status?: string })?.status).toBe('complete')
   })
 
   it('routes the red-team to a DIFFERENT provider when the red_team role is overridden', async () => {
@@ -5376,9 +5235,9 @@ function crossCheckSwarmProvider(opts: {
       if (schemaName === 'ShariahSectorCrossCheck') {
         return { sector_status: opts.crossCheckSector ?? 'compliant', proposed_sources: [src('src_xc_shariah')] }
       }
-      if (schemaName === 'BuffettMungerRedTeam') {
+      if (schemaName === 'BuffettMungerInversion') {
         return {
-          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'a',
+          strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'a',
           shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
           proposed_sources: [src('src_shariah_reasoning')],
         }
@@ -5534,7 +5393,7 @@ describe('runStrategyResearchSwarm — model_role_env (file-configured tier over
 
     // The red-team pass ran on the env-configured model; the circle gate (synthesis role, no
     // override configured) kept the run default.
-    expect(modelBySchema.get('BuffettMungerRedTeam')).toBe('env-red-team-model')
+    expect(modelBySchema.get('BuffettMungerInversion')).toBe('env-red-team-model')
     expect(modelBySchema.get('BuffettMungerCircleCompetence')).toBe('run-default-model')
   })
 })
@@ -5901,9 +5760,9 @@ describe('circle-of-competence gate', () => {
           const n = laneCall++
           return { finding_summary: `Lane ${n} finding`, confidence: 'medium', caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)] }
         }
-        if (schemaName === 'BuffettMungerRedTeam') {
+        if (schemaName === 'BuffettMungerInversion') {
           return {
-            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            strongest_case_against: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
             shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
             proposed_sources: [src('src_shariah_reasoning')],
           }
@@ -6496,7 +6355,7 @@ describe('S6 — early moat gate: zero Pillar 3–4 spend on a gate death; the o
     // The provider was NEVER asked for the Pillar 3–4 stages — the spend proof, not just suppression.
     expect(schemaCalls).not.toContain('BuffettMungerManagementLane')
     expect(schemaCalls).not.toContain('BuffettMungerValuationReasoning')
-    expect(schemaCalls).not.toContain('BuffettMungerRedTeam')
+    expect(schemaCalls).not.toContain('BuffettMungerInversion')
     expect(schemaCalls).not.toContain('BuffettMungerSynthesisDecision')
     const types = events.map((e) => e.event_type)
     expect(types).not.toContain('valuation_judgment_drafted')
@@ -6572,9 +6431,9 @@ describe('S7 — munger_lattice persisted from the run artifacts', () => {
     expect(byModel['incentive_analysis']?.status).toBe('applied') // grounded DEF 14A comp (S5 fake)
     expect(byModel['social_proof']?.status).toBe('applied')
     expect(byModel['social_proof']?.summary).toMatch(/variant/i)
-    // The consensus check also persists on the red-team layer (cite-checked).
-    const redTeam = (analysis?.payload as Record<string, unknown>)['red_team'] as { consensus_check?: { grounded?: boolean } } | undefined
-    expect(redTeam?.consensus_check?.grounded).toBe(true)
+    // The consensus check also persists on the inversion layer (cite-checked).
+    const inversionLayer = (analysis?.payload as Record<string, unknown>)['inversion'] as { consensus_check?: { grounded?: boolean } } | undefined
+    expect(inversionLayer?.consensus_check?.grounded).toBe(true)
     // And projects.
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_s7') as Record<string, unknown> | undefined

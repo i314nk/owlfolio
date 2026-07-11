@@ -4,13 +4,13 @@
 // "I applied inversion" — the harness asserts a mental model was applied ONLY when its underlying
 // artifact exists and survived its cite-check. Anything absent or ungrounded renders 'unavailable'
 // WITH the reason. The four v1 models and their artifacts:
-//   inversion          ← the red-team layer (the case argued against itself + the forced response)
+//   inversion          ← the inversion pass (E1: the case argued against itself; replaces the red team)
 //   base rates         ← the base-rate burden flags (exceptional claims vs structural evidence)
 //   incentive analysis ← the S5 management comp_structure (grounded DEF 14A citation)
-//   social proof       ← the red team's consensus_check (is the thesis just the consensus?)
+//   social proof       ← the inversion pass's consensus_check (is the thesis just the consensus?)
 // ---------------------------------------------------------------------------------------------------
 
-/** The red team's consensus check after the harness cite-check (S7 — rides the red-team call). */
+/** The inversion pass's consensus check after the harness cite-check (rides the inversion call). */
 export type ConsensusCheck = {
   consensus_view: string
   thesis_vs_consensus: 'consensus' | 'variant'
@@ -38,14 +38,14 @@ export type MungerLattice = {
 }
 
 export type BuildMungerLatticeArgs = {
-  redTeam:
+  /** E1: the inversion pass replaces the red team — no answer-or-downgrade obligation machinery. */
+  inversion:
     | {
         status: 'complete'
         strongest_objection: { claim: string; severity: 'low' | 'medium' | 'high'; citations: string[] }
-        objection_unaddressed?: boolean
         consensus_check?: ConsensusCheck | undefined
       }
-    | { status: 'red_team_incomplete'; reason: string }
+    | { status: 'inversion_incomplete'; reason: string }
   /** The base-rate burden result (flags with status met/unmet). Absent → unavailable. */
   baseRateBurden?: { flags: Array<{ claim: string; status: string }> } | undefined
   /** The resolved S5 management judgment (the comp_structure is the incentive artifact). */
@@ -61,26 +61,35 @@ export type BuildMungerLatticeArgs = {
 export function buildMungerLattice(args: BuildMungerLatticeArgs): MungerLattice {
   const entries: MungerLatticeEntry[] = []
 
-  // ---- Inversion: the case argued against itself (the red team) + the forced answer. ----
-  if (args.redTeam.status === 'complete') {
-    const objection = args.redTeam.strongest_objection
-    const answered = args.redTeam.objection_unaddressed !== true
-    entries.push({
-      model: 'inversion',
-      status: 'applied',
-      summary: `The case was argued against itself: strongest objection (${objection.severity}) — "${objection.claim}"`
-        + (answered
-          ? '; the synthesis answered it or accepted a downgrade.'
-          : '; the objection is UNADDRESSED — the case has not answered its own strongest counter-argument.'),
-      evidence_ref: 'red_team',
-    })
+  // ---- Inversion: the case argued against itself. Applied when a CITE-CHECKED objection exists
+  //      (it was injected into the synthesis prompt, so the verdict weighed it); unavailable when the
+  //      pass failed or the objection lost all its citations (a fabricated counter-argument is no
+  //      counter-argument). ----
+  if (args.inversion.status === 'complete') {
+    const objection = args.inversion.strongest_objection
+    if (objection.citations.length > 0) {
+      entries.push({
+        model: 'inversion',
+        status: 'applied',
+        summary: `The case was argued against itself: strongest objection (${objection.severity}) — "${objection.claim}"; the synthesis weighed it before the verdict.`,
+        evidence_ref: 'inversion',
+      })
+    } else {
+      entries.push({
+        model: 'inversion',
+        status: 'unavailable',
+        summary: 'The case was not argued against itself.',
+        evidence_ref: 'inversion',
+        reason: 'the strongest objection lost all its citations to the cite-check (a fabricated counter-argument carries no weight)',
+      })
+    }
   } else {
     entries.push({
       model: 'inversion',
       status: 'unavailable',
       summary: 'The case was not argued against itself.',
-      evidence_ref: 'red_team',
-      reason: `red_team_incomplete: ${args.redTeam.reason}`,
+      evidence_ref: 'inversion',
+      reason: `inversion_incomplete: ${args.inversion.reason}`,
     })
   }
 
@@ -128,7 +137,7 @@ export function buildMungerLattice(args: BuildMungerLatticeArgs): MungerLattice 
   }
 
   // ---- Social proof: is the thesis just the consensus wearing analysis clothes? ----
-  const consensus = args.redTeam.status === 'complete' ? args.redTeam.consensus_check : undefined
+  const consensus = args.inversion.status === 'complete' ? args.inversion.consensus_check : undefined
   if (consensus !== undefined && consensus.grounded) {
     entries.push({
       model: 'social_proof',
@@ -136,18 +145,18 @@ export function buildMungerLattice(args: BuildMungerLatticeArgs): MungerLattice 
       summary: consensus.thesis_vs_consensus === 'consensus'
         ? `CAUTION — the thesis IS the consensus: ${consensus.consensus_view} A consensus thesis carries no variant edge; the price likely already reflects it.`
         : `Variant view vs the consensus ("${consensus.consensus_view}"): ${consensus.variant_justification ?? 'justification not stated'}`,
-      evidence_ref: 'red_team.consensus_check',
+      evidence_ref: 'inversion.consensus_check',
     })
   } else {
     entries.push({
       model: 'social_proof',
       status: 'unavailable',
       summary: 'The thesis-vs-consensus check could not be applied.',
-      evidence_ref: 'red_team.consensus_check',
-      reason: args.redTeam.status !== 'complete'
-        ? `red_team_incomplete: ${args.redTeam.reason}`
+      evidence_ref: 'inversion.consensus_check',
+      reason: args.inversion.status !== 'complete'
+        ? `inversion_incomplete: ${args.inversion.reason}`
         : consensus === undefined
-          ? 'the red team emitted no consensus check'
+          ? 'the inversion pass emitted no consensus check'
           : 'consensus check ungrounded (no citation verified — carries no weight)',
     })
   }

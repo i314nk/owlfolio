@@ -37,8 +37,8 @@ function baseCase(valuationOverrides: Partial<ResearchCaseValuationProjection> =
     valuation_status: 'EXPENSIVE',
     next_required_action: 'Audit the reasoning; wait for the price to meet the model buy-below.',
     updated_at: '2026-06-09T12:00:00.000Z',
-    red_team: {
-      status: 'red_team_complete',
+    inversion: {
+      status: 'complete',
       strongest_objection: {
         claim: 'Cloud margins compress as hyperscaler competition intensifies.',
         severity: 'high',
@@ -215,10 +215,11 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('does not block')
   })
 
-  it('surfaces the independent bear case (red-team strongest objection)', () => {
+  it('E1: the inversion detail (strongest objection) renders on the Munger lattice panel — no red-team vocabulary', () => {
     const html = render(baseCase(), QUOTE)
-    expect(html.toLowerCase()).toContain('bear case')
+    expect(html).toContain('data-testid="inversion-detail"')
     expect(html).toContain('Cloud margins compress as hyperscaler competition intensifies.')
+    expect(html.toLowerCase()).not.toContain('red-team')
   })
 
   it('shows in-buy-zone when the live price is at/below the model buy-below', () => {

@@ -79,7 +79,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
 // the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
 import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
-import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
+import { runInversionPass, buildInversionLayer, type InversionLaneDigest, type InversionResult } from './inversionPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import { runShariahGatePhase } from './shariahGatePhase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
@@ -2033,7 +2033,7 @@ export async function runResearchDeepDivePhase(
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
   const redTeamRuntime = resolveRoleRuntime('red_team', provider, command)
-  const redTeamStartedAt = Date.now() // Phase 2 V5: red-team stage-cost wall clock
+  const inversionStartedAt = Date.now() // Phase 2 V5: inversion stage-cost wall clock
   const corpusBeforeSynthesis = [...accumulated.values()]
   const corpusHashesBeforeSynthesis = new Set<string>()
   for (const s of corpusBeforeSynthesis) {
@@ -2043,7 +2043,7 @@ export async function runResearchDeepDivePhase(
     corpusHashesBeforeSynthesis.add(s.content_hash)
     corpusHashesBeforeSynthesis.add(s.source_id)
   }
-  const laneDigest: RedTeamLaneDigest[] = laneResults
+  const laneDigest: InversionLaneDigest[] = laneResults
     .filter((l) => l.verified_ids.length > 0)
     .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
   // ---- Phase 2 V1: the ALWAYS-ON valuation-judgment stage (between the lanes and synthesis) ----
@@ -2119,12 +2119,12 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `valuation-judgment:${command.research_case_id}:v1`,
   } satisfies LedgerEventEnvelope<unknown>)
 
-  const redTeam: RedTeamResult = await runRedTeamPass(
+  const inversion: InversionResult = await runInversionPass(
     redTeamRuntime.provider,
     {
       research_case_id: command.research_case_id,
       ticker: command.ticker,
-      // model-tiering: the red_team registry role — a DIFFERENT model than the lanes when overridden.
+      // model-tiering: reuses the red_team registry role id (config stability) — a DIFFERENT model when overridden.
       model_id: redTeamRuntime.model_id,
       laneDigest,
       // The moat/runway tiers are now resolved from the MOAT lane's rubric BEFORE the red team runs,
@@ -2139,18 +2139,16 @@ export async function runResearchDeepDivePhase(
     { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
   )
 
-  // Compact red-team digest injected into the synthesis prompt so the synthesis verdict/rationale can
-  // RECONCILE with the adversarial findings. The OBLIGATION to answer the strongest objection now lives in
-  // a dedicated FOCUSED call (runRedTeamResponsePass below) — not on this monolithic schema — so this block
-  // is reconciliation context only (no required synthesis_response here).
-  const redTeamPromptBlock = redTeam.status === 'complete'
-    ? `\n\nRED-TEAM PASS (Mechanism 5 — reconcile with this): an adversarial agent attacked this case. `
-      + `Its STRONGEST OBJECTION (severity ${redTeam.strongest_objection.severity}): "${redTeam.strongest_objection.claim}" `
-      + `[cited: ${redTeam.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
-      + `Bear case: ${redTeam.strongest_bear_case} Moat-decay: ${redTeam.moat_decay_scenario} Growth-credit attack: ${redTeam.growth_credit_attack}. `
-      + `Reconcile your verdict + rationale with this objection (a dedicated follow-up call answers it formally). `
-      + `You may echo the objection text into red_team_strongest_objection.`
-    : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
+  // E1: the inversion digest injected into the synthesis prompt — the verdict must WEIGH the strongest
+  // case against before deciding (Munger: invert, always invert). No answer-or-downgrade obligation
+  // machinery; the lattice records the inversion and the human audits it on the dossier.
+  const redTeamPromptBlock = inversion.status === 'complete'
+    ? `\n\nINVERSION (Munger lattice — weigh this before your verdict): the case was argued AGAINST itself. `
+      + `STRONGEST OBJECTION (severity ${inversion.strongest_objection.severity}): "${inversion.strongest_objection.claim}" `
+      + `[cited: ${inversion.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
+      + `Case against: ${inversion.strongest_case_against} Moat-decay: ${inversion.moat_decay_scenario} Growth-credit attack: ${inversion.growth_credit_attack}. `
+      + `Your verdict + rationale must weigh this counter-argument on its merits.`
+    : `\n\nINVERSION: the inversion pass did not complete (${inversion.reason}); the case was NOT argued against itself. `
       + `Proceed, but the harness will surface this gap.`
 
   // ---- Synthesis + decision agent (harness defense 1: schema validation + retry) ----
@@ -2244,9 +2242,6 @@ export async function runResearchDeepDivePhase(
   // timeout). The verdict is NOT flipped — this flag rides ALONGSIDE as a human-visible caveat.
   const shariahDeepScreenIncomplete = shariahPassOutcome.status !== 'ok'
 
-  // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
-  // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
-  const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
   // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are produced + retried on their
   // OWN specialist lanes, and the red-team response on its OWN focused call (below). Synthesis therefore has
   // NO judgment-overlay required fields — it just produces the verdict/thesis/valuation/Shariah rationale.
@@ -2453,57 +2448,12 @@ export async function runResearchDeepDivePhase(
           : `synthesis_grounding_unmet: assumed_growth_citation '${assumedGrowthCitation ?? '(absent)'}' did not verify `
             + 'against the corpus — the assumed-growth rationale is ungrounded. Routed to RESEARCH_MORE; re-run.'
 
-  // ---- Mechanism 5: dedicated red-team-RESPONSE call (the focused decomposition) ----
-  // The synthesis_response that answers the red team's strongest objection is produced by a SMALL focused
-  // grounded call (NOT the monolithic synthesis schema, which a live model kept dropping it from). It runs
-  // ONLY when a live (cite-checked) objection exists; it cites the verified corpus and is forced by
-  // runValidatedAgent's retry. On exhaustion/failure the response stays undefined → the existing
-  // deterministic red_team_objection_unaddressed enforcement fires (visible fallback; the run completes).
-  let redTeamSynthesisResponse: SynthesisResponse | undefined
-  let redTeamResponseDegraded: string | undefined
-  if (redTeamObjectionLive && redTeam.status === 'complete') {
-    // Reuse the red_team registry role for the follow-up so it can run on the same (or a pinned) model.
-    const responseRuntime = resolveRoleRuntime('red_team', provider, command)
-    const responseOutcome = await runRedTeamResponsePass(
-      responseRuntime.provider,
-      {
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        model_id: responseRuntime.model_id,
-        strongestObjection: redTeam.strongest_objection,
-        laneDigest,
-        corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
-      },
-      { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
-    )
-    if (responseOutcome.status === 'ok') {
-      redTeamSynthesisResponse = responseOutcome.synthesis_response
-      remember(responseOutcome.captured)
-    } else {
-      // Visible degradation: the dedicated call also failed after its attempts. The run still completes;
-      // buildRedTeamLayer flags red_team_objection_unaddressed (the response stays undefined below).
-      redTeamResponseDegraded =
-        `red_team_response_retry_exhausted: the dedicated red-team-response call did not produce a usable `
-        + `synthesis_response after ${responseOutcome.attempts} attempt(s) (${responseOutcome.reason}). `
-        + `The red-team objection is recorded as unaddressed — re-run on a more capable model.`
-    }
-  }
-
-  // ---- Mechanism 5: red-team obligation enforcement (deterministic — "silence is not an option") ----
-  // The red team handed synthesis its strongest objection; the dedicated red-team-response call MUST have
-  // answered it with cited evidence or accepted it and downgraded. The harness builds the red-team layer
-  // and — when the red team completed with a LIVE (cite-checked) objection and the focused call supplied
-  // NO usable response — flags red_team_objection_unaddressed + appends it to open_questions
-  // (conservative: never silently dropped). A red-team-incomplete state is also surfaced as an open
-  // question. The downgrade (mode 'accepted_downgraded') is recorded in the layer for the verdict.
-  const { layer: redTeamLayer, openQuestion: redTeamOpenQuestion } = buildRedTeamLayer({
-    redTeam,
-    synthesisResponse: redTeamSynthesisResponse,
-  })
-  // Phase 2 V5: the red-team stage's spend (1 adversarial call; +1 focused response when it fired).
-  ;(redTeamLayer as Record<string, unknown>)['stage_cost'] = {
-    provider_calls: redTeamSynthesisResponse !== undefined ? 2 : 1,
-    wall_ms: Date.now() - redTeamStartedAt,
+  // ---- E1: build the inversion layer (no obligation machinery — the lattice records it) ----
+  const { layer: inversionLayer, openQuestion: inversionOpenQuestion } = buildInversionLayer({ inversion })
+  // Phase 2 V5: the inversion stage's spend (one focused call — the red-team response pass is retired).
+  ;(inversionLayer as Record<string, unknown>)['stage_cost'] = {
+    provider_calls: 1,
+    wall_ms: Date.now() - inversionStartedAt,
   }
 
   const allVerified = [
@@ -2606,11 +2556,6 @@ export async function runResearchDeepDivePhase(
   // seen; the verdict is routed to RESEARCH_MORE via synthesisGroundingUnmet above.
   if (valuationReasoningDegraded !== undefined) {
     degradedFlags.push(valuationReasoningDegraded)
-  }
-  // The dedicated red-team-response call exhausted its retries (the focused decomposition's own visible
-  // fallback) — surfaced so the gap is seen; the red_team_objection_unaddressed open question is also set.
-  if (redTeamResponseDegraded !== undefined) {
-    degradedFlags.push(redTeamResponseDegraded)
   }
   // Per-lane schema-retry exhaustion (the moat lane omitted its REQUIRED judgment block after 2 attempts)
   // — surfaced exactly like the synthesis path so the gap is visible, not silent.
@@ -4012,25 +3957,24 @@ export async function runResearchDeepDivePhase(
   })
   const baseRateFlagsUnmet: BaseRateBurdenFlag[] = baseRateBurden.flags.filter((f) => f.status === 'unmet')
 
-  // ---- S7 (Phase 3): the Munger mental-model LATTICE — deterministic assembly, no model self-reports ----
-  // inversion ← the red-team layer; base rates ← the burden flags; incentive analysis ← the grounded
-  // S5 comp structure; social proof ← the red team's cite-checked consensus_check. Each entry is
+  // ---- S7/E1: the Munger mental-model LATTICE — deterministic assembly, no model self-reports ----
+  // inversion ← the inversion pass; base rates ← the burden flags; incentive analysis ← the grounded
+  // S5 comp structure; social proof ← the inversion's cite-checked consensus_check. Each entry is
   // 'applied' ONLY when its artifact exists and survived its cite-check (unavailable + reason otherwise).
   const mungerLattice: MungerLattice = buildMungerLattice({
-    redTeam: redTeamLayer.status === 'complete' && redTeamLayer.strongest_objection !== undefined
+    inversion: inversionLayer.status === 'complete' && inversionLayer.strongest_objection !== undefined
       ? {
           status: 'complete',
           strongest_objection: {
-            claim: redTeamLayer.strongest_objection.claim,
-            severity: (['low', 'medium', 'high'] as const).includes(redTeamLayer.strongest_objection.severity as 'low' | 'medium' | 'high')
-              ? redTeamLayer.strongest_objection.severity as 'low' | 'medium' | 'high'
+            claim: inversionLayer.strongest_objection.claim,
+            severity: (['low', 'medium', 'high'] as const).includes(inversionLayer.strongest_objection.severity as 'low' | 'medium' | 'high')
+              ? inversionLayer.strongest_objection.severity as 'low' | 'medium' | 'high'
               : 'low',
-            citations: redTeamLayer.strongest_objection.citations,
+            citations: inversionLayer.strongest_objection.citations,
           },
-          ...(redTeamLayer.objection_unaddressed === true ? { objection_unaddressed: true } : {}),
-          ...(redTeamLayer.consensus_check !== undefined ? { consensus_check: redTeamLayer.consensus_check } : {}),
+          ...(inversionLayer.consensus_check !== undefined ? { consensus_check: inversionLayer.consensus_check } : {}),
         }
-      : { status: 'red_team_incomplete', reason: redTeamLayer.reason ?? 'red team did not complete' },
+      : { status: 'inversion_incomplete', reason: inversionLayer.reason ?? 'the inversion pass did not complete' },
     baseRateBurden: { flags: baseRateBurden.flags.map((f) => ({ claim: f.claim, status: f.status })) },
     ...(managementJudgment.integrity !== undefined
       ? {
@@ -4295,10 +4239,9 @@ export async function runResearchDeepDivePhase(
             },
           }
         : {}),
-      // Mechanism 5: red-team layer — strongest objection + the synthesis response (answered-with-evidence
-      // vs accepted→downgraded), plus the deterministic red_team_objection_unaddressed / red_team_incomplete
-      // flags. Surfaced in the verdict/dossier so an unaddressed strong objection is never silently dropped.
-      red_team: redTeamLayer,
+      // E1: the inversion layer — the case argued against itself (cite-checked objection + the
+      // consensus/social-proof read). Feeds the Munger lattice; no answer-or-downgrade machinery.
+      inversion: inversionLayer,
       // model-tiering-spec dual-model cross-check (moat + Shariah sector only). Present only when a
       // distinct cross-check model was configured for that dimension (off by default). Records the two
       // models + agreement; disagreement also raised requires_human_escalation in open_questions above.
@@ -4393,16 +4336,9 @@ export async function runResearchDeepDivePhase(
 
   const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })
 
-  // Mechanism 5: when synthesis ACCEPTED the red-team objection and downgraded, record the downgrade in
-  // the verdict rationale (the verdict format gains the red-team objection + the synthesis response).
-  const redTeamDowngrade = redTeamLayer.synthesis_response?.mode === 'accepted_downgraded'
-    ? redTeamLayer.synthesis_response.downgrade
-    : undefined
-  const redTeamReasonNote = redTeamDowngrade !== undefined
-    ? ` Red-team accepted → downgraded ${redTeamDowngrade.dimension} (${redTeamDowngrade.from} → ${redTeamDowngrade.to}): ${redTeamLayer.synthesis_response?.text ?? ''}`
-    : redTeamLayer.objection_unaddressed === true
-      ? ` Red-team strongest objection UNADDRESSED by synthesis — see open questions.`
-      : ''
+  // E1: no answer-or-downgrade machinery — the inversion is recorded on the lattice; the decision
+  // reason carries no red-team annotation.
+  const redTeamReasonNote = ''
 
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
@@ -4442,7 +4378,7 @@ export async function runResearchDeepDivePhase(
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
       ...crossCheckOpenQuestions,
-      ...(redTeamOpenQuestion !== undefined ? [redTeamOpenQuestion] : []),
+      ...(inversionOpenQuestion !== undefined ? [inversionOpenQuestion] : []),
     ],
     causation_id: completed.event_id,
     source_ids: allVerified,

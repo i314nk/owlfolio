@@ -5,7 +5,7 @@ import { ProposedSourcesSchema, type GroundFn } from './groundedAgent'
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import type { GroundingDeps, CapturedSource } from './sourceGrounding'
-import type { RedTeamLaneDigest } from './redTeamPass'
+import type { InversionLaneDigest } from './inversionPass'
 import { readGroundedSource } from './sourceRead'
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ export type RunShariahReasoningPassArgs = {
   /** The model the focused call runs on. Defaults to the synthesis/decision model. */
   model_id: string
   /** Compact lane digest so the focused call can reason from the lanes' findings. */
-  laneDigest: RedTeamLaneDigest[]
+  laneDigest: InversionLaneDigest[]
   /** The verified source corpus (source_ids) the focused call must cite from. */
   corpusSourceIds: string[]
   /**

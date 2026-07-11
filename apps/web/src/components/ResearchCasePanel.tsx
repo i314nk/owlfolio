@@ -833,8 +833,11 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
 // The "thesis IS the consensus" social-proof caution opens the panel and renders loud.
 function createMungerLatticePanel(researchCase: AppResearchCase) {
   const lattice = researchCase.munger_lattice
-  if (lattice?.entries === undefined || lattice.entries.length === 0) return null
-  const consensusCaution = lattice.entries.some((e) => e.model === 'social_proof' && e.status === 'applied' && /thesis IS the consensus/i.test(e.summary))
+  // E1: the inversion detail (the case argued against itself) lives HERE — the lattice is the home of
+  // the adversarial surface. Two-era: legacy red_team payloads project onto the same `inversion` field.
+  const inv = researchCase.inversion
+  if ((lattice?.entries === undefined || lattice.entries.length === 0) && inv === undefined) return null
+  const consensusCaution = (lattice?.entries ?? []).some((e) => e.model === 'social_proof' && e.status === 'applied' && /thesis IS the consensus/i.test(e.summary))
   const labelFor = (model: string) => model === 'inversion'
     ? 'Inversion'
     : model === 'base_rates'
@@ -846,8 +849,8 @@ function createMungerLatticePanel(researchCase: AppResearchCase) {
           : model.replace(/_/g, ' ')
   const children: ReactNode[] = [
     createElement('p', { key: 'note', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
-      lattice.note ?? 'Deterministic harness assembly — applied entries derive from cite-checked artifacts.'),
-    ...lattice.entries.map((entry, i) => createElement(
+      lattice?.note ?? 'Deterministic harness assembly — applied entries derive from cite-checked artifacts.'),
+    ...(lattice?.entries ?? []).map((entry, i) => createElement(
       'p',
       {
         key: `lattice-${i}`,
@@ -866,6 +869,25 @@ function createMungerLatticePanel(researchCase: AppResearchCase) {
       createElement('strong', {}, `${labelFor(entry.model)} — ${entry.status === 'applied' ? 'APPLIED' : 'UNAVAILABLE'}: `),
       entry.status === 'applied' ? entry.summary : `${entry.summary} (${entry.reason ?? 'no artifact'})`,
     )),
+    // E1: the inversion detail — the strongest case against, in full, beneath the lattice entries.
+    inv !== undefined ? createElement(
+      'div',
+      { key: 'inversion-detail', 'data-testid': 'inversion-detail', style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.3rem', paddingTop: '0.5rem' } },
+      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } }, 'The case against (inversion detail)'),
+      inv.status !== 'complete' && inv.status !== undefined && inv.status !== 'red_team_complete'
+        ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } },
+            `The case was NOT argued against itself${inv.reason !== undefined ? ` (${inv.reason})` : ''} — re-run before relying on the verdict.`)
+        : createElement(
+            'div',
+            { style: { display: 'grid', gap: '0.3rem' } },
+            inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+              `Strongest objection${inv.strongest_objection.severity !== undefined ? ` (${inv.strongest_objection.severity})` : ''}: ${inv.strongest_objection.claim}`) : null,
+            inv.strongest_case_against !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+              `Case against: ${inv.strongest_case_against}`) : null,
+            inv.moat_decay_scenario !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+              `Moat decay: ${inv.moat_decay_scenario}`) : null,
+          ),
+    ) : null,
   ]
   return createCollapsibleSection('munger-lattice-card', 'Munger lattice — mental models applied', consensusCaution, children)
 }
@@ -2035,15 +2057,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const sourceDiscipline = researchCase.source_discipline
   const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
 
-  // Mechanism 5 (Red-Team Pass) — the INDEPENDENT BEAR CASE. The adversarial pre-synthesis run + the
-  // synthesis obligation. We surface the strongest objection + the synthesis response (answered-with-
-  // evidence vs accepted→downgraded), and the deterministic flags: objection_unaddressed (synthesis was
-  // silent — never dropped) and red_team_incomplete (the case was not adversarially tested).
-  const redTeam = researchCase.red_team
-  const redTeamIncomplete = redTeam?.status === 'red_team_incomplete'
-  const redTeamObjection = redTeam?.strongest_objection
-  const redTeamResponse = redTeam?.synthesis_response
-  const redTeamUnaddressed = redTeam?.objection_unaddressed === true
+  // E1: the red team is retired — the inversion lives on the Munger lattice panel (the objection
+  // detail renders there); no standalone bear-case box in the valuation panel.
 
   const discountLabel = discountRateVal !== undefined ? pctLabel(discountRateVal) : DEFAULT_DISCOUNT_LABEL
 
@@ -2225,45 +2240,6 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       `Source discipline: ${rejectedSourceCount} lane source${rejectedSourceCount === 1 ? '' : 's'} excluded by lane policy `
       + `(${[...new Set((sourceDiscipline?.rejections ?? []).map((r) => r.reason).filter((r): r is string => r !== undefined))].join(', ')}). `
       + `Classification lanes reason from primary documents only.`,
-    ) : null,
-    // Mechanism 5: red-team section — strongest objection + the synthesis response (or the incomplete /
-    // unaddressed flags). The border colour flags an unaddressed objection or an untested case in red.
-    redTeam !== undefined ? createElement(
-      'div',
-      {
-        style: {
-          background: (redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-          border: `1px solid ${(redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.3)' : 'rgba(148, 163, 184, 0.18)'}`,
-          borderRadius: '0.7rem',
-          marginTop: '0.6rem',
-          padding: '0.6rem 0.9rem',
-        },
-      },
-      createElement('p', {
-        style: {
-          color: (redTeamUnaddressed || redTeamIncomplete) ? '#f87171' : 'var(--owl-color-gold-bright)',
-          fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem',
-        },
-      }, 'Independent bear case (red-team)'),
-      redTeamIncomplete ? createElement('p', {
-        style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
-      }, `red_team_incomplete — the adversarial pass did not complete${redTeam.reason !== undefined ? ` (${redTeam.reason})` : ''}. The case was NOT adversarially tested; re-run before relying on the verdict.`)
-        : createElement(
-          'div',
-          null,
-          redTeamObjection?.claim !== undefined ? createElement('p', {
-            style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' },
-          }, `Strongest objection${redTeamObjection.severity !== undefined ? ` (${redTeamObjection.severity})` : ''}: ${redTeamObjection.claim}`) : null,
-          redTeamUnaddressed ? createElement('p', {
-            style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
-          }, 'red_team_objection_unaddressed — synthesis neither answered with evidence nor downgraded. Silence is not an option; surfaced in open questions.')
-            : redTeamResponse !== undefined ? createElement('p', {
-              style: { color: '#bbf7d0', fontSize: 'var(--owl-text-xs)', margin: 0 },
-            }, redTeamResponse.mode === 'accepted_downgraded'
-              ? `Synthesis response: accepted → downgraded${redTeamResponse.downgrade !== undefined ? ` ${redTeamResponse.downgrade.dimension} (${redTeamResponse.downgrade.from} → ${redTeamResponse.downgrade.to})` : ''}. ${redTeamResponse.text ?? ''}`
-              : `Synthesis response: answered with evidence. ${redTeamResponse.text ?? ''}`)
-              : null,
-        ),
     ) : null,
     // Collapsible owner-earnings bridge
     hasBridge && bridge !== undefined ? createElement(

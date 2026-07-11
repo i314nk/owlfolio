@@ -12,10 +12,9 @@ import { buildMungerLattice } from '../mungerLattice'
 // Anything absent/ungrounded is 'unavailable' WITH the reason — no checkbox theater.
 // ---------------------------------------------------------------------------------------------------
 
-const completeRedTeam = {
+const completeInversion = {
   status: 'complete' as const,
   strongest_objection: { claim: 'Growth credit is unsustainable', severity: 'high' as const, citations: ['src_1'] },
-  objection_unaddressed: false,
   consensus_check: {
     consensus_view: 'The street sees a durable compounder at a fair price.',
     thesis_vs_consensus: 'variant' as const,
@@ -27,7 +26,7 @@ const completeRedTeam = {
 
 function fullArgs() {
   return {
-    redTeam: completeRedTeam,
+    inversion: completeInversion,
     baseRateBurden: { flags: [{ claim: 'monopoly classification', status: 'met' }, { claim: 'g in 4-5% band', status: 'unmet' }] },
     managementJudgment: {
       resolved_integrity: 'clean' as const,
@@ -53,33 +52,33 @@ describe('buildMungerLattice — deterministic assembly (no checkbox theater)', 
     expect(social?.summary).toMatch(/variant/i)
   })
 
-  it('inversion is unavailable (with the reason) when the red team did not complete', () => {
+  it('inversion is unavailable (with the reason) when the inversion pass did not complete', () => {
     const lattice = buildMungerLattice({
       ...fullArgs(),
-      redTeam: { status: 'red_team_incomplete' as const, reason: 'timeout' },
+      inversion: { status: 'inversion_incomplete' as const, reason: 'timeout' },
     })
     const inversion = lattice.entries.find((e) => e.model === 'inversion')
     expect(inversion?.status).toBe('unavailable')
-    expect(inversion?.reason).toMatch(/red_team_incomplete/)
-    // The consensus check rode the red-team call, so social proof is unavailable too.
+    expect(inversion?.reason).toMatch(/inversion_incomplete/)
+    // The consensus check rides the inversion call, so social proof is unavailable too.
     const social = lattice.entries.find((e) => e.model === 'social_proof')
     expect(social?.status).toBe('unavailable')
   })
 
-  it('an UNADDRESSED objection keeps inversion applied but says the case has not answered it', () => {
+  it('E1: an objection that lost all its citations renders inversion unavailable (a fabricated counter-argument carries no weight)', () => {
     const lattice = buildMungerLattice({
       ...fullArgs(),
-      redTeam: { ...completeRedTeam, objection_unaddressed: true },
+      inversion: { ...completeInversion, strongest_objection: { ...completeInversion.strongest_objection, citations: [] } },
     })
     const inversion = lattice.entries.find((e) => e.model === 'inversion')
-    expect(inversion?.status).toBe('applied')
-    expect(inversion?.summary).toMatch(/unaddressed/i)
+    expect(inversion?.status).toBe('unavailable')
+    expect(inversion?.reason).toMatch(/cite-check/i)
   })
 
   it('social proof is unavailable when the consensus check is ungrounded (uncited = no weight)', () => {
     const lattice = buildMungerLattice({
       ...fullArgs(),
-      redTeam: { ...completeRedTeam, consensus_check: { ...completeRedTeam.consensus_check, citations: [], grounded: false } },
+      inversion: { ...completeInversion, consensus_check: { ...completeInversion.consensus_check, citations: [], grounded: false } },
     })
     const social = lattice.entries.find((e) => e.model === 'social_proof')
     expect(social?.status).toBe('unavailable')
@@ -98,9 +97,9 @@ describe('buildMungerLattice — deterministic assembly (no checkbox theater)', 
   it('a consensus (non-variant) thesis renders the caution in the social-proof summary', () => {
     const lattice = buildMungerLattice({
       ...fullArgs(),
-      redTeam: {
-        ...completeRedTeam,
-        consensus_check: { ...completeRedTeam.consensus_check, thesis_vs_consensus: 'consensus' as const, variant_justification: undefined },
+      inversion: {
+        ...completeInversion,
+        consensus_check: { ...completeInversion.consensus_check, thesis_vs_consensus: 'consensus' as const, variant_justification: undefined },
       },
     })
     const social = lattice.entries.find((e) => e.model === 'social_proof')

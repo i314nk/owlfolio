@@ -238,29 +238,22 @@ export type ResearchCaseSourceDisciplineProjection = {
 }
 
 /**
- * Mechanism 5 (Red-Team Pass): the adversarial pre-synthesis run + the synthesis obligation. Carries
- * the strongest objection (cited to the corpus) and the synthesis response (answered-with-evidence vs
- * accepted→downgraded), plus the deterministic flags: `objection_unaddressed` (synthesis was silent on
- * a live objection — surfaced, never dropped) and the `red_team_incomplete` status (the case was not
- * adversarially tested because the red-team agent timed out/failed).
+ * E1: the INVERSION pass (Munger lattice) — the case argued against itself. TWO-ERA: new events emit
+ * `inversion`; legacy events carry `red_team` (same family shape) and project onto the SAME field —
+ * the legacy-only obligation fields (synthesis_response, objection_unaddressed, weakest_rubric_items)
+ * are tolerated by ignore.
  */
-export type ResearchCaseRedTeamSynthesisResponseProjection = {
-  mode?: string
-  text?: string
-  downgrade?: { dimension?: string; from?: string; to?: string }
-}
-
-export type ResearchCaseRedTeamProjection = {
+export type ResearchCaseInversionProjection = {
   status?: string
   reason?: string
-  strongest_bear_case?: string
-  weakest_rubric_items?: { lane?: string; item?: string; why?: string }[]
+  /** The case-against narrative (legacy events fall back from strongest_bear_case). */
+  strongest_case_against?: string
   moat_decay_scenario?: string
   growth_credit_attack?: string
   shared_narrative_blindspots?: string[]
   strongest_objection?: { claim?: string; severity?: string; citations?: string[] }
   uncited_objection_refs?: string[]
-  /** S7: the cite-checked thesis-vs-consensus read (the lattice's social-proof artifact). */
+  /** The cite-checked thesis-vs-consensus read (the lattice's social-proof artifact). */
   consensus_check?: {
     consensus_view?: string
     thesis_vs_consensus?: string
@@ -268,8 +261,6 @@ export type ResearchCaseRedTeamProjection = {
     citations?: string[]
     grounded?: boolean
   }
-  synthesis_response?: ResearchCaseRedTeamSynthesisResponseProjection
-  objection_unaddressed?: boolean
 }
 
 // Circle-of-competence judgment: the grounded model judgment of whether it understands THIS business well
@@ -924,7 +915,7 @@ export type ResearchCaseProjection = {
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
-  red_team?: ResearchCaseRedTeamProjection
+  inversion?: ResearchCaseInversionProjection
   /** Task 4.2c: the newest admit-judgment recommendation OBSERVATION (recomputed fresh on-demand). */
   admit_recommendation?: ResearchCaseAdmitRecommendationProjection
   /** Phase 5 S7: the newest sizing recommendation OBSERVATION (the S6 assembler, recomputed on-demand). */
@@ -1365,16 +1356,17 @@ function getSourceDiscipline(payload: Record<string, unknown>): ResearchCaseSour
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
-function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjection | undefined {
-  const value = payload['red_team']
+function getInversion(payload: Record<string, unknown>): ResearchCaseInversionProjection | undefined {
+  // Two-era: new events emit `inversion`; legacy events carry `red_team` (same family shape).
+  const value = isRecord(payload['inversion']) ? payload['inversion'] : payload['red_team']
   if (!isRecord(value)) return undefined
-  const projected: ResearchCaseRedTeamProjection = {}
+  const projected: ResearchCaseInversionProjection = {}
   const status = getString(value, 'status')
   if (status !== undefined) projected.status = status
   const reason = getString(value, 'reason')
   if (reason !== undefined) projected.reason = reason
-  const strongest_bear_case = getString(value, 'strongest_bear_case')
-  if (strongest_bear_case !== undefined) projected.strongest_bear_case = strongest_bear_case
+  const caseAgainst = getString(value, 'strongest_case_against') ?? getString(value, 'strongest_bear_case')
+  if (caseAgainst !== undefined) projected.strongest_case_against = caseAgainst
   const moat_decay_scenario = getString(value, 'moat_decay_scenario')
   if (moat_decay_scenario !== undefined) projected.moat_decay_scenario = moat_decay_scenario
   const growth_credit_attack = getString(value, 'growth_credit_attack')
@@ -1383,19 +1375,6 @@ function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjec
   if (blindspots !== undefined) projected.shared_narrative_blindspots = blindspots
   const uncited = getStringArray(value, 'uncited_objection_refs')
   if (uncited !== undefined) projected.uncited_objection_refs = uncited
-  if (typeof value['objection_unaddressed'] === 'boolean') projected.objection_unaddressed = value['objection_unaddressed']
-
-  const rawWeak = value['weakest_rubric_items']
-  if (Array.isArray(rawWeak)) {
-    const items = rawWeak.filter(isRecord).map((w) => {
-      const item: { lane?: string; item?: string; why?: string } = {}
-      const lane = getString(w, 'lane'); if (lane !== undefined) item.lane = lane
-      const it = getString(w, 'item'); if (it !== undefined) item.item = it
-      const why = getString(w, 'why'); if (why !== undefined) item.why = why
-      return item
-    }).filter((w) => Object.keys(w).length > 0)
-    if (items.length > 0) projected.weakest_rubric_items = items
-  }
 
   const rawObj = value['strongest_objection']
   if (isRecord(rawObj)) {
@@ -1408,29 +1387,13 @@ function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjec
 
   const rawConsensus = value['consensus_check']
   if (isRecord(rawConsensus)) {
-    const cc: NonNullable<ResearchCaseRedTeamProjection['consensus_check']> = {}
+    const cc: NonNullable<ResearchCaseInversionProjection['consensus_check']> = {}
     const consensus_view = getString(rawConsensus, 'consensus_view'); if (consensus_view !== undefined) cc.consensus_view = consensus_view
     const tvc = getString(rawConsensus, 'thesis_vs_consensus'); if (tvc !== undefined) cc.thesis_vs_consensus = tvc
     const vj = getString(rawConsensus, 'variant_justification'); if (vj !== undefined) cc.variant_justification = vj
     const ccCitations = getStringArray(rawConsensus, 'citations'); if (ccCitations !== undefined) cc.citations = ccCitations
     if (typeof rawConsensus['grounded'] === 'boolean') cc.grounded = rawConsensus['grounded']
     if (Object.keys(cc).length > 0) projected.consensus_check = cc
-  }
-
-  const rawResp = value['synthesis_response']
-  if (isRecord(rawResp)) {
-    const resp: ResearchCaseRedTeamSynthesisResponseProjection = {}
-    const mode = getString(rawResp, 'mode'); if (mode !== undefined) resp.mode = mode
-    const text = getString(rawResp, 'text'); if (text !== undefined) resp.text = text
-    const rawDown = rawResp['downgrade']
-    if (isRecord(rawDown)) {
-      const down: { dimension?: string; from?: string; to?: string } = {}
-      const dimension = getString(rawDown, 'dimension'); if (dimension !== undefined) down.dimension = dimension
-      const from = getString(rawDown, 'from'); if (from !== undefined) down.from = from
-      const to = getString(rawDown, 'to'); if (to !== undefined) down.to = to
-      if (Object.keys(down).length > 0) resp.downgrade = down
-    }
-    if (Object.keys(resp).length > 0) projected.synthesis_response = resp
   }
 
   return Object.keys(projected).length === 0 ? undefined : projected
@@ -2603,9 +2566,9 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (sourceDiscipline !== undefined) {
         researchCase.source_discipline = sourceDiscipline
       }
-      const redTeam = getRedTeam(event.payload)
-      if (redTeam !== undefined) {
-        researchCase.red_team = redTeam
+      const inversionLayer = getInversion(event.payload)
+      if (inversionLayer !== undefined) {
+        researchCase.inversion = inversionLayer
       }
       continue
     }

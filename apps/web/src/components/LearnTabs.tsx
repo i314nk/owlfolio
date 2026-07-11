@@ -248,7 +248,7 @@ function StrategyTab(): ReactNode {
 // 2 — The Research Swarm
 function SwarmTab(): ReactNode {
   // S8 (Phase 3): the lanes ARE Buffett's pillars. Financial-quality numerics are owned by the
-  // valuation stage + harness T0 blocks; the adversarial risks duty lives in the red-team pass.
+  // valuation stage + harness T0 blocks; the adversarial risks duty lives in the inversion pass.
   const laneDetails: Record<string, string> = {
     understand: 'Pillar 1 — how the business actually makes money: the model, unit economics, revenue/cost drivers, plus accounting quality (revenue recognition, one-offs, accruals).',
     moat: 'Pillar 2 — the moat as a grounded cite-verified thesis: WHICH moat types ground, the direction (a grounded narrowing derates a BUY), the standout peer read, and the reinvestment runway. The three named tests (capital efficiency, two-engine, standout) are computed by the harness.',
@@ -375,7 +375,7 @@ function JudgmentTab(): ReactNode {
         { key: 'thesis', eyebrow: 'Cite-verified theses', title: 'Claims, not scores', body: 'Circle, moat, and runway are grounded, cite-verified theses — each claim cited to a source the harness fetched and content-hashed. There is no per-row rubric, no M1–M6, no total-score-to-tier map.' },
         { key: 'anchor', eyebrow: 'Quant corroborates', title: 'The numbers only confirm', body: 'A quant anchor read straight from the filings (ROIC, reinvestment, leverage) corroborates the thesis — but it does not set the tier or bound it. The model’s grounded argument is the judgment; the numbers either back it up or expose a contradiction.' },
         { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any proposal that beats a base rate must carry a structural exceptionality argument cited to evidence. Synthesis rejects inside-view narrative like "strong execution" as insufficient.' },
-        { key: 'redteam', eyebrow: 'Red-team pass', title: 'Break the case', body: 'Before synthesis, one adversarial agent — ideally on a different model — must build the strongest bear case. Synthesis must answer its strongest objection or downgrade.' },
+        { key: 'inversion', eyebrow: 'Inversion pass', title: 'Invert, always invert', body: 'Before synthesis, one adversarial agent — ideally on a different model — argues the case against itself. The strongest cite-checked objection is weighed by the synthesis and recorded on the Munger lattice.' },
         { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
         { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
@@ -578,7 +578,7 @@ function ShariahTab(): ReactNode {
 // the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
 const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
   T1: 'T1 — Frontier (synthesis, moat/Shariah)',
-  T2: 'T2 — Mid (red-team)',
+  T2: 'T2 — Mid (inversion)',
   T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
 }
 
@@ -617,7 +617,7 @@ function TieringTab(): ReactNode {
       ),
       children: cardGrid([
         { key: 't1', eyebrow: 'T1 — Frontier', body: 'Synthesis and the highest-stakes lanes (moat, Shariah). Long-context reasoning and disciplined citation; errors here poison verdicts.' },
-        { key: 't2', eyebrow: 'T2 — Mid', body: 'The adversarial red-team cross-check and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
+        { key: 't2', eyebrow: 'T2 — Mid', body: 'The Munger inversion pass and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
         { key: 't3', eyebrow: 'T3 — Cheap / local', body: 'High-volume, low-judgment work: news and filing scans, trigger detection, entity resolution. Near-zero marginal cost.' },
         { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, purification arithmetic, accounting, 13F/EDGAR parsing. Deterministic by constitution.' },
       ]),

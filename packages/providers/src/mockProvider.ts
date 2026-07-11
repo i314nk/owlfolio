@@ -369,8 +369,8 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
     },
     // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
-    // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker
-    // / schema BuffettMungerRedTeamResponse) — NOT this synthesis schema. The synthesis only echoes the
+    // strongest objection comes from the INVERSION pass (mockInversionForTicker / schema
+    // BuffettMungerInversion) — NOT this synthesis schema. The synthesis only echoes the
     // objection text (optional, no obligation).
     red_team_strongest_objection: `${companyLabel} revenue is concentrated in a few categories — a shock could compress the moat.`,
     proposed_sources: mockSourcesForTicker(ticker),
@@ -408,33 +408,16 @@ function mockValuationReasoningForTicker(ticker: string) {
   }
 }
 
-// judgment-objectivity-layer-spec Mechanism 5 — the dedicated red-team-RESPONSE call (the focused
-// decomposition). The mock answers the strongest objection with evidence cited to the grounded corpus so
-// the demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
-function mockRedTeamResponseForTicker(ticker: string) {
-  return {
-    synthesis_response: {
-      mode: 'answered_with_evidence' as const,
-      text: `Concentration is real but diversified across regions and members per the 10-K; renewal rates and pricing power (cited) keep the moat intact. No downgrade warranted.`,
-    },
-    proposed_sources: mockSourcesForTicker(ticker),
-  }
-}
-
-// judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass. The mock emits a plausible adversarial
-// output whose strongest objection is cited to the GROUNDED corpus (the same source_ids the harness
-// verifies), so the cite-check passes and the demo/tests render a real objection + synthesis response.
-function mockRedTeamForTicker(ticker: string) {
+// E1 — the Munger INVERSION pass (replaces the red team). The mock argues the case against itself with
+// a strongest objection cited to the GROUNDED corpus (the same source_ids the harness verifies), so the
+// cite-check passes and the demo/tests render a real cite-checked inversion on the lattice.
+function mockInversionForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
   const primaryCite = groundedSources[0].source_id
   const secondaryCite = groundedSources[1].source_id
   return {
-    strongest_bear_case: `${companyLabel}'s premium valuation already prices in a decade of flawless execution; any reinvestment-runway disappointment compresses the multiple hard.`,
-    weakest_rubric_items: [
-      { lane: 'moat', item: 'M5', why: 'Customer-switching evidence rests on renewal rates, not contractual lock-in.' },
-      { lane: 'valuation', item: 'R2', why: 'Visible-headroom claim is qualitative, not quantified against TAM.' },
-    ],
+    strongest_case_against: `${companyLabel}'s premium valuation already prices in a decade of flawless execution; any reinvestment-runway disappointment compresses the multiple hard.`,
     moat_decay_scenario: `A well-funded entrant undercuts on price and erodes ${companyLabel}'s share over 5-7 years as switching costs prove softer than the lanes assume.`,
     growth_credit_attack: `The credited incremental ROIC assumes reinvestment at historical rates; if it mean-reverts toward the cost of capital, the credited growth and the fair value both fall sharply.`,
     shared_narrative_blindspots: [
@@ -604,10 +587,8 @@ export class MockProvider implements Provider {
           return mockSynthesisDecisionForTicker(ticker)
         case 'BuffettMungerValuationReasoning':
           return mockValuationReasoningForTicker(ticker)
-        case 'BuffettMungerRedTeam':
-          return mockRedTeamForTicker(ticker)
-        case 'BuffettMungerRedTeamResponse':
-          return mockRedTeamResponseForTicker(ticker)
+        case 'BuffettMungerInversion':
+          return mockInversionForTicker(ticker)
         case 'BuffettMungerGroundedResearch':
           return mockGroundedResearchForTicker(ticker)
         default:

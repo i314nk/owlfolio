@@ -595,8 +595,8 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
       sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
       createElement(StageFlowMap, { stages: stage_counts }),
-      // Red-team step slot (UI-continuity Rule 2): the adversarial pre-synthesis pass. Labeled as a slot;
-      // the red-team data (strongest objection + synthesis response) renders on the case/verdict view.
+      // Inversion step slot (UI-continuity Rule 2): the Munger inversion pass — the case argued against
+      // itself pre-synthesis. The objection renders on the case view's lattice; step id stays stable.
       createElement(
         'div',
         {
@@ -612,7 +612,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
             padding: '0.7rem 0.85rem',
           },
         },
-        createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-gold)', letterSpacing: '0.08em' } }, 'Red-team pass'),
+        createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-gold)', letterSpacing: '0.08em' } }, 'Inversion pass'),
         createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, 'Adversarial pre-synthesis step — the strongest objection + synthesis response render on each case verdict.'),
       ),
     ),
