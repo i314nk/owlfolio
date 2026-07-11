@@ -268,3 +268,24 @@ margin_of_safety_judgment.
 
 **Acceptance (live, per plan):** NVO values in USD correctly; a re-run shows the valuation artifact +
 T0 MoS grade on the dossier; buy-below run-to-run variance visibly bounded by the arithmetic rails.
+
+
+### Post-Phase-2 slice: the computed buy-below (R1 superseded; owner-approved 2026-07-11)
+
+Live find: the model's proposed_buy_below swung run-to-run ($350→$650 COST; $340/$450/$420 SPGI)
+while its structured judgments (growth, bridge) stayed stable — the swing lives in the one
+unanchored scalar. Owner-approved flip, per the constitution ("if it can be computed, compute it")
+and the Buffett structure (judgment lives in the inputs; the entry price FOLLOWS from value and the
+required margin):
+- OPERATIVE buy-below = COMPUTED: `mosReferenceValue × (1 − required_margin_of_safety)` (i.e.
+  min(internal DCF FV, 18× OE cap) × 0.75). Judgment flows through the stage's inputs.
+- The model's proposed price stays RECORDED as `model_proposed_buy_below` (advisory) with a
+  divergence flag when |model − computed| / computed > 25% ("reconcile — the model would pay
+  materially more/less than the method").
+- `buy_price_per_share` = the computed threshold; `in_buy_zone` + the buy-zone WATCH clamp key off
+  it (moat-gated emission unchanged). The V2 margin grade KEEPS grading the MODEL's advisory price
+  (that is where judgment risk lives; the computed threshold is 25%-margined by construction).
+- Stage prompt: proposed_buy_below stays required (the advisory signal), reframed as "your price
+  view — the method computes the operative threshold".
+- Test churn: the RELIGHTENED describe re-pins around computed thresholds; runRelit's
+  proposedBuyBelow becomes the advisory input.
