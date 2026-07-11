@@ -208,6 +208,8 @@ export type AppConfig = {
   strategy_id: StrategyId
   shariah: ShariahDefaults
   savings?: SavingsSleeveConfig
+  /** Phase 4 (book alignment): valuation knobs (required_return). Absent → defaults (15%). */
+  valuation?: Partial<ValuationConfig>
   market_universe: MarketUniverseConfig
   automation?: AutomationSettings
   circle_of_competence?: CircleOfCompetenceConfig
@@ -247,6 +249,53 @@ export const defaultSavingsSleeveConfig = (): SavingsSleeveConfig => ({
   savings_model: 'mudarabah',
   equity_risk_margin: DEFAULT_EQUITY_RISK_MARGIN,
 })
+
+// ---------------------------------------------------------------------------------------------------
+// Phase 4 (book alignment): the REQUIRED RETURN — the flat discount/hurdle for the 10-year FCF
+// valuation ("anything less, you might as well buy the index"). Default 15% (the book), user-set in
+// Settings; clamped FAIL-CLOSED-TO-DEFAULT like the savings rate. Distinct from the savings anchor
+// (which remains the deployment-hurdle baseline).
+// ---------------------------------------------------------------------------------------------------
+export const REQUIRED_RETURN_MIN = 0.05
+export const REQUIRED_RETURN_MAX = 0.40
+export const DEFAULT_REQUIRED_RETURN = 0.15
+
+export type ValuationConfig = {
+  /** The required annual return (decimal) used to discount the FCF projection. Default 0.15. */
+  required_return: number
+  /** VINTAGE: when required_return was last set to an explicit non-default value ("not set" otherwise). */
+  required_return_set_at?: string
+}
+
+export const defaultValuationConfig = (): ValuationConfig => ({ required_return: DEFAULT_REQUIRED_RETURN })
+
+const clampRequiredReturn = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_REQUIRED_RETURN
+  if (value < REQUIRED_RETURN_MIN || value > REQUIRED_RETURN_MAX) return DEFAULT_REQUIRED_RETURN
+  return value
+}
+
+/** Merge a (potentially partial/invalid) valuation config — mirror of mergeSavingsSleeveConfig. */
+export const mergeValuationConfig = (
+  partial?: Partial<ValuationConfig>,
+  options: { now?: string; previousRate?: number } = {},
+): ValuationConfig => {
+  if (partial === undefined) return defaultValuationConfig()
+  const required_return = clampRequiredReturn(partial.required_return)
+  const stampsThisWrite = options.now !== undefined
+    && required_return !== DEFAULT_REQUIRED_RETURN
+    && required_return !== options.previousRate
+  const vintage = stampsThisWrite ? options.now : normalizeVintageValue(partial.required_return_set_at)
+  return {
+    required_return,
+    ...(vintage === undefined ? {} : { required_return_set_at: vintage }),
+  }
+}
+
+const normalizeVintageValue = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || value.trim() === '') return undefined
+  return Number.isNaN(Date.parse(value)) ? undefined : value
+}
 
 /** Clamp a savings rate into [SAVINGS_RATE_MIN, SAVINGS_RATE_MAX], failing CLOSED TO DEFAULT (never to the ceiling). */
 const clampSavingsRate = (value: unknown, fallback: number): number => {

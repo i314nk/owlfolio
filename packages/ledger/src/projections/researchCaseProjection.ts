@@ -358,7 +358,7 @@ export type ResearchCaseValuationProjection = {
    * project — the legacy Treasury figure maps into `risk_free_rate` (and its basis into `risk_free_basis`)
    * so old dossiers keep rendering a discount provenance.
    */
-  discount_inputs?: { risk_free_rate?: number; risk_free_basis?: string; equity_premium?: number }
+  discount_inputs?: { risk_free_rate?: number; risk_free_basis?: string; equity_premium?: number; required_return?: number; required_return_basis?: string }
   growth_assumptions?: string
   /**
    * HEADLINE growth = the MODEL's cite-verified assumed_growth (architecture: the model's grounded judgment
@@ -469,6 +469,17 @@ export type ResearchCaseValuationProjection = {
   reference_fair_value?: number
   /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
   in_buy_zone?: boolean
+  // ---- B2 (Phase 4, book alignment) ----
+  /** Rule 8 — the LOAD-UP threshold (intrinsic value × (1 − 50%)). */
+  load_up_below?: number
+  /** Rule 8 — pure arithmetic: current_price <= load_up_below (the concentrated-sizing zone). */
+  in_load_up_zone?: boolean
+  /** 'fcf' (the book basis) | 'owner_earnings_fallback' (CFO untagged — margined off the OE reference). */
+  valuation_basis?: string
+  /** The resolved industry P/FCF exit multiple + its provenance (model_grounded/clamped/asserted/fallback). */
+  exit_multiple_used?: number
+  exit_multiple_source?: string
+  exit_multiple_basis_note?: string
   /**
    * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — current price ÷ forward
    * owner earnings (OE/share grown to the explicit horizon at the MODEL's assumed growth along the same
@@ -1900,10 +1911,15 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
     const risk_free_rate = getNumber(di, 'risk_free_rate') ?? getNumber(di, 'ten_year_treasury')
     const risk_free_basis = getString(di, 'risk_free_basis') ?? getString(di, 'ten_year_treasury_basis')
     const equity_premium = getNumber(di, 'equity_premium')
+    // B2 (Phase 4): the current provenance shape — the flat required return (setting | book_default).
+    const required_return = getNumber(di, 'required_return')
+    const required_return_basis = getString(di, 'required_return_basis')
     projected.discount_inputs = {
       ...(risk_free_rate !== undefined ? { risk_free_rate } : {}),
       ...(risk_free_basis !== undefined ? { risk_free_basis } : {}),
       ...(equity_premium !== undefined ? { equity_premium } : {}),
+      ...(required_return !== undefined ? { required_return } : {}),
+      ...(required_return_basis !== undefined ? { required_return_basis } : {}),
     }
   }
   const fxRaw = value['fx_conversion']
@@ -2003,6 +2019,19 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (proposed_buy_below !== undefined) projected.proposed_buy_below = proposed_buy_below
   const in_buy_zone = getBoolean(value, 'in_buy_zone')
   if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
+  // B2 (Phase 4): the load-up threshold/zone + the valuation basis + exit-multiple provenance.
+  const load_up_below = getNumber(value, 'load_up_below')
+  if (load_up_below !== undefined) projected.load_up_below = load_up_below
+  const in_load_up_zone = getBoolean(value, 'in_load_up_zone')
+  if (in_load_up_zone !== undefined) projected.in_load_up_zone = in_load_up_zone
+  const valuation_basis = getString(value, 'valuation_basis')
+  if (valuation_basis !== undefined) projected.valuation_basis = valuation_basis
+  const exit_multiple_used = getNumber(value, 'exit_multiple_used')
+  if (exit_multiple_used !== undefined) projected.exit_multiple_used = exit_multiple_used
+  const exit_multiple_source = getString(value, 'exit_multiple_source')
+  if (exit_multiple_source !== undefined) projected.exit_multiple_source = exit_multiple_source
+  const exit_multiple_basis_note = getString(value, 'exit_multiple_basis_note')
+  if (exit_multiple_basis_note !== undefined) projected.exit_multiple_basis_note = exit_multiple_basis_note
   const implied_exit_multiple = getNumber(value, 'implied_exit_multiple')
   if (implied_exit_multiple !== undefined) projected.implied_exit_multiple = implied_exit_multiple
   const sanity_flags = getStringArray(value, 'sanity_flags')

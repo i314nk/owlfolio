@@ -359,7 +359,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale, m
             createElement(
               'span',
               { style: confirmTextStyle },
-              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded thesis re-review (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
+              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded CHECK-IN (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
             ),
             createElement(
               'button',
@@ -369,7 +369,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale, m
                 disabled: isBusy,
                 onClick: () => void onConfirmReReview(),
               },
-              submitting === 'rereview' ? 'Checking…' : 'Confirm re-review',
+              submitting === 'rereview' ? 'Checking…' : 'Confirm check-in',
             ),
             createElement(
               'button',
@@ -391,7 +391,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale, m
                 setConfirming('rereview')
               },
             },
-            'Check new filings / re-review',
+            'Check-in vs new filings',
           ),
       overrideNode,
       archiveNode,

@@ -747,11 +747,11 @@ function createReReviewPanel(researchCase: AppResearchCase) {
       : 'var(--owl-color-gold-bright)'
   return createElement(
     'details',
-    { 'aria-label': 'Thesis re-review vs new filings', className: 'owl-collapsible-card', ...(reReview.assessment === 'BROKEN' ? { open: true } : {}) },
+    { 'aria-label': 'Check-in vs new filings', className: 'owl-collapsible-card', ...(reReview.assessment === 'BROKEN' ? { open: true } : {}) },
     createElement(
       'summary',
       { className: 'owl-collapsible-card-summary' },
-      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Thesis re-review — vs. new filings'),
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Check-in — vs. new filings'),
       createElement('span', {
         'data-testid': 're-review-assessment',
         style: { color: tone, fontFamily: 'var(--owl-font-mono)', fontWeight: 800, marginLeft: '0.6rem', letterSpacing: '0.05em' },
@@ -1653,6 +1653,16 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
       ),
+      // B2 (Phase 4, rule 8): the LOAD-UP threshold + zone — a ≥50% discount to intrinsic value marks
+      // the concentrated-sizing zone ("once you find a margin of safety, load up the truck").
+      createValuationLedgerStat(
+        'Load-up below (rule 8)',
+        researchCase.valuation?.load_up_below !== undefined ? `$${researchCase.valuation.load_up_below.toFixed(2)}` : 'Not computable',
+        'owl-ledger-figure-money',
+      ),
+      researchCase.valuation?.in_load_up_zone === true
+        ? createValuationLedgerStat('Load-up zone', 'IN THE LOAD-UP ZONE', 'owl-ledger-figure-emerald')
+        : null,
       // The MODEL's assumed sustainable growth sits BESIDE the market-implied read (owner requirement):
       // the gap between what the model judges sustainable and what the price demands is the decision.
       createValuationLedgerStat(
@@ -1896,6 +1906,28 @@ function createSanityFlags(flags: string[]) {
 //   - set:    "Discount 7.5% = compliant savings 2.0% + equity premium 5.5% · savings rate last set Jun 28 2026"
 //   - unset:  "Discount 7.5% = … · savings rate: using default 2.0% — not set"
 // Read-only: it never changes discount math (the live rate already flows through discountRate()).
+// B2 (Phase 4): the run's OWN discount provenance — the flat required return (setting | book default).
+// Renders for runs carrying the new discount_inputs shape; legacy savings-anchored runs keep the old line.
+function createRequiredReturnProvenance(researchCase: AppResearchCase) {
+  const di = researchCase.valuation?.discount_inputs
+  if (di?.required_return === undefined) return null
+  const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`
+  return createElement(
+    'p',
+    {
+      'data-testid': 'required-return-provenance',
+      style: {
+        color: 'var(--owl-color-quiet)',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        lineHeight: 1.5,
+        margin: '0.5rem 0 0',
+      },
+    },
+    `Required return ${pct(di.required_return)} — ${di.required_return_basis === 'setting' ? 'user setting' : 'the book default (anything less, buy the index)'} · margins: buy at ≥30% below intrinsic value, load up at ≥50%`,
+  )
+}
+
 function createDiscountAnchorProvenance(savings?: SavingsSleeveConfig) {
   const v = buffettMungerStrategy.valuation
   const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`
@@ -2146,9 +2178,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount (policy)', discountLabel, ''),
     ),
-    // Discount-anchor vintage: the savings-rate breakdown + WHEN it was set (or "not set" for the frozen
-    // default), so a stale/never-set risk-free anchor is visible rather than silently trusted.
-    createDiscountAnchorProvenance(savings),
+    // Discount provenance: B2 runs show the flat required return; legacy runs keep the savings-anchor line.
+    researchCase.valuation?.discount_inputs?.required_return !== undefined
+      ? createRequiredReturnProvenance(researchCase)
+      : createDiscountAnchorProvenance(savings),
     // Judgment provenance (Priority 2): the moat / runway "proposed → resolved" anchor reads are PROSE, not
     // numerics — they belong as labeled mono/muted text lines, never crammed into numeric stat-blocks.
     (moatAnchorLabel !== undefined || runwayAnchorLabel !== undefined) ? createElement(

@@ -61,6 +61,19 @@ export const ValuationReasoningSchema = z.object({
       shares_outstanding: z.number(),
     })
     .optional(),
+  // ---- Phase 4 (book alignment): the industry-typical P/FCF EXIT MULTIPLE — the terminal value is
+  // year-10 FCF × this. Cited-or-labeled (peer-standout pattern): include a citation ONLY when the
+  // figure comes from a corpus-verifiable source; the harness clamps to [8, 20] and falls back to a
+  // conservative 12× when absent/invalid. The model judges the multiple; the arithmetic is harness-owned.
+  industry_exit_multiple: z
+    .object({
+      multiple: z.number().positive(),
+      // What industry set / valuation norm the multiple reflects (e.g. "US warehouse-club retail
+      // has traded 15–18× FCF over the last decade").
+      basis_note: z.string().min(1),
+      citation: z.string().optional(),
+    })
+    .optional(),
 })
 export type ValuationReasoning = z.infer<typeof ValuationReasoningSchema>
 
@@ -136,6 +149,11 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
     + `  - valuation_status: ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your qualitative read of `
     + `TODAY's price vs value (keep it coherent with your own proposed_buy_below).\n`
+    + `  - industry_exit_multiple: the INDUSTRY-TYPICAL price-to-free-cash-flow multiple this business `
+    + `would plausibly sell for in ~10 years ({multiple, basis_note, citation?}). Name the industry norm in `
+    + `basis_note; include citation ONLY if the figure comes from a corpus-verifiable source (an honest `
+    + `uncited judgment is labeled model-asserted — better than a fake citation, which FAILS the cite-check). `
+    + `The harness clamps to a sane band and computes the terminal value deterministically.\n`
     + `  - owner_earnings_bridge: your judged bridge INPUTS from the filing numbers above, in the FILING'S `
     + `REPORTING currency and labeled as such in your basis text (say "DKK 100.5B", not "$100.5B", for a DKK `
     + `filer) (net_income, `
@@ -196,6 +214,13 @@ export async function runValuationReasoningPass(
       name: 'valuation_reasoning.owner_earnings_bridge',
       present: (a) => a.valuation_reasoning?.owner_earnings_bridge !== undefined,
       hint: 'your judged bridge inputs (net_income, depreciation_amortization, maintenance_capex + proxy tier, stock_based_comp, normalized_working_capital_change, shares_outstanding) in the reporting currency',
+    },
+    // Phase 4 (book alignment): the industry P/FCF exit multiple — retry-forced; an exhausted retry
+    // degrades to the harness's conservative fallback multiple (12×), never a hard throw.
+    {
+      name: 'valuation_reasoning.industry_exit_multiple',
+      present: (a) => a.valuation_reasoning?.industry_exit_multiple !== undefined,
+      hint: 'the industry-typical P/FCF exit multiple {multiple, basis_note, citation?} — cite only a corpus-verifiable source, else omit the citation',
     },
     {
       name: 'valuation_reasoning.owner_earnings_citation',

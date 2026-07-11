@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
-import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergeSavingsSleeveConfig, mergeValuationConfig } from '@owlfolio/shared'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runScheduledTasks } from './runtime.ts'
 
@@ -104,6 +104,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // to default via the shared helper). Threaded into BOTH research paths so the automatic-mode run and
     // the approval-resume value at the SAME discount.
     const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
+    const required_return = mergeValuationConfig(runtime.config.valuation).required_return
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
@@ -112,6 +113,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        required_return,
         // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
         // a worker-executed run pauses behind the gates exactly like an in-process one.
         deep_dive_approval: automation.deep_dive_approval,
@@ -132,6 +134,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        required_return,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0

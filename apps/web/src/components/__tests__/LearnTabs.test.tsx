@@ -233,7 +233,7 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('screened out')
     // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
     // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).
-    expect(html.toLowerCase()).toContain('thesis re-review')
+    expect(html.toLowerCase()).toContain('check-in') // renamed from 'thesis re-review' (owner, Phase 4)
     expect(html.toLowerCase()).toContain('since a decision')
     expect(html.toLowerCase()).toContain('intact, weakened, broken')
     expect(html.toLowerCase()).toContain('inconclusive')

@@ -151,7 +151,7 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
     expect(html).toContain('data-testid="rereview-button"')
-    expect(html).toContain('Check new filings / re-review')
+    expect(html).toContain('Check-in vs new filings')
   })
 
   it('renders a personal-local open-holding action only for confirmed watchlist items without holdings', () => {

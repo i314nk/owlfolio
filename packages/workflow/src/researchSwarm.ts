@@ -53,6 +53,9 @@ import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurde
 import { computeMoatTests, type MoatTests } from './moatTests'
 import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
 import { buildMungerLattice, type MungerLattice } from './mungerLattice'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { fcfIntrinsicValuePerShare, resolveExitMultiple } from '@owlfolio/strategies/bookValuation'
+import { yearFcf } from './annualRatios'
 import { runRetainedEarningsTest, type RetainedEarningsTestResult } from './retainedEarningsTest'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
@@ -68,7 +71,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, MANAGEMENT_PILLAR_POLICY, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, MANAGEMENT_PILLAR_POLICY, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { curatedAdrRatio } from '@owlfolio/strategies/adrRatios'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
@@ -251,6 +254,12 @@ export type RunStrategyResearchSwarmCommand = {
    * path carried it, so automatic-mode runs always failed closed to the default).
    */
   risk_free_rate?: number
+  /**
+   * Phase 4 (book alignment) — the REQUIRED RETURN (decimal) used to discount the 10-year FCF
+   * valuation, from the app-config valuation setting. Omitted / invalid → fails closed to the flat
+   * 15% book default (`required_return_default`).
+   */
+  required_return?: number
   /** Controls deep-dive gating.
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
@@ -292,6 +301,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * fails closed to `savings_rate_default` (the Treasury anchor is retired).
    */
   risk_free_rate?: number
+  /** Phase 4 — the required return for the FCF valuation (defaults to the flat 15% book hurdle). */
+  required_return?: number
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
   /**
@@ -811,6 +822,7 @@ export async function runStrategyResearchSwarm(
     // F.2: forward the compliant savings anchor so automatic-mode valuations use the SAME discount
     // as approval-resume ones (previously only the resume path threaded it).
     ...(command.risk_free_rate === undefined ? {} : { risk_free_rate: command.risk_free_rate }),
+    ...(command.required_return === undefined ? {} : { required_return: command.required_return }),
     // S3: the deep-dive approval pause is applied INSIDE the phase, AFTER both cheap gates pass and
     // BEFORE any lane spend. The approval-resume path calls the phase without this key (automatic).
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
@@ -2220,6 +2232,13 @@ export async function runResearchDeepDivePhase(
     model_id: synthesisRuntime.model_id,
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
+      // B2 (live kimi find, 2026-07-11): the model wrote "verdict is HOLD" (not in the enum) and
+      // self-mapped it to PASS — losing the watchlist candidacy. Calibrate the vocabulary explicitly.
+      + `VERDICT VOCABULARY: emit ONLY BUY | WATCH | PASS | RESEARCH_MORE. There is no HOLD verdict — a `
+      + `quality business at-or-near fair value that you would buy cheaper is WATCH (parked with its re-arm `
+      + `price), NOT PASS. PASS means the business itself fails a filter (moat, management, comprehension) — `
+      + `price alone never makes a wonderful business a PASS. Rule 9: do NOT demand every box tick — judge `
+      + `the thesis as a whole. `
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
       // Phase 2 V4: the valuation judgment (owner-earnings bridge, assumed growth + citations, the
       // buy-below, valuation_status) is OWNED by the dedicated valuation stage that already ran — the
@@ -2908,7 +2927,19 @@ export async function runResearchDeepDivePhase(
   const risk_free_rate = risk_free_from_config
     ? threadedRiskFree
     : buffettMungerStrategy.valuation.savings_rate_default
-  const discount = discountRate(buffettMungerStrategy, risk_free_rate)
+  void risk_free_rate // retained for the deployment-hurdle/sizing baseline; no longer the valuation discount
+  // Phase 4 (book alignment, owner-locked): the valuation DISCOUNT is the REQUIRED RETURN — flat 15%
+  // default ("anything less, buy the index"), user-set in Settings and threaded per run. The savings
+  // anchor is RETIRED as the valuation discount (it remains the deployment-hurdle baseline).
+  const threadedRequiredReturn = command.required_return
+  const required_return_from_config = typeof threadedRequiredReturn === 'number'
+    && Number.isFinite(threadedRequiredReturn)
+    && threadedRequiredReturn > 0
+    && threadedRequiredReturn < 1
+  const required_return = required_return_from_config
+    ? threadedRequiredReturn
+    : VALUATION_PARAMS.required_return_default
+  const discount = required_return
   // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
   // Implausible model numbers are rejected deterministically and never fed into the valuation — a
   // rejected value falls back to a safe/not-computable value + a VISIBLE flag (mirrors degraded_flags).
@@ -3444,8 +3475,76 @@ export async function runResearchDeepDivePhase(
     && proposedBuyBelowRaw > 0)
     ? proposedBuyBelowRaw
     : undefined
+
+  // ---- Phase 4 (book alignment, owner-locked): the BOOK intrinsic value drives the thresholds ----
+  // IV = Σ discounted FCF(1..10, at the model's cited growth) + discounted(FCF10 × industry exit
+  // multiple) + cash − debt, per share. FCF0 = the latest EDGAR year with CFO − capex computable
+  // (T0). The exit multiple is the STAGE's judged industry P/FCF — cite-checked, clamped to
+  // [8, 20], conservative 12× fallback. When FCF is unavailable (filer doesn't tag CFO / legacy
+  // fixtures), the reference FAILS BACK to the owner-earnings basis (min(internal DCF FV, 18× OE))
+  // with a visible valuation_basis flag — never silently unpriced.
+  const latestFcfRow = fundamentals?.annual_series !== undefined
+    ? [...fundamentals.annual_series].sort((a, b) => b.fiscal_year - a.fiscal_year).find((a) => yearFcf(a) !== undefined)
+    : undefined
+  const latestFcfMusd = latestFcfRow !== undefined ? yearFcf(latestFcfRow) : undefined
+  const exitProposed = valuationStageOutcome.status === 'ok'
+    ? valuationStageOutcome.valuation_reasoning.industry_exit_multiple
+    : undefined
+  const exitCitationGrounded = exitProposed?.citation !== undefined
+    && isCitationGrounded(exitProposed.citation, verifiedCitationHashes)
+  const exitResolution = resolveExitMultiple({
+    ...(exitProposed?.multiple !== undefined ? { proposed: exitProposed.multiple } : {}),
+    grounded: exitCitationGrounded,
+  })
+  const fcfValuation = (moat_passes_gate
+    && shares_valid
+    && latestFcfMusd !== undefined
+    && latestFcfMusd > 0
+    && headline_growth !== undefined)
+    ? fcfIntrinsicValuePerShare({
+        fcf_musd: latestFcfMusd,
+        growth: headline_growth,
+        required_return,
+        exit_multiple: exitResolution.multiple,
+        ...(fundamentals?.latest_annual?.cash_and_securities_musd !== undefined ? { cash_musd: fundamentals.latest_annual.cash_and_securities_musd } : {}),
+        ...(fundamentals?.latest_annual?.total_debt_musd !== undefined ? { total_debt_musd: fundamentals.latest_annual.total_debt_musd } : {}),
+        shares_m: shares_outstanding,
+        horizon: VALUATION_PARAMS.stage1_horizon,
+      })
+    : undefined
+  // The OE-basis reference (min(internal DCF FV, 18× OE)) survives as the SANITY cross-check basis.
+  const oeReferenceValue = mosReferenceValue
+  const valuation_basis: 'fcf' | 'owner_earnings_fallback' | undefined =
+    fcfValuation !== undefined ? 'fcf' : mosReferenceValue !== undefined ? 'owner_earnings_fallback' : undefined
+  if (fcfValuation !== undefined) {
+    mosReferenceValue = fcfValuation.intrinsic_value_per_share
+  } else if (moat_passes_gate && mosReferenceValue !== undefined) {
+    degradedFlags.push(
+      'valuation_basis_fallback: free cash flow (CFO − capex) was not computable for this filer — the '
+      + 'intrinsic-value reference fell back to the owner-earnings basis (min(internal DCF FV, 18× OE)). '
+      + 'The thresholds below are margined off that fallback.',
+    )
+  }
+  // OE-vs-FCF cross-check (the demoted bridge earns its keep): both bases computable and >25% apart →
+  // advisory flag (the human reconciles which cash view is honest for this name).
+  const oeVsFcfDivergence = (fcfValuation !== undefined && oeReferenceValue !== undefined && oeReferenceValue > 0)
+    ? Math.abs(fcfValuation.intrinsic_value_per_share - oeReferenceValue) / oeReferenceValue
+    : undefined
+  if (oeVsFcfDivergence !== undefined && oeVsFcfDivergence > 0.25 && fcfValuation !== undefined && oeReferenceValue !== undefined) {
+    advisorySanityCarryover.push(
+      `oe_vs_fcf_divergence: the FCF intrinsic value ($${fcfValuation.intrinsic_value_per_share.toFixed(2)}) and the `
+      + `owner-earnings reference ($${oeReferenceValue.toFixed(2)}) diverge ${(oeVsFcfDivergence * 100).toFixed(0)}% — `
+      + 'reconcile which cash view is honest for this name (capex intensity, working-capital swings, SBC) before relying on the thresholds.',
+    )
+  }
+
+  // Rule 7: never buy without a MINIMUM 30% margin — the operative buy threshold.
   const buy_below = (mosReferenceValue !== undefined && mosReferenceValue > 0)
     ? Number((mosReferenceValue * (1 - buffettMungerStrategy.valuation.required_margin_of_safety)).toFixed(2))
+    : undefined
+  // Rule 8: the LOAD-UP-THE-TRUCK threshold — a ≥50% discount marks the concentrated-sizing zone.
+  const load_up_below = (mosReferenceValue !== undefined && mosReferenceValue > 0)
+    ? Number((mosReferenceValue * (1 - VALUATION_PARAMS.load_up_margin)).toFixed(2))
     : undefined
 
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
@@ -3455,6 +3554,10 @@ export async function runResearchDeepDivePhase(
   // proposed_buy_below stays recorded for audit; the zone judgment requires an investable case.
   const in_buy_zone = moat_passes_gate && current_price !== undefined && buy_below !== undefined
     ? current_price <= buy_below
+    : undefined
+  // Rule 8 zone — same gating discipline as in_buy_zone.
+  const in_load_up_zone = moat_passes_gate && current_price !== undefined && load_up_below !== undefined
+    ? current_price <= load_up_below
     : undefined
 
   // ---- Phase 2 V2 (owner-validated 2026-07-11): the T0 MARGIN-OF-SAFETY GRADE ----
@@ -3995,10 +4098,11 @@ export async function runResearchDeepDivePhase(
         // Discount provenance (Phase 1.4 / F.2): the COMPLIANT risk-free SAVINGS rate (app-config or the
         // config default) + the uniform equity premium. basis 'compliant_savings' when sourced from the
         // threaded app-config savings rate; 'config_default' when failed closed to savings_rate_default.
+        // Phase 4: the discount is the REQUIRED RETURN (flat 15% default, user setting) — provenance
+        // records which. (Legacy events carry risk_free_rate/equity_premium; the projection tolerates both.)
         discount_inputs: {
-          risk_free_rate,
-          risk_free_basis: risk_free_from_config ? 'compliant_savings' : 'config_default',
-          equity_premium: buffettMungerStrategy.valuation.equity_premium,
+          required_return,
+          required_return_basis: required_return_from_config ? 'setting' : 'book_default',
         },
         growth_assumptions: dec.analysis.growth_assumptions,
         // HEADLINE growth = the MODEL's cite-verified assumed_growth (the architecture: the model's grounded
@@ -4083,6 +4187,18 @@ export async function runResearchDeepDivePhase(
         //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
+        // Phase 4 (book alignment): the rule-8 LOAD-UP threshold/zone + the valuation basis + the
+        // resolved industry exit multiple (clamped, provenance-labeled).
+        ...(moat_passes_gate && load_up_below !== undefined ? { load_up_below } : {}),
+        ...(in_load_up_zone !== undefined ? { in_load_up_zone } : {}),
+        ...(valuation_basis !== undefined ? { valuation_basis } : {}),
+        ...(moat_passes_gate && fcfValuation !== undefined
+          ? {
+              exit_multiple_used: exitResolution.multiple,
+              exit_multiple_source: exitResolution.source,
+              ...(exitProposed?.basis_note !== undefined ? { exit_multiple_basis_note: exitProposed.basis_note } : {}),
+            }
+          : {}),
         // Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; never gates).
         ...(margin_of_safety_grade !== undefined ? { margin_of_safety_grade } : {}),
         // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at

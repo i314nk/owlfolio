@@ -137,6 +137,6 @@ describe('WatchlistPanel re-review launch', () => {
   it('renders the on-demand re-review launch per candidate with a research case', () => {
     const html = render([item({ watchlist_item_id: 'w_rr', ticker: 'AAA', verdict: { state: 'WATCH', proposed_buy_below: 50 } })])
     expect(html).toContain('data-testid="rereview-button"')
-    expect(html).toContain('Check new filings / re-review')
+    expect(html).toContain('Check-in vs new filings')
   })
 })

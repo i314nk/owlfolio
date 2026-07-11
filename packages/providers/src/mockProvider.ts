@@ -373,6 +373,7 @@ function mockValuationReasoningForTicker(ticker: string) {
       assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
       proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
       valuation_status: 'EXPENSIVE' as const,
+      industry_exit_multiple: { multiple: 15, basis_note: 'Mock industry norm: ~15× FCF (not investment-grade).' },
       owner_earnings_bridge: {
         net_income: 14000,
         depreciation_amortization: 4000,
