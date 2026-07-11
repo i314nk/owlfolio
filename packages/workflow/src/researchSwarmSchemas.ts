@@ -92,6 +92,37 @@ export const MoatDriverSchema = z.object({
   // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the advantage (a real
   // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → not counted.
   citation: z.string().min(1),
+  // S3 (owner taxonomy): WHICH kind of moat this advantage is. `monopoly_position` = a granted/structural
+  // monopoly (regulatory/patent/utility) — deliberately NOT the width-class value 'monopoly' (distinct
+  // axes). Optional at the schema level (legacy tolerance); the prompt demands it and the retry forces it.
+  moat_type: z.enum([
+    'brand', 'switching_costs', 'network_effect', 'intangible_assets', 'toll_bridge',
+    'cost_advantage', 'scale_advantage', 'barrier_to_entry', 'monopoly_position',
+  ]).optional(),
+})
+
+// A single cited moat-DIRECTION driver (S3): the observable evidence behind widening/stable/narrowing.
+// Same cite-verify rigor as moat_drivers; an ungrounded direction claim resolves 'undetermined' and
+// carries NO policy teeth (the narrowing→WATCH clamp fires only on a GROUNDED narrowing).
+export const MoatDirectionDriverSchema = z.object({
+  evidence: z.string().min(1),
+  citation: z.string().min(1),
+})
+
+// The peer-standout judgment (S3, the owner's standout test): named industry peers + their gross
+// margins. A peer figure is honored as GROUNDED only when its citation verifies against the corpus;
+// an uncited/unverified peer is stamped model_asserted and labeled on the dossier. The company-side
+// gross-margin series is computed T0 by the harness (moatTests) — the model judges only the comparison.
+export const PeerStandoutSchema = z.object({
+  peers: z.array(z.object({
+    name: z.string().min(1),
+    // e.g. "~38% FY2024 gross margin" — the peer's figure with its period.
+    gross_margin_note: z.string().min(1),
+    // OPTIONAL: cite ONLY a corpus-verifiable source; omit when asserting from knowledge (labeled).
+    citation: z.string().optional(),
+  })).min(1),
+  judgment: z.enum(['stands_out', 'in_line', 'lags', 'cannot_assess']),
+  reasoning: z.string().min(1),
 })
 
 // A single cited REINVESTMENT-RUNWAY driver: the headroom TEXT (REQUIRED — mirrors MoatDriverSchema; an
@@ -139,6 +170,15 @@ export const MoatLaneSchema = z.object({
   proposed_runway: z.enum(['proven', 'limited', 'none']),
   // The model's narrative runway reasoning.
   runway_reasoning: z.string().min(1),
+  // ---- S3 (Phase 3 pillars): direction + peer standout. Optional at the schema level (legacy
+  // tolerance + degrade-not-destroy); the prompt demands them and the requiredFields retry forces them.
+  // Moat DIRECTION: "a narrowing moat is a sell signal no matter how wide it still looks." Resolves
+  // ONLY when >=1 direction_driver grounds; a grounded narrowing derates a BUY to WATCH downstream.
+  moat_direction: z.enum(['widening', 'stable', 'narrowing']).optional(),
+  direction_drivers: z.array(MoatDirectionDriverSchema).optional(),
+  direction_reasoning: z.string().optional(),
+  // The owner's STANDOUT test (peer half): gross margin vs the industry pack, cited-or-labeled.
+  peer_standout: PeerStandoutSchema.optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -313,7 +353,7 @@ export const AGENT_TIMEOUT_MS = resolveAgentTimeoutMs(process.env['OWLFOLIO_AGEN
 // the EDGAR quant (M1/M2) only as corroboration. The RUNWAY axis is now ALSO a grounded cited thesis
 // (runway_drivers + proposed_runway) — same reframe; the harness cite-verifies the runway_drivers and uses
 // the EDGAR incremental-ROIC quant (R1) only as corroboration (never substitutes/overrides).
-export const MOAT_RUBRIC_PROMPT =
+export const MOAT_PILLAR_PROMPT =
   ` As the MOAT lane you ALSO produce the durable-moat judgment for this case — as a GROUNDED CITED THESIS, `
   + `the SAME discipline as the circle-of-competence gate: argue it, do not assert it. `
   + `Emit moat_drivers: the SPECIFIC durable competitive advantages of THIS business — pricing power, switching `
@@ -347,7 +387,27 @@ export const MOAT_RUBRIC_PROMPT =
   + `limited/none is a valid, common answer — do NOT over-claim a runway you cannot ground. Set the holistic `
   + `runway field to the same grounded judgment, and runway_exceptional only with explicit headroom evidence. `
   + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}]. `
-  + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}].`
+  + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}]. `
+  // ---- S3 (Phase 3 pillars): taxonomy + direction + peer standout ----
+  + `TAG EVERY moat_driver with its moat_type — WHICH kind of moat the advantage is, from EXACTLY this `
+  + `taxonomy: 'brand' (loyalty/pricing power from the name), 'switching_costs', 'network_effect', `
+  + `'intangible_assets' (secret sauce: patents, formulas, proprietary data/process), 'toll_bridge' (the `
+  + `unavoidable path everyone must pay to cross), 'cost_advantage' (structurally lower unit costs), `
+  + `'scale_advantage', 'barrier_to_entry' (regulatory/licensing/capital walls), 'monopoly_position' (a `
+  + `granted or de-facto monopoly — NOTE this is a moat TYPE, distinct from the 'monopoly' WIDTH class). `
+  + `ALSO judge the moat DIRECTION — moat_direction: 'widening' | 'stable' | 'narrowing' — with `
+  + `direction_drivers: the SPECIFIC observable evidence [{evidence, citation}] cited to verified sources, `
+  + `and direction_reasoning. Calibration: a NARROWING moat is a sell signal no matter how wide it still `
+  + `looks — a grounded 'narrowing' derates a BUY to WATCH, so claim it ONLY on cited evidence (share `
+  + `erosion, price-realization decline, a structural attacker); an ungrounded direction resolves `
+  + `'undetermined' and carries no weight. `
+  + `ALSO produce the STANDOUT peer comparison — peer_standout: does this business clearly rise above the `
+  + `pack on GROSS MARGIN within its industry? Name the 2-5 closest peers with their gross margins `
+  + `(gross_margin_note like "~38% FY2024 gross margin") and judge 'stands_out' | 'in_line' | 'lags' | `
+  + `'cannot_assess' with reasoning. For each peer, include a citation ONLY when the figure comes from a `
+  + `corpus-verifiable source; otherwise OMIT the citation — the harness labels the figure model-asserted `
+  + `(honest labeling beats a fake citation, which FAILS the cite-check). The company's OWN gross-margin `
+  + `series is computed by the harness from EDGAR; do not restate it.`
 
 // RISKS-lane recency framing (the "web tier"). The risks lane is the only allow_unknown lane — it may cite
 // web/media — so it is the seam where recency could masquerade as decision-grade. This note keeps both

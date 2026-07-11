@@ -165,10 +165,28 @@ export type ResearchCaseJudgmentAxisProjection = {
   violations?: string[]
   anchor_note?: string
   // ---- Grounded-thesis MOAT projection (B6) — the moat is the model's grounded cited thesis. ----
-  /** The cited durable competitive advantages, each with a cite-verified `grounded` flag. */
-  moat_drivers?: { advantage: string; citation: string; grounded: boolean }[]
+  /** The cited durable competitive advantages, each with a cite-verified `grounded` flag.
+   *  S3: `moat_type` tags the taxonomy type (absent on legacy/untyped drivers). */
+  moat_drivers?: { advantage: string; citation: string; grounded: boolean; moat_type?: string }[]
   /** Count of distinct grounded drivers (non-empty advantage AND cite-verified citation). */
   grounded_driver_count?: number
+  // ---- S3 (Phase 3): taxonomy + direction + peer standout (moat axis; absent on legacy events). ----
+  /** Distinct taxonomy types of the GROUNDED drivers (dossier chips). */
+  resolved_moat_types?: string[]
+  /** Grounded-only direction; 'undetermined' when unclaimed or claimed-but-ungrounded. */
+  moat_direction?: string
+  /** The cited direction evidence with grounded stamps. */
+  direction_drivers?: { evidence: string; citation: string; grounded: boolean }[]
+  /** True when a direction was proposed but no driver grounded (claimed-but-unbacked). */
+  direction_ungrounded?: boolean
+  direction_reasoning?: string
+  /** The peer-standout judgment; each peer stamped model_asserted when its figure did not verify. */
+  peer_standout?: {
+    peers?: { name: string; gross_margin_note: string; citation?: string; model_asserted?: boolean; grounded?: boolean }[]
+    judgment?: string
+    reasoning?: string
+    grounded_peer_count?: number
+  }
   /** True when the model proposed a gate-passing tier (wide/monopoly) the grounded thesis couldn't back. */
   moat_grounding_unmet?: boolean
   /** Advisory: a grounded gate-passing moat sits on a WEAK EDGAR quant. Surfaced, never blocks. */
@@ -1155,14 +1173,67 @@ function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | u
   if (Array.isArray(rawDrivers)) {
     const drivers = rawDrivers
       .filter(isRecord)
-      .map((d) => ({ advantage: getString(d, 'advantage'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
-      .filter((d): d is { advantage: string; citation: string; grounded: boolean } => d.advantage !== undefined && d.citation !== undefined)
+      .map((d) => {
+        const moat_type = getString(d, 'moat_type')
+        return {
+          advantage: getString(d, 'advantage'), citation: getString(d, 'citation'), grounded: d['grounded'] === true,
+          ...(moat_type !== undefined ? { moat_type } : {}),
+        }
+      })
+      .filter((d): d is { advantage: string; citation: string; grounded: boolean; moat_type?: string } => d.advantage !== undefined && d.citation !== undefined)
     if (drivers.length > 0) projected.moat_drivers = drivers
   }
   const grounded_driver_count = getNumber(value, 'grounded_driver_count')
   if (grounded_driver_count !== undefined) projected.grounded_driver_count = grounded_driver_count
   if (value['moat_grounding_unmet'] === true) projected.moat_grounding_unmet = true
   if (value['quant_contradicts_moat'] === true) projected.quant_contradicts_moat = true
+  // ---- S3 (Phase 3): taxonomy + direction + peer standout — legacy events omit these (tolerated). ----
+  const rawTypes = value['resolved_moat_types']
+  if (Array.isArray(rawTypes)) {
+    const types = rawTypes.filter((t): t is string => typeof t === 'string')
+    if (types.length > 0) projected.resolved_moat_types = types
+  }
+  const moat_direction = getString(value, 'moat_direction')
+  if (moat_direction !== undefined) projected.moat_direction = moat_direction
+  const rawDirectionDrivers = value['direction_drivers']
+  if (Array.isArray(rawDirectionDrivers)) {
+    const drivers = rawDirectionDrivers
+      .filter(isRecord)
+      .map((d) => ({ evidence: getString(d, 'evidence'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+      .filter((d): d is { evidence: string; citation: string; grounded: boolean } => d.evidence !== undefined && d.citation !== undefined)
+    if (drivers.length > 0) projected.direction_drivers = drivers
+  }
+  if (value['direction_ungrounded'] === true) projected.direction_ungrounded = true
+  const direction_reasoning = getString(value, 'direction_reasoning')
+  if (direction_reasoning !== undefined) projected.direction_reasoning = direction_reasoning
+  const rawPeerStandout = value['peer_standout']
+  if (isRecord(rawPeerStandout)) {
+    const ps: NonNullable<ResearchCaseJudgmentAxisProjection['peer_standout']> = {}
+    const rawPeers = rawPeerStandout['peers']
+    if (Array.isArray(rawPeers)) {
+      const peers = rawPeers
+        .filter(isRecord)
+        .map((p) => {
+          const citation = getString(p, 'citation')
+          return {
+            name: getString(p, 'name'), gross_margin_note: getString(p, 'gross_margin_note'),
+            ...(citation !== undefined ? { citation } : {}),
+            ...(typeof p['model_asserted'] === 'boolean' ? { model_asserted: p['model_asserted'] } : {}),
+            ...(typeof p['grounded'] === 'boolean' ? { grounded: p['grounded'] } : {}),
+          }
+        })
+        .filter((p): p is { name: string; gross_margin_note: string; citation?: string; model_asserted?: boolean; grounded?: boolean } =>
+          p.name !== undefined && p.gross_margin_note !== undefined)
+      if (peers.length > 0) ps.peers = peers
+    }
+    const psJudgment = getString(rawPeerStandout, 'judgment')
+    if (psJudgment !== undefined) ps.judgment = psJudgment
+    const psReasoning = getString(rawPeerStandout, 'reasoning')
+    if (psReasoning !== undefined) ps.reasoning = psReasoning
+    const grounded_peer_count = getNumber(rawPeerStandout, 'grounded_peer_count')
+    if (grounded_peer_count !== undefined) ps.grounded_peer_count = grounded_peer_count
+    if (Object.keys(ps).length > 0) projected.peer_standout = ps
+  }
   // ---- Grounded-thesis RUNWAY fields (runway reframe) — legacy events omit these (tolerated). ----
   const rawRunwayDrivers = value['runway_drivers']
   if (Array.isArray(rawRunwayDrivers)) {

@@ -1801,6 +1801,26 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       + ` · quant ${runwayJudgment.anchor_computable === false ? 'n/a' : (runwayJudgment.anchor_tier ?? '?').toUpperCase()}`
     : undefined
 
+  // S3 (Phase 3 pillars): taxonomy chips + direction + peer standout — all grounded-or-labeled.
+  // Types come from GROUNDED drivers only; the direction says grounded vs claimed-but-ungrounded;
+  // each peer figure is explicitly "(cited)" or "(model-asserted, not verified)".
+  const moatTypes = moatJudgment?.resolved_moat_types
+  const moatTypesLabel = moatTypes !== undefined && moatTypes.length > 0
+    ? moatTypes.map((t) => t.replace(/_/g, ' ')).join(', ')
+    : undefined
+  const moatDirection = moatJudgment?.moat_direction
+  const moatDirectionLabel = moatDirection === undefined
+    ? undefined
+    : moatDirection === 'undetermined'
+      ? (moatJudgment?.direction_ungrounded === true ? 'undetermined (claimed but ungrounded — carries no weight)' : 'undetermined')
+      : `${moatDirection.toUpperCase()} (grounded)${moatDirection === 'narrowing' ? ' — a narrowing moat is a sell signal no matter how wide it still looks' : ''}`
+  const peerStandout = moatJudgment?.peer_standout
+  const peerStandoutLabel = peerStandout?.judgment === undefined
+    ? undefined
+    : `${peerStandout.judgment.replace(/_/g, ' ')} — ${(peerStandout.peers ?? [])
+        .map((p) => `${p.name} ${p.gross_margin_note}${p.model_asserted === true ? ' (model-asserted, not verified)' : ' (cited)'}`)
+        .join('; ')}`
+
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
   // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
   // base_rate_burden_unmet — surfaced here so the human sees the unmet structural burden, never hidden.
@@ -1963,6 +1983,23 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         'p',
         { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
         `Moat: ${moatAnchorLabel}`,
+      ),
+      // S3 (Phase 3 pillars): WHICH moat(s), the direction, and the standout peer comparison —
+      // grounded-or-labeled (types from grounded drivers only; peers stamped cited/model-asserted).
+      moatTypesLabel === undefined ? null : createElement(
+        'p',
+        { 'data-testid': 'moat-types', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
+        `Moat types (grounded): ${moatTypesLabel}`,
+      ),
+      moatDirectionLabel === undefined ? null : createElement(
+        'p',
+        { 'data-testid': 'moat-direction', style: { color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
+        `Moat direction: ${moatDirectionLabel}`,
+      ),
+      peerStandoutLabel === undefined ? null : createElement(
+        'p',
+        { 'data-testid': 'peer-standout', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
+        `Standout vs peers (model judgment): ${peerStandoutLabel}`,
       ),
       runwayAnchorLabel === undefined ? null : createElement(
         'p',

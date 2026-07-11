@@ -1,5 +1,5 @@
 import type { AnnualFacts } from './secEdgar'
-import { yearGrossMargin, yearOperatingMargin, yearRoic } from './judgmentAnchor'
+import { yearGrossMargin, yearOperatingMargin, yearRoic } from './annualRatios'
 
 // ---------------------------------------------------------------------------------------------------
 // The owner's three NAMED moat tests (Phase 3, locked 2026-07-11) as pure T0 arithmetic over the

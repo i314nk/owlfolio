@@ -100,15 +100,25 @@ describe('runLaneSwarm', () => {
 // supplied grounded source_id so they verify under the test ground fn.
 function moatThesisForTier(tier: 'narrow' | 'moderate' | 'wide' | 'monopoly', cite: string) {
   const allDrivers = [
-    { advantage: 'documented pricing power without volume loss', citation: cite },
-    { advantage: 'sustained market-share gains vs funded entrants', citation: cite },
-    { advantage: 'structural cost/scale + distribution advantage', citation: cite },
+    { advantage: 'documented pricing power without volume loss', citation: cite, moat_type: 'brand' as const },
+    { advantage: 'sustained market-share gains vs funded entrants', citation: cite, moat_type: 'scale_advantage' as const },
+    { advantage: 'structural cost/scale + distribution advantage', citation: cite, moat_type: 'cost_advantage' as const },
   ]
   const count = tier === 'monopoly' ? 3 : tier === 'wide' ? 2 : tier === 'moderate' ? 1 : 1
   return {
     moat_drivers: allDrivers.slice(0, count),
     proposed_moat_class: tier,
     moat_reasoning: `Grounded ${tier} moat thesis for the test.`,
+    // S3 pillar extensions (retry-forced requiredFields on the live lane): a grounded stable
+    // direction + an in-line peer judgment, so the shared fakes stay schema-complete by default.
+    moat_direction: 'stable' as const,
+    direction_drivers: [{ evidence: 'share and price realization stable across the filing window', citation: cite }],
+    direction_reasoning: 'No cited evidence of erosion or widening.',
+    peer_standout: {
+      peers: [{ name: 'PeerCo', gross_margin_note: '~30% FY2024 gross margin' }],
+      judgment: 'in_line' as const,
+      reasoning: 'Company gross margin roughly in line with the named peer.',
+    },
   }
 }
 // Runway reframe: the RUNWAY lane emits a GROUNDED CITED THESIS (runway_drivers + proposed_runway), NOT a
@@ -1268,6 +1278,9 @@ function configurableSwarmProvider(opts: {
   synthesisResponse?: { mode: 'answered_with_evidence' | 'accepted_downgraded'; text: string; downgrade?: { dimension: 'tier' | 'growth' | 'verdict'; from: string; to: string } }
   // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
   redTeamCitations?: string[]
+  // S3 (Phase 3): extra fields spread LAST into the BuffettMungerMoatLane response, so a test can
+  // override the shared defaults (e.g. a grounded 'narrowing' direction for the WATCH-clamp pin).
+  moatLaneExtras?: Record<string, unknown>
   // Spec-correct decomposition: the MOAT lane omits its rubric (→ rubric_not_emitted holistic fallback)
   // and/or the Shariah-reasoning pass omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
   omitMoatRubric?: boolean
@@ -1367,6 +1380,7 @@ function configurableSwarmProvider(opts: {
           ...(opts.omitMoatRubric === true
             ? {}
             : moatThesisForTier(moatClass, 'src_lane_moat')),
+          ...(opts.moatLaneExtras ?? {}),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -1786,10 +1800,13 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     moatClass?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
     /** Optional EDGAR fundamentals — supply a real series when a test needs a demonstrated history. */
     fundamentals?: Fundamentals
+    /** S3: override/extend the moat lane payload (e.g. a grounded narrowing direction). */
+    moatLaneExtras?: Record<string, unknown>
   }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
+      ...(opts.moatLaneExtras !== undefined ? { moatLaneExtras: opts.moatLaneExtras } : {}),
       synthesis: {
         moat_class: opts.moatClass ?? 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43,
         ...(opts.proposedBuyBelow !== undefined ? { proposed_buy_below: opts.proposedBuyBelow } : {}),
@@ -6180,5 +6197,111 @@ describe('S2 — moat_tests persisted on the analysis event and projection', () 
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_moattests_none') as Record<string, unknown> | undefined
     expect(cp?.['moat_tests']).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// S3 (Phase 3 pillars): moat taxonomy + direction + peer standout persisted through the judgment
+// projection, and the OWNER RULE clamp — a model BUY on a GROUNDED narrowing moat records WATCH
+// ("a narrowing moat is a sell signal no matter how wide it still looks"). Ungrounded direction has
+// no teeth. Uses the relit fixture (in-zone price 250 < computed threshold 257.20) so nothing else clamps.
+// ---------------------------------------------------------------------------------------------------
+describe('S3 — moat pillar judgment: taxonomy/direction/peer persisted + the narrowing clamp', () => {
+  // Local mirror of the relit-fixture runner (the other runRelit is scoped to its own describe).
+  async function runRelit(opts: {
+    id: string
+    price: number
+    investmentVerdict?: 'BUY' | 'WATCH' | 'PASS' | 'RESEARCH_MORE'
+    valuationStatus?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
+    proposedBuyBelow?: number
+    moatLaneExtras?: Record<string, unknown>
+  }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      ...(opts.moatLaneExtras !== undefined ? { moatLaneExtras: opts.moatLaneExtras } : {}),
+      synthesis: {
+        moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43,
+        ...(opts.proposedBuyBelow !== undefined ? { proposed_buy_below: opts.proposedBuyBelow } : {}),
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_1',
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Cited to the latest 10-K segment capex.',
+          assumed_growth_citation: 'src_dec_1',
+        },
+      },
+      investmentVerdict: opts.investmentVerdict ?? 'WATCH',
+      ...(opts.valuationStatus !== undefined ? { valuationStatus: opts.valuationStatus } : {}),
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-s3-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: opts.price, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
+    return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
+  }
+
+  it('persists taxonomy chips, the stable direction, and the peer-standout labels on the judgment projection', async () => {
+    const { valuation } = await runRelit({ id: 's3-persist', price: 250, investmentVerdict: 'WATCH', proposedBuyBelow: 290 })
+    const judgment = valuation?.['judgment'] as { moat?: Record<string, unknown> } | undefined
+    const moatAxis = judgment?.moat
+    expect(moatAxis?.['resolved_moat_types']).toEqual(['brand', 'scale_advantage'])
+    expect(moatAxis?.['moat_direction']).toBe('stable')
+    const peers = (moatAxis?.['peer_standout'] as { peers?: Array<{ name: string; model_asserted?: boolean }> })?.peers
+    expect(peers?.[0]?.name).toBe('PeerCo')
+    expect(peers?.[0]?.model_asserted).toBe(true) // uncited peer figure = labeled model-asserted
+  })
+
+  it('OWNER RULE — model BUY + GROUNDED narrowing moat → recorded WATCH with the moat-narrowing reason', async () => {
+    const { cp } = await runRelit({
+      id: 's3-narrowing', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+      moatLaneExtras: {
+        moat_direction: 'narrowing',
+        direction_drivers: [{ evidence: 'private-label share taking 200bps/yr from the brand', citation: 'src_lane_moat' }],
+        direction_reasoning: 'Cited share erosion.',
+      },
+    })
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /moat_narrowing/.test(q) && /sell signal/i.test(q))).toBe(true)
+  })
+
+  it('an UNGROUNDED narrowing claim has no teeth: BUY stays BUY, direction resolves undetermined', async () => {
+    const { cp, valuation } = await runRelit({
+      id: 's3-narrowing-ungrounded', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+      moatLaneExtras: {
+        moat_direction: 'narrowing',
+        direction_drivers: [{ evidence: 'vibes about erosion', citation: 'src_never_captured' }],
+        direction_reasoning: 'Ungrounded.',
+      },
+    })
+    expect(cp?.investment_verdict).toBe('BUY')
+    const moatAxis = (valuation?.['judgment'] as { moat?: Record<string, unknown> } | undefined)?.moat
+    expect(moatAxis?.['moat_direction']).toBe('undetermined')
+    expect(moatAxis?.['direction_ungrounded']).toBe(true)
+    expect((cp?.open_questions ?? []).some((q) => /moat_narrowing/.test(q))).toBe(false)
+  })
+
+  it('a grounded WIDENING direction never clamps (conservative-only rail)', async () => {
+    const { cp } = await runRelit({
+      id: 's3-widening', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+      moatLaneExtras: {
+        moat_direction: 'widening',
+        direction_drivers: [{ evidence: 'renewal rates + unit growth compounding the network', citation: 'src_lane_moat' }],
+      },
+    })
+    expect(cp?.investment_verdict).toBe('BUY')
   })
 })

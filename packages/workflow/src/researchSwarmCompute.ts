@@ -9,10 +9,46 @@ import type { AnnualFacts, Fundamentals } from './secEdgar'
 import type { InsiderSummaryComputed } from './secForm4'
 import { isCitationGrounded } from './sourceGrounding'
 
-/** A single cited durable competitive advantage from the MOAT lane's grounded thesis (B6 reframe). */
+/**
+ * The moat TYPE taxonomy (S3, owner-locked 2026-07-11). `monopoly_position` (a granted/structural
+ * monopoly — regulatory, patent, utility) is deliberately NOT the WIDTH class value `monopoly`;
+ * the two axes never share an id.
+ */
+export const MOAT_TYPES = [
+  'brand',
+  'switching_costs',
+  'network_effect',
+  'intangible_assets',
+  'toll_bridge',
+  'cost_advantage',
+  'scale_advantage',
+  'barrier_to_entry',
+  'monopoly_position',
+] as const
+export type MoatType = (typeof MOAT_TYPES)[number]
+
+/** A single cited durable competitive advantage from the MOAT lane's grounded thesis (B6 reframe).
+ *  `moat_type` (S3) tags which taxonomy type the advantage is — optional on read (legacy drivers are
+ *  untyped; an untyped driver still counts for WIDTH, it just contributes no type chip). */
 export type MoatDriverInput = {
   advantage: string
   citation: string
+  moat_type?: MoatType
+}
+
+/** A single cited moat-DIRECTION driver (S3): the observable evidence the direction claim rests on. */
+export type MoatDirectionDriverInput = {
+  evidence: string
+  citation: string
+}
+
+/** The peer-standout judgment (S3): named industry peers + their gross margins, cited-or-labeled.
+ *  Peers are NOT harness-fetched in v1 — a peer whose citation does not verify is stamped
+ *  model_asserted by the resolver and the dossier labels it; it is never silently trusted. */
+export type PeerStandoutInput = {
+  peers: Array<{ name: string; gross_margin_note: string; citation?: string }>
+  judgment: 'stands_out' | 'in_line' | 'lags' | 'cannot_assess'
+  reasoning: string
 }
 
 /** A single cited reinvestment-runway headroom driver from the RUNWAY thesis (runway reframe — mirror of
@@ -29,6 +65,13 @@ export type MoatThesisInput = {
   moat_drivers: MoatDriverInput[]
   proposed_moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
   moat_reasoning: string
+  // ---- S3 optional judgment extensions (absent on legacy lane outputs — each fails closed) ----
+  /** The model's moat-direction judgment. Resolves only when >=1 direction driver grounds. */
+  moat_direction?: 'widening' | 'stable' | 'narrowing'
+  direction_drivers?: MoatDirectionDriverInput[]
+  direction_reasoning?: string
+  /** The peer-standout judgment (peers cited-or-labeled; company-side numbers are the T0 moat tests). */
+  peer_standout?: PeerStandoutInput
 }
 
 /** The RUNWAY GROUNDED CITED THESIS (runway reframe — mirrors the moat thesis): cited reinvestment-headroom
@@ -133,6 +176,33 @@ export type ResolvedMoatDriver = {
   advantage: string
   citation: string
   grounded: boolean
+  /** S3: the taxonomy type the driver claims (absent on legacy/untyped drivers). */
+  moat_type?: MoatType
+}
+
+/** A single moat-direction driver after cite-verification (S3). */
+export type ResolvedMoatDirectionDriver = {
+  evidence: string
+  citation: string
+  grounded: boolean
+}
+
+/** One named peer after the deterministic cited-or-labeled stamp (S3). */
+export type ResolvedPeerStandoutPeer = {
+  name: string
+  gross_margin_note: string
+  citation?: string
+  /** True when the peer's figure did NOT verify against the corpus — displayed as "model-asserted". */
+  model_asserted: boolean
+  grounded: boolean
+}
+
+/** The resolved peer-standout judgment (S3): verbatim judgment + per-peer grounding stamps. */
+export type ResolvedPeerStandout = {
+  peers: ResolvedPeerStandoutPeer[]
+  judgment: 'stands_out' | 'in_line' | 'lags' | 'cannot_assess'
+  reasoning: string
+  grounded_peer_count: number
 }
 
 /** A single runway-thesis driver after cite-verification (mirror of ResolvedMoatDriver). */
@@ -160,6 +230,19 @@ export type JudgmentResolution = {
     moat_grounding_unmet?: boolean
     /** Advisory: a grounded wide/monopoly thesis sits on a WEAK quant (anchor narrow). Surfaced, never blocks. */
     quant_contradicts_moat?: boolean
+    // ---- S3 (Phase 3): taxonomy + direction + peer standout ----
+    /** Distinct taxonomy types of the GROUNDED drivers only (taxonomy never rests on ungrounded claims). */
+    resolved_moat_types?: MoatType[]
+    /** Grounded-only direction: the proposal iff >=1 direction driver grounds; else 'undetermined'
+     *  (NEVER a silent 'stable' default; an undetermined direction has no policy teeth). */
+    moat_direction?: 'widening' | 'stable' | 'narrowing' | 'undetermined'
+    /** The direction drivers with cite-verified grounded stamps. */
+    direction_drivers?: ResolvedMoatDirectionDriver[]
+    /** True when a direction was PROPOSED but no driver grounded (claimed-but-unbacked, surfaced). */
+    direction_ungrounded?: boolean
+    direction_reasoning?: string
+    /** The peer-standout judgment with per-peer model_asserted/grounded stamps. */
+    peer_standout?: ResolvedPeerStandout
   }
   runway?: ResolveRubricTierResult & {
     /** ALWAYS defined: grounded-thesis resolved tier -> holistic fallback -> conservative default. Never undefined. */
@@ -221,6 +304,8 @@ function resolveMoatThesis(args: {
     advantage: d.advantage ?? '',
     citation: d.citation,
     grounded: (d.advantage?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, verifiedCitationHashes),
+    // S3: carry the taxonomy type through cite-verification (absent on legacy/untyped drivers).
+    ...(d.moat_type !== undefined && (MOAT_TYPES as readonly string[]).includes(d.moat_type) ? { moat_type: d.moat_type } : {}),
   }))
   // Count DISTINCT grounded advantages (dedupe identical advantage text so a repeated driver can't pad).
   const grounded_driver_count = new Set(
@@ -266,6 +351,52 @@ function resolveMoatThesis(args: {
     ? anchor.note
     : `Moat quant corroboration not computable: ${anchor.reason}`
 
+  // ---- S3: taxonomy — the distinct types of GROUNDED drivers only (no taxonomy theater). ----
+  const resolved_moat_types = [...new Set(
+    moat_drivers.filter((d) => d.grounded && d.moat_type !== undefined).map((d) => d.moat_type as MoatType),
+  )]
+
+  // ---- S3: direction — grounded-only; NEVER a silent 'stable' default. ----
+  // "A narrowing moat is a sell signal no matter how wide it still looks" — so the claim carries
+  // policy teeth downstream (BUY→WATCH), which means ONLY a grounded direction may resolve. A
+  // proposed-but-unbacked direction is 'undetermined' + direction_ungrounded (claimed, surfaced,
+  // toothless); an omitted/legacy direction is 'undetermined' without the flag (nothing claimed).
+  const direction_drivers: ResolvedMoatDirectionDriver[] = (thesis.direction_drivers ?? []).map((d) => ({
+    evidence: d.evidence ?? '',
+    citation: d.citation,
+    grounded: (d.evidence?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, verifiedCitationHashes),
+  }))
+  const directionGroundedCount = direction_drivers.filter((d) => d.grounded).length
+  const moat_direction: NonNullable<JudgmentResolution['moat']>['moat_direction'] =
+    thesis.moat_direction !== undefined && directionGroundedCount >= 1 ? thesis.moat_direction : 'undetermined'
+  const direction_ungrounded = thesis.moat_direction !== undefined && directionGroundedCount === 0
+
+  // ---- S3: peer standout — cited-or-labeled, stamped deterministically. ----
+  // Peers are not harness-fetched in v1: a peer figure whose citation verifies against the corpus is
+  // grounded; anything else (no citation, or a citation that does not verify) is model_asserted and
+  // the dossier labels it. The judgment is recorded VERBATIM either way — it is display/judgment
+  // context feeding the lane's thesis, never anchor arithmetic (that upgrade ships with peer fetching).
+  const peer_standout: ResolvedPeerStandout | undefined = thesis.peer_standout === undefined
+    ? undefined
+    : (() => {
+        const peers: ResolvedPeerStandoutPeer[] = thesis.peer_standout.peers.map((p) => {
+          const grounded = p.citation !== undefined && isCitationGrounded(p.citation, verifiedCitationHashes)
+          return {
+            name: p.name,
+            gross_margin_note: p.gross_margin_note,
+            ...(p.citation !== undefined ? { citation: p.citation } : {}),
+            model_asserted: !grounded,
+            grounded,
+          }
+        })
+        return {
+          peers,
+          judgment: thesis.peer_standout.judgment,
+          reasoning: thesis.peer_standout.reasoning,
+          grounded_peer_count: peers.filter((p) => p.grounded).length,
+        }
+      })()
+
   const violations: string[] = []
   if (moat_grounding_unmet) {
     violations.push(
@@ -300,6 +431,13 @@ function resolveMoatThesis(args: {
     ...(moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
     ...(quant_contradicts_moat ? { quant_contradicts_moat: true } : {}),
     anchor_note,
+    // S3: taxonomy + direction + peer standout.
+    resolved_moat_types,
+    moat_direction,
+    ...(direction_drivers.length > 0 ? { direction_drivers } : {}),
+    ...(direction_ungrounded ? { direction_ungrounded: true } : {}),
+    ...(thesis.direction_reasoning !== undefined ? { direction_reasoning: thesis.direction_reasoning } : {}),
+    ...(peer_standout !== undefined ? { peer_standout } : {}),
   }
 }
 
@@ -521,6 +659,13 @@ type JudgmentAxisProjection = {
   grounded_driver_count?: number
   moat_grounding_unmet?: boolean
   quant_contradicts_moat?: boolean
+  // ---- S3 (Phase 3): taxonomy + direction + peer standout (moat axis only). ----
+  resolved_moat_types?: MoatType[]
+  moat_direction?: 'widening' | 'stable' | 'narrowing' | 'undetermined'
+  direction_drivers?: ResolvedMoatDirectionDriver[]
+  direction_ungrounded?: boolean
+  direction_reasoning?: string
+  peer_standout?: ResolvedPeerStandout
   // ---- Grounded-thesis RUNWAY projection (runway reframe) — the cited headroom drivers + flags. ----
   runway_drivers?: ResolvedRunwayDriver[]
   runway_grounding_unmet?: boolean
@@ -555,6 +700,13 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       grounded_driver_count?: number
       moat_grounding_unmet?: boolean
       quant_contradicts_moat?: boolean
+      // S3 (moat axis only).
+      resolved_moat_types?: MoatType[]
+      moat_direction?: 'widening' | 'stable' | 'narrowing' | 'undetermined'
+      direction_drivers?: ResolvedMoatDirectionDriver[]
+      direction_ungrounded?: boolean
+      direction_reasoning?: string
+      peer_standout?: ResolvedPeerStandout
       // Grounded-thesis runway fields (present only on the runway axis).
       runway_drivers?: ResolvedRunwayDriver[]
       runway_grounding_unmet?: boolean
@@ -579,6 +731,13 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       ...(r.grounded_driver_count === undefined ? {} : { grounded_driver_count: r.grounded_driver_count }),
       ...(r.moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
       ...(r.quant_contradicts_moat ? { quant_contradicts_moat: true } : {}),
+      // S3 (Phase 3): taxonomy + direction + peer standout (moat axis only).
+      ...(r.resolved_moat_types === undefined ? {} : { resolved_moat_types: r.resolved_moat_types }),
+      ...(r.moat_direction === undefined ? {} : { moat_direction: r.moat_direction }),
+      ...(r.direction_drivers === undefined ? {} : { direction_drivers: r.direction_drivers }),
+      ...(r.direction_ungrounded ? { direction_ungrounded: true } : {}),
+      ...(r.direction_reasoning === undefined ? {} : { direction_reasoning: r.direction_reasoning }),
+      ...(r.peer_standout === undefined ? {} : { peer_standout: r.peer_standout }),
       // Grounded-thesis runway projection (the cited headroom drivers + grounded flags + the flags).
       ...(r.runway_drivers === undefined ? {} : { runway_drivers: r.runway_drivers }),
       ...(r.runway_grounding_unmet ? { runway_grounding_unmet: true } : {}),

@@ -93,7 +93,7 @@ import {
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
-  MOAT_RUBRIC_PROMPT,
+  MOAT_PILLAR_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -1439,6 +1439,11 @@ export async function runResearchDeepDivePhase(
         { name: 'proposed_moat_class', present: (a) => a.proposed_moat_class !== undefined, hint: "'narrow' | 'moderate' | 'wide' | 'monopoly' — your grounded moat judgment" },
         { name: 'runway_drivers', present: (a) => Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0, hint: 'the reinvestment-runway headroom drivers, each {headroom, citation} cited to a verified primary source' },
         { name: 'proposed_runway', present: (a) => a.proposed_runway !== undefined, hint: "'proven' | 'limited' | 'none' — your grounded runway judgment" },
+        // S3: the pillar extensions are retry-FORCED (like the fields above); after retries the
+        // resolver fails each closed (direction 'undetermined', no taxonomy chips, no peer table).
+        { name: 'moat_direction', present: (a) => a.moat_direction !== undefined, hint: "'widening' | 'stable' | 'narrowing' — the moat's direction, with cited direction_drivers" },
+        { name: 'direction_drivers', present: (a) => Array.isArray(a.direction_drivers) && a.direction_drivers.length > 0, hint: 'the observable direction evidence, each {evidence, citation} cited to a verified source' },
+        { name: 'peer_standout', present: (a) => a.peer_standout !== undefined, hint: 'the standout test: named industry peers + their gross margins (cited-or-labeled) + your judgment' },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
@@ -1447,7 +1452,7 @@ export async function runResearchDeepDivePhase(
         // numbers block (that stays on the financial lanes), but it DOES get the pre-verified EDGAR
         // source_id so the qualitative moat rows (M3-M6) cite the harness-verified filing id rather than
         // the model's own flaky SEC-archive id — the exact bug that scored KO's wide-moat rows to 0.
-        prompt: basePrompt + MOAT_RUBRIC_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        prompt: basePrompt + MOAT_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerMoatLane',
       }, MoatLaneSchema, {
@@ -1482,6 +1487,12 @@ export async function runResearchDeepDivePhase(
                 moat_drivers: a.moat_drivers,
                 proposed_moat_class: a.proposed_moat_class,
                 moat_reasoning: a.moat_reasoning ?? '',
+                // S3: direction + peer standout ride the thesis; each fails closed in the resolver
+                // when absent/ungrounded (direction 'undetermined', peers labeled model-asserted).
+                ...(a.moat_direction !== undefined ? { moat_direction: a.moat_direction } : {}),
+                ...(Array.isArray(a.direction_drivers) && a.direction_drivers.length > 0 ? { direction_drivers: a.direction_drivers } : {}),
+                ...(a.direction_reasoning !== undefined ? { direction_reasoning: a.direction_reasoning } : {}),
+                ...(a.peer_standout !== undefined ? { peer_standout: a.peer_standout } : {}),
               },
             }
           : {}),
@@ -3411,6 +3422,25 @@ export async function runResearchDeepDivePhase(
       + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
     : undefined
 
+  // OWNER RULE (2026-07-11, Phase 3 S3): "a narrowing moat is a sell signal no matter how wide it still
+  // looks." A model BUY on a GROUNDED narrowing moat direction derates to WATCH with the reason surfaced.
+  // The resolver only resolves 'narrowing' when >=1 direction driver cite-verified (an ungrounded or
+  // omitted direction is 'undetermined' and has NO teeth here) — so this clamp can never fire on
+  // hallucinated erosion. Conservative-only: BUY → WATCH; never touches WATCH/PASS/RESEARCH_MORE.
+  const moatNarrowing =
+    moat_passes_gate
+    && !sectorShariahFail
+    && !buyDataUnconfirmed
+    && !buyOutOfBuyZone
+    && !buyBelowAbsurd
+    && dec.analysis.investment_verdict === 'BUY'
+    && judgment.moat?.moat_direction === 'narrowing'
+  const moatNarrowingReason = moatNarrowing
+    ? 'moat_narrowing: the model verdict is BUY while the moat lane GROUNDED a narrowing moat direction — '
+      + 'a narrowing moat is a sell signal no matter how wide it still looks. Recorded as WATCH (moat '
+      + 'narrowing); the BUY thesis and the cited direction evidence are preserved for auditing.'
+    : undefined
+
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
   // missing buy data → RESEARCH_MORE; BUY above the model's own buy-below → WATCH. Otherwise the MODEL's
   // verdict passes through. Sanity flags NEVER gate.
@@ -3433,7 +3463,9 @@ export async function runResearchDeepDivePhase(
             ? ('WATCH' as const)
             : buyBelowAbsurd
               ? ('WATCH' as const)
-              : dec.analysis.investment_verdict
+              : moatNarrowing
+                ? ('WATCH' as const)
+                : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -3448,7 +3480,9 @@ export async function runResearchDeepDivePhase(
             ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
             : buyBelowAbsurdReason !== undefined
               ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
-              : dec.analysis.decision_reason
+              : moatNarrowingReason !== undefined
+                ? `${moatNarrowingReason} ${dec.analysis.decision_reason}`
+                : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -3888,6 +3922,9 @@ export async function runResearchDeepDivePhase(
       // OWNER RULE (SPGI dogfood): a model BUY derated to WATCH because its OWN buy-below already prices
       // in above-cap growth is always surfaced — the human sees why the buy price itself is not credible.
       ...(buyBelowAbsurdReason !== undefined ? [buyBelowAbsurdReason] : []),
+      // OWNER RULE (Phase 3 S3): a model BUY derated to WATCH on a GROUNDED narrowing moat is always
+      // surfaced — the human sees the sell-signal principle applied and the cited direction evidence.
+      ...(moatNarrowingReason !== undefined ? [moatNarrowingReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).

@@ -578,6 +578,48 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Runway: PROVEN proposed → PROVEN resolved')
   })
 
+  // S3 (Phase 3 pillars) — the moat pillar judgment display: taxonomy chips from GROUNDED drivers,
+  // the grounded-or-labeled direction (a narrowing carries the sell-signal principle; an ungrounded
+  // claim says so), and the per-peer cited/model-asserted standout labels.
+  it('renders moat types, direction, and the peer-standout labels (S3, grounded-or-labeled)', () => {
+    const html = render(baseCase({
+      judgment: {
+        moat: {
+          proposed_tier: 'wide', resolved_tier: 'wide', grounded_driver_count: 2, anchor_computable: false,
+          resolved_moat_types: ['brand', 'scale_advantage'],
+          moat_direction: 'narrowing',
+          direction_drivers: [{ evidence: 'private-label share erosion 200bps/yr', citation: 'src_10k', grounded: true }],
+          peer_standout: {
+            peers: [
+              { name: 'PeerCo A', gross_margin_note: '~38% FY2024 gross margin', citation: 'src_peer', model_asserted: false, grounded: true },
+              { name: 'PeerCo B', gross_margin_note: '~31% FY2024 gross margin', model_asserted: true, grounded: false },
+            ],
+            judgment: 'stands_out',
+            reasoning: 'Above all named peers.',
+            grounded_peer_count: 1,
+          },
+        },
+      },
+    } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
+    expect(html).toContain('Moat types (grounded): brand, scale advantage')
+    expect(html).toContain('Moat direction: NARROWING (grounded)')
+    expect(html).toContain('sell signal')
+    expect(html).toContain('PeerCo A ~38% FY2024 gross margin (cited)')
+    expect(html).toContain('PeerCo B ~31% FY2024 gross margin (model-asserted, not verified)')
+  })
+
+  it('labels a claimed-but-ungrounded direction as undetermined with no weight (S3 fail-closed display)', () => {
+    const html = render(baseCase({
+      judgment: {
+        moat: {
+          proposed_tier: 'wide', resolved_tier: 'wide', grounded_driver_count: 2, anchor_computable: false,
+          moat_direction: 'undetermined', direction_ungrounded: true,
+        },
+      },
+    } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
+    expect(html).toContain('Moat direction: undetermined (claimed but ungrounded — carries no weight)')
+  })
+
   // CONSOLIDATION (Priority 3) — per-dimension findings live ONLY in the lanes; valuation reasoning ONLY in
   // the Valuation box; the decision-evidence section keeps ONLY the unique whole-case thesis. The unique
   // AAOIFI ratio ledger is preserved (relocated to its own compliance block), not lost.
