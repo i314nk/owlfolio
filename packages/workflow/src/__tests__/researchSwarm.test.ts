@@ -5957,13 +5957,15 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
     }, 'mos-structured')
     // Persisted on the analysis event under the distinct (non-legacy-colliding) key.
     const payload = analysisEvent?.payload as Record<string, unknown>
-    const persisted = payload['margin_of_safety_judgment'] as { sources: string[]; adequacy: string; reasoning: string }
+    const persisted = payload['margin_of_safety_judgment'] as { sources: string[]; adequacy?: string; reasoning: string }
     expect(persisted).toBeDefined()
     expect(persisted.sources).toEqual(['price', 'moat'])
-    expect(persisted.adequacy).toBe('adequate')
+    // V2/V4 (live COST dogfood): a model-emitted adequacy is STRIPPED from new events — the T0
+    // margin_of_safety_grade is the only grade; the narrative fields carry.
+    expect(persisted.adequacy).toBeUndefined()
     // Projected onto the case under the distinct key (NOT the legacy valuation.margin_of_safety string).
     expect(cp?.margin_of_safety_judgment?.sources).toEqual(['price', 'moat'])
-    expect(cp?.margin_of_safety_judgment?.adequacy).toBe('adequate')
+    expect(cp?.margin_of_safety_judgment?.adequacy).toBeUndefined()
     expect((cp?.margin_of_safety_judgment?.reasoning ?? '').length).toBeGreaterThan(0)
     expect(cp?.margin_of_safety_judgment?.moat_durability_reasoning).toBeTruthy()
   })

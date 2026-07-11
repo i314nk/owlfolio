@@ -3439,7 +3439,13 @@ export async function runResearchDeepDivePhase(
   //   moat_grounding_unmet); if 'moat' is claimed but the moat is NOT grounded/gate-passing, that is
   //   incoherent (ungrounded moat = ungrounded margin) → surface a VISIBLE margin_of_safety_moat_ungrounded
   //   flag rather than silently accept a moat-sourced margin without a grounded moat.
-  const marginOfSafetyJudgment = dec.analysis.margin_of_safety
+  // Phase 2 V2/V4: the model-graded adequacy is RETIRED — a model that emits it anyway (live COST
+  // ignored the don't-grade instruction) must not put a second grade on the dossier next to the T0
+  // margin_of_safety_grade. Strip it from NEW events; legacy ledger events keep theirs read-only.
+  const marginOfSafetyJudgmentRaw = dec.analysis.margin_of_safety
+  const marginOfSafetyJudgment = marginOfSafetyJudgmentRaw === undefined
+    ? undefined
+    : (({ adequacy: _retiredAdequacy, ...narrative }) => narrative)(marginOfSafetyJudgmentRaw)
   const marginRestsOnMoat = Array.isArray(marginOfSafetyJudgment?.sources)
     && marginOfSafetyJudgment.sources.includes('moat')
   const moatThesisGrounded = moat_passes_gate && !moat_grounding_unmet
