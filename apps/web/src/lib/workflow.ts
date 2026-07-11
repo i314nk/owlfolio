@@ -35,7 +35,7 @@ import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
-import { mergeSavingsSleeveConfig, mergeValuationConfig } from '@owlfolio/shared/appConfig'
+import { mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared/appConfig'
 import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
 
 /** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
@@ -501,6 +501,7 @@ export async function enqueueResearchRun(
         created_at: claimedAt,
         schema_version: 1,
       })
+      const userRequiredReturn = userSetRequiredReturn(state.config.valuation)
       await runStrategyResearchSwarm(
         store,
         provider,
@@ -527,8 +528,9 @@ export async function enqueueResearchRun(
           // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
           // inline path as the worker paths.
           risk_free_rate: mergeSavingsSleeveConfig(state.config.savings).savings_expected_profit_rate,
-          // Phase 4: the required return (flat 15% book default; user-set in Settings).
-          required_return: mergeValuationConfig(state.config.valuation).required_return,
+          // Phase 4: thread the required return ONLY when user-set (vintage-stamped) — an absent field
+          // lets the engine use the book default AND stamp required_return_basis 'book_default' honestly.
+          ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
@@ -701,6 +703,7 @@ export async function requestDeepDiveRun(
       const pendingRun = pendingRuns.find((r) => r.research_case_id === researchCaseId)
 
       if (pendingRun !== undefined) {
+        const userRequiredReturn = userSetRequiredReturn(state.config.valuation)
         await runResearchDeepDivePhase(
           store,
           provider,
@@ -719,8 +722,8 @@ export async function requestDeepDiveRun(
             model_role_env: await resolveModelRoleEnv(),
             model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
             circle_gate: resolveCircleGateSettings(state.config),
-            // Phase 4: the resume path threads the required return like the inline path.
-            required_return: mergeValuationConfig(state.config.valuation).required_return,
+            // Phase 4: the resume path threads the required return like the inline path (user-set only).
+            ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
           },
           { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
         )

@@ -359,6 +359,18 @@ export const mergeValuationConfig = (
   }
 }
 
+/**
+ * The required return ONLY when the user actually set it (vintage-stamped), else undefined.
+ * B8 live finding: callers that thread `mergeValuationConfig(...).required_return` unconditionally
+ * make the engine stamp `required_return_basis: 'setting'` for users who never touched Settings —
+ * the merge returns the 0.15 book default either way, so "command carries a number" must mean
+ * "the user chose it". Thread THIS into research-run commands, never the bare merge result.
+ */
+export const userSetRequiredReturn = (partial?: Partial<ValuationConfig>): number | undefined =>
+  partial?.required_return_set_at !== undefined && normalizeVintageValue(partial.required_return_set_at) !== undefined
+    ? mergeValuationConfig(partial).required_return
+    : undefined
+
 const normalizeVintageValue = (value: unknown): string | undefined => {
   if (typeof value !== 'string' || value.trim() === '') return undefined
   return Number.isNaN(Date.parse(value)) ? undefined : value

@@ -17,6 +17,7 @@ import {
   SAVINGS_RATE_MAX,
   defaultSavingsSleeveConfig,
   mergeSavingsSleeveConfig,
+  userSetRequiredReturn,
 } from '../appConfig'
 
 describe('two-state mode model', () => {
@@ -483,5 +484,21 @@ describe('mergePassiveSleeveConfig (B7)', () => {
     const merged = mergePassiveSleeveConfig({ monthly_amount: 500, schedule_day: 5 }, { now: '2026-07-12T00:00:00Z' })
     expect(merged.passive_set_at).toBe('2026-07-12T00:00:00Z')
     expect(mergePassiveSleeveConfig({ monthly_amount: 0 }, { now: '2026-07-12T00:00:00Z' }).passive_set_at).toBeUndefined()
+  })
+})
+
+// B8 live finding: the web/worker layers threaded mergeValuationConfig(...).required_return
+// UNCONDITIONALLY, so the engine stamped required_return_basis 'setting' for users who never touched
+// Settings. The command must carry the required return ONLY when it is user-set (vintage-stamped).
+describe('userSetRequiredReturn', () => {
+  it('returns undefined when valuation is absent or never user-set (engine falls back to the book default)', () => {
+    expect(userSetRequiredReturn(undefined)).toBeUndefined()
+    expect(userSetRequiredReturn({ required_return: 0.15 })).toBeUndefined()
+  })
+
+  it('returns the merged value only when the vintage stamp proves a user write', () => {
+    expect(userSetRequiredReturn({ required_return: 0.12, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.12)
+    // A stamped-but-invalid rate still fails closed to the default VALUE — but it stays user-attributed.
+    expect(userSetRequiredReturn({ required_return: 9, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.15)
   })
 })
