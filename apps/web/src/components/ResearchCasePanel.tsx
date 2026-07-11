@@ -1759,6 +1759,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   if (valuation === undefined) return null
 
   const pctPts = (frac: number) => `${(frac * 100).toFixed(1)}%`
+  // NVO dogfood (2026-07-11): on a moat-gated case the buy-price math (fair-value derivatives, implied
+  // growth/multiples, buy zone, MoS grade) is DELIBERATELY not computed — a below-gate name is set aside
+  // before pricing. Say so once, instead of rendering a wall of "Pending" that reads as an incomplete run.
+  const moatGatedNotPriced = valuation.moat_passes_gate === false
 
   // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reverse-DCF
   // market-implied growth is the richness read. (forward-DCF removal: the dollar reference fair value is gone.)
@@ -1930,15 +1934,15 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
       createValuationLedgerStat(
         'Market-implied growth',
-        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',
+        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'),
         '',
       ),
       // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
       // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
       // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
       // model judgment or vice versa.
-      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
+      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
       createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
