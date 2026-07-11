@@ -12,7 +12,7 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 
 - **Concentrated** — up to 20 positions, maximum 15 % per position, 3 % minimum cash buffer.
 - **Quality** — investable only when the business has a durable wide economic moat and positive normalized owner earnings.
-- **Value** — buy price derived from a two-stage owner-earnings DCF at a flat 10 % discount rate, then discounted by a **uniform 25 % base margin of safety** (F.13). All conservatism beyond honest inputs lives in that single MoS knob, which **widens** with documented uncertainty (high terminal-value share, low maintenance-capex confidence, weak moat durability, sensitivity dispersion). The certainty difference between moat classes is captured by the human-weighted moat-durability input (and that widening rule), **not** by tiering the discount rate or the margin of safety.
+- **Value** — buy price derived from a two-stage owner-earnings DCF at a flat savings-anchored discount rate (the user's compliant savings anchor + the uniform 5.5 % equity premium — 9.5 % at a 4 % anchor; F.2), then discounted by a **uniform 25 % required margin of safety** (F.13, T0-graded). All conservatism beyond honest inputs lives in that single MoS knob, which **widens** with documented uncertainty (high terminal-value share, low maintenance-capex confidence, weak moat durability, sensitivity dispersion). The certainty difference between moat classes is captured by the human-weighted moat-durability input (and that widening rule), **not** by tiering the discount rate or the margin of safety.
 - **Shariah-first** — Shariah screening is the first hard gate; a non-compliant result stops the deep-dive before provider cost is incurred.
 
 ### Pipeline
@@ -72,7 +72,7 @@ The moat class is assessed by the deep-dive moat specialist. The gate is enforce
 
 ## 3. Flat discount rate + uniform margin of safety
 
-**All investable moat classes use the same flat 10 % discount rate AND the same uniform base margin of safety** (F.13). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
+**All investable moat classes use the same flat savings-anchored discount rate (F.2: anchor + uniform equity premium) AND the same uniform required margin of safety** (F.13). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
 
 | Discount rate | Base margin of safety |
 |---|---|

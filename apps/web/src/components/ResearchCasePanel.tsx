@@ -23,7 +23,9 @@ import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/wo
 // Live default discount when an event predates a stored discount_rate: the savings-anchored default
 // (compliant savings rate + equity premium), computed from the versioned strategy contract — never a
 // hard-coded "10%". Mirrors how StrategyOverview/LearnTabs render the live discount.
-const DEFAULT_DISCOUNT_LABEL = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%`
+// Rounding bug fix (owner find, 2026-07-11): Math.round(9.5)=10 rendered a 9.5% discount as "10%".
+const pctLabel = (rate: number): string => `${(rate * 100).toFixed(1).replace(/\.0$/, '')}%`
+const DEFAULT_DISCOUNT_LABEL = pctLabel(discountRate(buffettMungerStrategy))
 
 export type MarketQuote = {
   price_per_share: number
@@ -382,7 +384,7 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
   // Valuation headline: the moat tier + discount rate on the right of the card header (mirrors the in-card
   // moat label). Reuses the same DEFAULT_DISCOUNT_LABEL fallback as the valuation panel.
   const valDiscountRate = researchCase.valuation?.discount_rate
-  const valDiscountLabel = valDiscountRate !== undefined ? `${Math.round(valDiscountRate * 100)}%` : DEFAULT_DISCOUNT_LABEL
+  const valDiscountLabel = valDiscountRate !== undefined ? pctLabel(valDiscountRate) : DEFAULT_DISCOUNT_LABEL
   const valuationHint = researchCase.valuation === undefined
     ? undefined
     : `${(researchCase.valuation.moat_class ?? 'unknown').toUpperCase()} MOAT · ${valDiscountLabel} DISCOUNT`
@@ -1820,7 +1822,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const redTeamResponse = redTeam?.synthesis_response
   const redTeamUnaddressed = redTeam?.objection_unaddressed === true
 
-  const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : DEFAULT_DISCOUNT_LABEL
+  const discountLabel = discountRateVal !== undefined ? pctLabel(discountRateVal) : DEFAULT_DISCOUNT_LABEL
 
   // Judged-growth label: the model's judged sustainable g (early years) fading to terminal g_t. growth_rate
   // is now the MODEL's cite-verified assumed/judged growth; the capped demonstrated CAGR is the
@@ -1830,8 +1832,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% (filings)` : ''}${runwayLabel}`
-      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}${runwayLabel}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
