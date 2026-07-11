@@ -1900,7 +1900,7 @@ export async function runResearchDeepDivePhase(
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
       + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), owner_earnings_citation (REQUIRED — the source_id of a VERIFIED primary source from YOUR proposed_sources / the corpus that backs the owner-earnings figure; a real grounded source_id, NOT a prose hand-wave), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), assumed_growth_citation (REQUIRED — the source_id of a VERIFIED primary source backing that growth rationale; again a real grounded source_id, NOT prose), and optionally discount_rationale. The harness deterministically cite-checks owner_earnings_citation and assumed_growth_citation against the grounded corpus and FAILS CLOSED (routes to RESEARCH_MORE) when either is absent or does not verify — cite real grounded sources of your own. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. IMPORTANT: these REQUIRED audit artifacts do NOT argue against your own verdict — every sound thesis still has a nameable wrong-assumption and concrete break triggers; recording them is bookkeeping for the human, not evidence of fragility. Judge the verdict on the thesis itself. `
-      + `MARGIN-OF-SAFETY JOINT JUDGMENT — REQUIRED, do not omit: margin_of_safety. YOU OWN this as a single joint judgment. The margin of safety comes from TWO SUBSTITUTABLE sources: (1) the PRICE-vs-value gap (your proposed_buy_below sits below value), and (2) MOAT DURABILITY (a fortress moat lets TIME bail out estimate error, so it needs LESS price discount). Name in 'sources' which source(s) THIS margin actually rests on — 'price', 'moat', or BOTH (they substitute: a wide-enough moat can carry a thinner price discount, and a deep-enough price discount can carry a narrower moat). For EACH named source give its reasoning: price_gap_reasoning when 'price' (WHY the price gap supplies margin for THIS business), moat_durability_reasoning when 'moat' (WHY the moat's durability supplies margin — and it MUST rest on the GROUNDED moat thesis the moat gate verified above, '${judgment.moat!.resolved_moat_class}', NOT a fresh moat claim). Then give a REASONED adequacy ('adequate' | 'thin' | 'inadequate') and a joint reasoning tying the named source(s) together. Be business-specific, NOT boilerplate. NOTE: adequacy is a REASONED JUDGMENT DISPLAYED for the human to audit — it does NOT change your verdict or buy-below (those stand on their own); it only ARTICULATES why the margin is or is not adequate. `
+      + `MARGIN-OF-SAFETY JOINT JUDGMENT — REQUIRED, do not omit: margin_of_safety. YOU OWN this as a single joint judgment. The margin of safety comes from TWO SUBSTITUTABLE sources: (1) the PRICE-vs-value gap (your proposed_buy_below sits below value), and (2) MOAT DURABILITY (a fortress moat lets TIME bail out estimate error, so it needs LESS price discount). Name in 'sources' which source(s) THIS margin actually rests on — 'price', 'moat', or BOTH (they substitute: a wide-enough moat can carry a thinner price discount, and a deep-enough price discount can carry a narrower moat). For EACH named source give its reasoning: price_gap_reasoning when 'price' (WHY the price gap supplies margin for THIS business), moat_durability_reasoning when 'moat' (WHY the moat's durability supplies margin — and it MUST rest on the GROUNDED moat thesis the moat gate verified above, '${judgment.moat!.resolved_moat_class}', NOT a fresh moat claim). Then give a joint reasoning tying the named source(s) together. Be business-specific, NOT boilerplate. NOTE: do NOT grade the margin's adequacy — the harness computes the margin-of-safety GRADE arithmetically (the buy-below's discount to the reference value vs the uniform required margin); your job is the NARRATIVE of which source(s) carry the margin and why. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -2546,6 +2546,10 @@ export async function runResearchDeepDivePhase(
   let terminal_growth_rate: number | undefined
   let terminal_value_pct_of_iv: number | undefined
   let cap_exceeded = false
+  // Phase 2 V2: the T0 margin-of-safety grade's reference value — min(internal DCF fair value, the
+  // 18× OE cap value). INTERNAL (the forward-DCF dollar stays unsurfaced); only the grade + discount
+  // percentage are emitted.
+  let mosReferenceValue: number | undefined
 
   // NOTE (R1): maintenance-capex confidence was a widening input for the retired required_growth_gap engine
   // (deleted in R2). The relightened decision no longer widens a deterministic conservatism knob — the
@@ -2668,8 +2672,9 @@ export async function runResearchDeepDivePhase(
       )
     } else {
       // forward-DCF removal: the dollar forward FV is no longer surfaced; it is used here ONLY to derive the
-      // implied_multiple ratio + the terminal-share / cap sanity flags.
+      // implied_multiple ratio + the terminal-share / cap sanity flags (+ V2: the MoS grade reference).
       implied_multiple = computedFairValue / normalized_owner_earnings_per_share
+      mosReferenceValue = Math.min(computedFairValue, valuation_multiple_ceiling * normalized_owner_earnings_per_share)
       // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
       const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
       if (highTvShare) {
@@ -3031,6 +3036,27 @@ export async function runResearchDeepDivePhase(
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
   const in_buy_zone = current_price !== undefined && buy_below !== undefined
     ? current_price <= buy_below
+    : undefined
+
+  // ---- Phase 2 V2 (owner-validated 2026-07-11): the T0 MARGIN-OF-SAFETY GRADE ----
+  // The model no longer grades its own margin (the joint judgment keeps ONLY the narrative — which
+  // source the margin rests on and why). The GRADE is arithmetic: the buy-below's discount to the
+  // conservative reference value (min(internal DCF FV, 18× OE)) measured against the UNIFORM required
+  // margin (F.13: never moat-tiered — the moat's contribution to safety stays in the surfaced,
+  // human-weighted channels). Audit-only, exactly like adequacy was: it NEVER gates the verdict.
+  const requiredMos = buffettMungerStrategy.valuation.required_margin_of_safety
+  const margin_of_safety_grade = (buy_below !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
+    ? (() => {
+        const discount = (mosReferenceValue - buy_below) / mosReferenceValue
+        const grade: 'adequate' | 'thin' | 'inadequate' =
+          discount >= requiredMos ? 'adequate' : discount >= requiredMos / 2 ? 'thin' : 'inadequate'
+        return {
+          grade,
+          price_discount_to_reference: Number(discount.toFixed(4)),
+          required_margin: requiredMos,
+          reference_basis: (cap_exceeded ? 'oe_cap_bound' : 'dcf_fair_value') as 'oe_cap_bound' | 'dcf_fair_value',
+        }
+      })()
     : undefined
 
 
@@ -3493,6 +3519,8 @@ export async function runResearchDeepDivePhase(
         //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
+        // Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; never gates).
+        ...(margin_of_safety_grade !== undefined ? { margin_of_safety_grade } : {}),
         // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at
         // the MODEL's assumed growth; no discount-compounding factor) — the exit P/OE the live price requires;
         // a flag-only §2 sanity output (see the inline derivation above).

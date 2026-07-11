@@ -243,9 +243,12 @@ export const DecisionAgentSchema = z.object({
     // Required-in-prompt when 'moat' is a source: WHY moat durability supplies margin — anchored on the
     // GROUNDED moat thesis the moat gate verified, NOT a fresh claim.
     moat_durability_reasoning: z.string().optional(),
-    // A REASONED JUDGMENT of whether the joint margin is adequate. Audit-only — NEVER gates the verdict.
-    adequacy: z.enum(['adequate', 'thin', 'inadequate']),
-    // The joint reasoning tying the named source(s) together into the adequacy judgment.
+    // Phase 2 V2 (owner-validated 2026-07-11): the GRADE is now T0-computed (margin_of_safety_grade on
+    // the valuation payload — the buy-below's discount to the reference value vs the uniform required
+    // margin). The model no longer grades its own margin; tolerated read-only on legacy payloads.
+    adequacy: z.enum(['adequate', 'thin', 'inadequate']).optional(),
+    // The joint reasoning tying the named source(s) together (the NARRATIVE — which source(s) the
+    // margin rests on and why; the human weighs it against the T0 grade).
     reasoning: z.string().min(1),
   }),
   // RELIGHTENED DECISION (R1): the MODEL proposes the price below which it would buy, WITH its cited

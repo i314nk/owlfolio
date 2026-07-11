@@ -51,6 +51,9 @@ export const valuationPolicySchema = z.object({
   discount_rate: z.number().positive(),
   /** Fixed UNIFORM equity premium (no quality knob); discount = compliant savings rate + this (Phase 1.4 / Step 3 / F.2). */
   equity_premium: z.number().positive(),
+  /** Phase 2 V2 — the UNIFORM required margin of safety (decimal discount to the reference value) the T0
+   *  grade measures against. Uniform per F.13 (business quality is not a valuation-loosening lever). */
+  required_margin_of_safety: z.number().positive(),
   /** Fail-closed default COMPLIANT SAVINGS rate (risk-free anchor) when the app-config rate is unavailable (F.2; Treasury anchor retired). */
   savings_rate_default: z.number().positive(),
   /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged. */

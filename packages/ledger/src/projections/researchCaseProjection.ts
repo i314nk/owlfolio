@@ -65,7 +65,9 @@ export type ResearchCaseMarginOfSafetyJudgment = {
   sources: ('price' | 'moat')[]
   price_gap_reasoning?: string
   moat_durability_reasoning?: string
-  adequacy: 'adequate' | 'thin' | 'inadequate'
+  /** Legacy (pre-V2) model-graded adequacy — read-only; current runs carry the T0
+   *  valuation.margin_of_safety_grade instead. */
+  adequacy?: 'adequate' | 'thin' | 'inadequate'
   reasoning: string
 }
 
@@ -295,6 +297,13 @@ export type ResearchCaseCircleCompetenceProjection = {
 }
 
 export type ResearchCaseValuationProjection = {
+  /** Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; the model no longer grades). */
+  margin_of_safety_grade?: {
+    grade: 'adequate' | 'thin' | 'inadequate'
+    price_discount_to_reference?: number
+    required_margin?: number
+    reference_basis?: string
+  }
   /** Set when the case was set aside outside the circle of competence (the deep dive did not run). */
   circle_competence_unmet?: boolean
   /** Mirror flag for the set-aside path (outside the owner-policy + competence circle). */
@@ -957,11 +966,12 @@ function getMarginOfSafetyJudgment(
   if (!Array.isArray(rawSources)) return undefined
   const sources = rawSources.filter((s): s is 'price' | 'moat' => s === 'price' || s === 'moat')
   if (sources.length === 0) return undefined
+  // Phase 2 V2: adequacy is legacy-optional (current runs carry the T0 grade on the valuation instead).
   const adequacy = value['adequacy']
-  if (adequacy !== 'adequate' && adequacy !== 'thin' && adequacy !== 'inadequate') return undefined
+  const validAdequacy = adequacy === 'adequate' || adequacy === 'thin' || adequacy === 'inadequate' ? adequacy : undefined
   const reasoning = value['reasoning']
   if (typeof reasoning !== 'string' || reasoning.trim().length === 0) return undefined
-  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, adequacy, reasoning }
+  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, ...(validAdequacy === undefined ? {} : { adequacy: validAdequacy }), reasoning }
   const priceGap = value['price_gap_reasoning']
   if (typeof priceGap === 'string' && priceGap.length > 0) judgment.price_gap_reasoning = priceGap
   const moatDurability = value['moat_durability_reasoning']
@@ -1591,6 +1601,21 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
       ...(risk_free_rate !== undefined ? { risk_free_rate } : {}),
       ...(risk_free_basis !== undefined ? { risk_free_basis } : {}),
       ...(equity_premium !== undefined ? { equity_premium } : {}),
+    }
+  }
+  const mosGradeRaw = value['margin_of_safety_grade']
+  if (isRecord(mosGradeRaw)) {
+    const grade = mosGradeRaw['grade']
+    if (grade === 'adequate' || grade === 'thin' || grade === 'inadequate') {
+      const discountToRef = getNumber(mosGradeRaw, 'price_discount_to_reference')
+      const requiredMargin = getNumber(mosGradeRaw, 'required_margin')
+      const referenceBasis = getString(mosGradeRaw, 'reference_basis')
+      projected.margin_of_safety_grade = {
+        grade,
+        ...(discountToRef !== undefined ? { price_discount_to_reference: discountToRef } : {}),
+        ...(requiredMargin !== undefined ? { required_margin: requiredMargin } : {}),
+        ...(referenceBasis !== undefined ? { reference_basis: referenceBasis } : {}),
+      }
     }
   }
   const growth_assumptions = getString(value, 'growth_assumptions')
