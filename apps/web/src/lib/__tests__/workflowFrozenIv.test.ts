@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
-import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -24,19 +23,6 @@ import { promoteResearchCaseToWatchlist } from '../workflow'
 // Sibling file (NOT workflow.test.ts) per the slice's test-placement guidance.
 // ---------------------------------------------------------------------------
 
-/** The expected frozen REFERENCE FV: forward two-stage FV at the sign-off assumed growth off the oe_ps. */
-function expectedReferenceFairValue(oe_ps: number, g: number): number {
-  return twoStageValuation({
-    oe_ps,
-    g,
-    terminal_g: VALUATION_PARAMS.terminal_growth,
-    discount: discountRate(buffettMungerStrategy),
-    ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
-    absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
-    horizon: VALUATION_PARAMS.stage1_horizon,
-    fade_years: VALUATION_PARAMS.growth_fade_years,
-  }).fair_value as number
-}
 
 
 function makeState(ledgerPath: string, sourceLedgerPath: string) {
