@@ -712,7 +712,10 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
     createElement('p', { key: 't0-head', style: { ...muted, fontWeight: 800, marginTop: '0.6rem' } }, 'Harness T0 observations (the model reconciles; it never re-derives):'),
     t0Line('ROIC', t0?.roic, (b) => `median ${((b['median_roic'] as number) * 100).toFixed(1)}% — ${String(b['band'])}`),
     t0Line('Payout', t0?.payout, (b) => `dividends ${String(b['dividend_paying_years'])}/${String(b['years_used'])} yrs, buybacks ${String(b['buyback_years'])}/${String(b['years_used'])}${b['payout_ratio_latest'] !== undefined ? `, ratio ${((b['payout_ratio_latest'] as number) * 100).toFixed(0)}% of NI` : ''}${b['buybacks_below_sbc'] === true ? ' — buybacks below SBC (only mop up dilution)' : ''}`),
-    t0Line('Debt', t0?.debt, (b) => `total $${Math.round(b['latest_total_debt_musd'] as number)}M${b['interest_coverage'] !== undefined ? `, coverage ${(b['interest_coverage'] as number).toFixed(0)}×` : ''}`),
+    t0Line('Debt', t0?.debt, (b) => `total $${Math.round(b['latest_total_debt_musd'] as number)}M`
+      + `${b['debt_to_equity'] !== undefined ? `, D/E ${(b['debt_to_equity'] as number).toFixed(2)} (${(b['debt_to_equity'] as number) < 1 ? 'conservative' : (b['debt_to_equity'] as number) > 2 ? 'WARNING >2' : 'moderate'})` : ''}`
+      + `${b['current_ratio'] !== undefined ? `, current ratio ${(b['current_ratio'] as number).toFixed(2)} (${(b['current_ratio'] as number) >= 2 ? 'healthy' : (b['current_ratio'] as number) >= 1 ? 'ok' : 'RED FLAG <1'})` : ''}`
+      + `${b['interest_coverage'] !== undefined ? `, coverage ${(b['interest_coverage'] as number).toFixed(0)}×` : ''}`),
   )
   const retained = mj.retained_earnings
   if (retained !== undefined) {

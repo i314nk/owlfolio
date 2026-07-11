@@ -279,7 +279,14 @@ export const MANAGEMENT_PILLAR_PROMPT =
   + `each as a GROUNDED CITED THESIS (argue it, do not assert it). `
   + `TRAIT 1 — INTEGRITY: monitor management's COMMUNICATION through the grounded filings (MD&A candor, `
   + `shareholder-letter language where present, earnings-call transcripts ONLY if a transcript source `
-  + `actually verifies) — emit communication_observations [{observation, citation}]. Assess HOW `
+  + `actually verifies) — emit communication_observations [{observation, citation}]. You are answering `
+  + `ONE question: is this person being honest, clear, and transparent — or dancing around the truth? `
+  + `Apply the five candor tests: (1) do they explain complex issues clearly, or hide behind jargon? `
+  + `(2) are they open about challenges, or do they only focus on the positives? (3) when something goes `
+  + `wrong, do they take responsibility, or blame external factors? (4) do they sound like a thoughtful `
+  + `leader, or a politician dodging hard questions? (5) after reading, do you trust them more or less? `
+  + `The two 10-K sections that reveal the most: Part I Item 1 (the business description) and Part II `
+  + `Item 7 (the MD&A) — read them via read_source where available. Assess HOW `
   + `management is PAID from the DEF 14A proxy: comp_structure {summary, incentive_metrics, alignment, `
   + `citation} — cite the grounded proxy source_id. Emit integrity_flags [{claim, severity, citation}] `
   + `for cited red flags (related-party dealings, restatements, candor failures, egregious pay); an `

@@ -84,3 +84,27 @@ describe('buildManagementTalentBlock', () => {
     expect(block).toMatch(/deferred on data/i)
   })
 })
+
+// B4 (book alignment): the two NAMED debt ratios — debt-to-equity (<1 conservative / >2 warning)
+// and the current ratio (≥2 healthy / ≥1 ok / <1 red flag) — rendered with the book's bands.
+describe('B4 — debt-to-equity + current ratio', () => {
+  it('computes both ratios and renders the book bands in the block', () => {
+    const s = goodSeries().map((a) => ({ ...a, current_assets_musd: 900, current_liabilities_musd: 400 }))
+    const t0 = computeManagementTalentT0(s)
+    if (!t0.debt.computable) throw new Error('debt should compute')
+    expect(t0.debt.debt_to_equity).toBeCloseTo(1000 / 6500, 4)
+    expect(t0.debt.current_ratio).toBeCloseTo(2.25, 4)
+    const block = buildManagementTalentBlock(t0)
+    expect(block).toMatch(/debt\/equity 0\.15 \(conservative <1\)/)
+    expect(block).toMatch(/current ratio 2\.25 \(healthy ≥2\)/)
+  })
+
+  it('renders the red-flag band and omits D/E on negative equity (never a misleading negative ratio)', () => {
+    const s = goodSeries().map((a) => ({ ...a, stockholders_equity_musd: -500, current_assets_musd: 300, current_liabilities_musd: 400 }))
+    const t0 = computeManagementTalentT0(s)
+    if (!t0.debt.computable) throw new Error('debt should compute')
+    expect(t0.debt.debt_to_equity).toBeUndefined()
+    expect(t0.debt.current_ratio).toBeCloseTo(0.75, 4)
+    expect(buildManagementTalentBlock(t0)).toMatch(/RED FLAG <1/)
+  })
+})

@@ -40,6 +40,10 @@ export type ManagementTalentT0 = {
         debt_to_operating_income?: number
         /** Operating income / interest expense. */
         interest_coverage?: number
+        /** B4 (the book's first named ratio): total debt / stockholders' equity — <1 conservative, >2 warning. */
+        debt_to_equity?: number
+        /** B4 (the book's second named ratio): current assets / current liabilities — ≥2 healthy, ≥1 ok, <1 red flag. */
+        current_ratio?: number
       }
     | { computable: false; reason: string }
 }
@@ -112,12 +116,21 @@ export function computeManagementTalentT0(series: AnnualFacts[]): ManagementTale
     const op = latest.operating_income_musd
     const interest = latest.interest_expense_musd
     const cash = latest.cash_and_securities_musd
+    // B4 (book alignment): the two ratios the book names. D/E needs positive equity (a negative-equity
+    // filer gets no ratio — surfaced by its absence, never a misleading negative number).
+    const equity = latest.stockholders_equity_musd
+    const currentAssets = latest.current_assets_musd
+    const currentLiabilities = latest.current_liabilities_musd
     debt = {
       computable: true,
       latest_total_debt_musd: latestDebt,
       ...(cash !== undefined ? { net_debt_musd: latestDebt - cash } : {}),
       ...(op !== undefined && op > 0 ? { debt_to_operating_income: latestDebt / op } : {}),
       ...(op !== undefined && interest !== undefined && interest > 0 ? { interest_coverage: op / interest } : {}),
+      ...(equity !== undefined && equity > 0 ? { debt_to_equity: latestDebt / equity } : {}),
+      ...(currentAssets !== undefined && currentLiabilities !== undefined && currentLiabilities > 0
+        ? { current_ratio: currentAssets / currentLiabilities }
+        : {}),
     }
   } else {
     debt = { computable: false, reason: 'total debt not tagged for the latest year' }
@@ -147,6 +160,8 @@ export function buildManagementTalentBlock(t0: ManagementTalentT0, retained?: Re
   lines.push(t0.debt.computable
     ? `- Debt management: total debt $${Math.round(t0.debt.latest_total_debt_musd)}M`
       + `${t0.debt.net_debt_musd !== undefined ? ` (net ${t0.debt.net_debt_musd < 0 ? '-$' + Math.abs(Math.round(t0.debt.net_debt_musd)) : '$' + Math.round(t0.debt.net_debt_musd)}M)` : ''}`
+      + `${t0.debt.debt_to_equity !== undefined ? `, debt/equity ${t0.debt.debt_to_equity.toFixed(2)} (${t0.debt.debt_to_equity < 1 ? 'conservative <1' : t0.debt.debt_to_equity > 2 ? 'WARNING >2 — leaning heavily on borrowed money' : 'moderate'})` : ''}`
+      + `${t0.debt.current_ratio !== undefined ? `, current ratio ${t0.debt.current_ratio.toFixed(2)} (${t0.debt.current_ratio >= 2 ? 'healthy ≥2' : t0.debt.current_ratio >= 1 ? 'ok ≥1' : 'RED FLAG <1 — short-term assets do not cover short-term liabilities'})` : ''}`
       + `${t0.debt.debt_to_operating_income !== undefined ? `, ${t0.debt.debt_to_operating_income.toFixed(1)}× operating income` : ''}`
       + `${t0.debt.interest_coverage !== undefined ? `, interest coverage ${t0.debt.interest_coverage.toFixed(0)}×` : ''}.`
     : `- Debt management: not computable (${t0.debt.reason}).`)
