@@ -72,6 +72,7 @@ const pct = (v: number): string => `${(v * 100).toFixed(2).replace(/\.?0+$/, '')
  * override — the equity premium stays a uniform strategy constant (F.13).
  */
 export function SavingsAnchorPanel({ initialSavings, configured, equityPremium }: SavingsAnchorPanelProps): ReactNode {
+  void equityPremium // retained in the props contract; the discount line moved to the required-return panel (Phase 4)
   const router = useSafeRouter()
   const [ratePercent, setRatePercent] = useState<string>((initialSavings.savings_expected_profit_rate * 100).toFixed(2).replace(/\.?0+$/, ''))
   const [submitting, setSubmitting] = useState(false)
@@ -108,8 +109,8 @@ export function SavingsAnchorPanel({ initialSavings, configured, equityPremium }
       'p',
       { style: helperStyle },
       'The EXPECTED (not guaranteed) profit rate of your Shariah-compliant savings alternative (Mudarabah). '
-      + 'This ONE number anchors the valuation discount rate, the deployment hurdle, and position sizing — '
-      + 'set it to what your idle capital actually earns. It is deliberately not a raw discount override.',
+      + 'This number anchors the deployment hurdle and position sizing — set it to what your idle capital '
+      + 'actually earns. (Phase 4: the VALUATION discount is now the separate flat required return below.)',
     ),
     !configured
       ? createElement(
@@ -150,8 +151,7 @@ export function SavingsAnchorPanel({ initialSavings, configured, equityPremium }
     createElement(
       'p',
       { style: derivedStyle, 'data-testid': 'savings-anchor-derived' },
-      `Discount rate = ${pct(previewRate)} anchor + ${pct(equityPremium)} equity premium = ${pct(previewRate + equityPremium)} · `
-      + `Deployment hurdle = ${pct(previewRate)} + ${pct(initialSavings.equity_risk_margin)} margin = ${pct(previewRate + initialSavings.equity_risk_margin)}`,
+      `Deployment hurdle = ${pct(previewRate)} + ${pct(initialSavings.equity_risk_margin)} margin = ${pct(previewRate + initialSavings.equity_risk_margin)}`,
     ),
     createElement(
       'p',
