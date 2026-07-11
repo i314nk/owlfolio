@@ -214,13 +214,16 @@ SPGI runs), kimi under-filling monolithic synthesis fields (net_income 0, missin
 decision_reason "BUY"), and the SPGI amortization collision (merger-intangible D&A vs maintenance
 capex fighting inside one field).
 
-**Status (2026-07-11):** V1 DONE (510b7c7 + bb20521 — always-on stage, stage-first T0 inputs, one
-call per run). V2 DONE (b285dff — uniform required_margin_of_safety 0.25 provisional, T0 grade,
-adequacy retired to narrative-only; owner-validated shape). V3 DONE (d504f95 — option A: fx ×
-assumed-1 ADR w/ visible flag + curated strategies/adrRatios map; DKK pinned offline; NVO LIVE
-acceptance pending). V5 DONE (866258d — lane/synthesis/red-team stage costs). V4 + V6 remain; V4
-deliberately AFTER a live checkpoint (the monolithic fields are the safety net until the stage is
-proven grounded on the live model).
+**Status (2026-07-11, PHASE 2 COMPLETE):** V1 DONE (510b7c7 + bb20521). V2 DONE (b285dff,
+owner-validated). V3 DONE (d504f95, option A; NVO LIVE acceptance PASSED — DKK→USD @ live rate,
+assumed-1 flag, moat-gated set-aside). V5 DONE (866258d). V4 DONE (7cb76ed — after the live
+checkpoint proved the stage grounded 2/2 on kimi; monolithic fields dropped, stage retry-forced,
+currency instructions added). **V6 WITHDRAWN (resolved by prior fixes):** the bridge already adds
+back ALL D&A (OE = NI + D&A − maint − SBC − ΔNWC), so merger amortization is excluded from OE by
+construction — an explicit intangible_amortization_addback would DOUBLE-COUNT; the real SPGI
+collision (the D&A-tied proxy overstating maintenance capex) was fixed by the capex-envelope cap
+(e69fc51). Live-week riders shipped alongside: the gated-dossier invariant (no unvetted numbers on
+set-asides), no-buy-zone-on-moat-fail, 'Not priced (moat gate)' labels.
 
 **Slices:**
 - **V1 — the always-on valuation pass + event**: PROMOTE the existing focused
