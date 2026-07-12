@@ -55,12 +55,20 @@ accounting quality; absorbs the retired business_quality + financial_quality nar
 inversion's cite-checked `consensus_check` (Munger's social-proof read). Historical 5-lane dossiers
 keep rendering forever (persisted lane ids are a stable contract).
 
-**The moat pillar** carries the owner's three named tests (harness-computed T0): **capital
+**The moat pillar** (owner calibration, 2026-07-12): a moat is **protection, not a strength** — it
+is what prevents a competent, well-funded competitor from taking share or replicating the model.
+Every driver must pass the **replication test** ("what specifically stops a funded rival from copying
+this?"); operational excellence, good products, growth, or buildable scale are strengths and are not
+emitted as drivers. The dossier titles the card "Likely moats — model-identified, cite-checked": a
+citation proves the mechanism is *real*, not that it *protects* — whether the protection shows up in
+the economics is the three tests' job. The pillar carries the owner's three named tests
+(harness-computed T0): **capital
 efficiency** (median-ROIC bands: ≥15 % excellent / 10–15 % solid / <10 % weak), **two-engine**
 (book-STRICT since the 2026-07 alignment: revenue growing AND operating margins **expanding** —
 OLS slope > +25 bps/yr, flat fails — with a four-quadrant diagnostic naming which engine is
 missing), and **standout** (gross margin vs industry peers — the company side is T0; the peer side
-is the moat lane's cited-or-labeled judgment until peer-filing grounding ships). Capital efficiency
+is the moat lane's cited-or-labeled judgment until peer-filing grounding ships; a no-COGS filer —
+a payments network has no gross-profit line — falls back to **operating margin**, basis-labeled). Capital efficiency
 + two-engine ARE the mechanical moat anchor (they replaced M1/M2); standout is displayed, not
 scored. The lane
 also tags each grounded driver with a moat TYPE (brand, switching costs, network effect, intangible
@@ -150,8 +158,12 @@ corpus:
 
 - **Durable FCF growth rate** — the ten-year rate the filings support; the citation gate is the
   single grounding requirement of the stage.
-- **Industry exit multiple** — the price-to-FCF multiple a year-10 buyer would pay, cited or
-  labeled; the harness **clamps it to [8×, 20×]** and falls back to a conservative **12×** when the
+- **Exit multiple — anchored to NAMED COMPARABLES** (owner rule, 2026-07-12): the model must name
+  the 2–4 closest comparable companies with the P/FCF each trades at, exclude structurally different
+  names with reasons, and set the multiple from the **median of the named set, tilted conservative**
+  and priced for the exit-state (year-10) business. An unnamed "industry average" or a bare number is
+  an incomplete answer (retry-forced). The basis note (comps + figures + exclusions) renders on the
+  dossier. The harness **clamps to [8×, 20×]** and falls back to a conservative **12×** when the
   judgment is absent or unusable (`exit_multiple_source` records which).
 
 ### 4.3 Intrinsic value (harness-computed)
