@@ -472,8 +472,8 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('data-testid="decision-summary"')
     expect(html).toContain('Buy below (computed)')
     expect(html).toContain('$147.00')
-    expect(html.toLowerCase()).toContain('the market implies')
-    expect(html).toContain('18.0%')
+    expect(html.toLowerCase()).not.toContain('the market implies')
+    expect(html).not.toContain('Market-implied growth') // F: the implied read is retired
     // forward-DCF removal: the dollar reference fair value (fair_value_per_share) is no longer surfaced — no
     // $210.00 figure, no "cross-check" label.
     expect(html).not.toContain('$210.00')

@@ -176,7 +176,7 @@ function StrategyTab(): ReactNode {
         gold(`IV less a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety (rule 7)`),
         '; a ',
         gold(`${pct(VALUATION_PARAMS.load_up_margin)} discount marks the load-up zone (rule 8)`),
-        '. The market-implied growth — the same model inverted against today’s price — is the cross-check lens; deterministic sanity flags surface absurdity but never block. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        '. Deterministic sanity rails police absurdity internally but never block. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -202,11 +202,9 @@ function StrategyTab(): ReactNode {
           createElement('div', null, `exit = the model’s judged industry P/FCF at year ${STAGE1_HORIZON}; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when uncited/invalid`),
           createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
           createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)} (rule 7)   ·   load-up = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)} (rule 8)`),
-          createElement('div', null, 'lens = market-implied growth (the same model inverted against today’s price)'),
         ),
         cardGrid([
           { key: 'r', eyebrow: 'Required return', body: createElement('span', null, 'the flat ', mono(pct(VALUATION_PARAMS.required_return_default)), ' hurdle for every business (user-settable) — no beta, no quality knob. It doubles as the active-vs-passive bar.') },
-          { key: 'rdcf', eyebrow: 'Market-implied lens', body: 'The cross-check: the growth today’s price demands under the same book model vs the model’s cited growth. The gap is the read.' },
           { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s cited FCF growth; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
           { key: 'exit', eyebrow: 'Exit multiple', body: createElement('span', null, 'The model’s judged industry P/FCF, cited-or-labeled; the harness clamps to ', mono(`${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×`), ' and falls back to a conservative ', mono(`${VALUATION_PARAMS.exit_multiple_fallback}×`), ' when ungrounded.') },
           { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The model’s own price view is recorded as an advisory cross-check.') },

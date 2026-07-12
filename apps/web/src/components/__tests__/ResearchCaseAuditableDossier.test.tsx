@@ -131,7 +131,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('assumes')
   })
 
-  it('forward-DCF removal: does NOT surface the dollar reference fair value (even from a legacy-shape case), while the reverse-DCF read still shows', () => {
+  it('forward-DCF removal: does NOT surface the dollar reference fair value (even from a legacy-shape case), and no implied reads render (F)', () => {
     // baseCase() carries the retired forward-DCF reference_fair_value: 210 (legacy shape). The dossier must
     // NOT render it ($210.00) nor any "reference fair value" / "cross-check (not the decision)" label — a
     // dollar reference FV below the model buy-below read as a contradiction. The reverse-DCF market-implied
@@ -140,10 +140,10 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('$210.00')
     expect(html.toLowerCase()).not.toContain('reference fair value')
     expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
-    expect(html.toLowerCase()).toContain('the market implies')
+    expect(html.toLowerCase()).not.toContain('the market implies')
   })
 
-  it('forward-DCF removal (fresh shape): a case with NO reference_fair_value / fair_value_per_share renders no forward-FV figure, while the reverse-DCF read still shows', () => {
+  it('forward-DCF removal (fresh shape): a case with NO reference_fair_value / fair_value_per_share renders no forward-FV figure, and no implied reads render (F)', () => {
     // A fresh-shape case (post-removal emission): neither the dollar reference_fair_value nor
     // fair_value_per_share is present. The dossier must render no "reference fair value" / "cross-check"
     // label and no forward-FV figure, while the reverse-DCF market-implied growth read still shows.
@@ -156,7 +156,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     // The dollar-FV "cross-check" labels are gone (a generic "valuation cross-check" prose note is fine).
     expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
     expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
-    expect(html.toLowerCase()).toContain('the market implies')
+    expect(html.toLowerCase()).not.toContain('the market implies')
   })
 
   it('renders an honest degraded decision card for RESEARCH_MORE runs with no buy figures (never silently omits the section)', () => {
@@ -188,32 +188,26 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(keyFigures).toContain('6.0%')
   })
 
-  it('surfaces the market-implied growth read', () => {
+  it('F: the market-implied growth read no longer renders (the book has no implied lens)', () => {
     const html = render(baseCase(), QUOTE)
-    expect(html.toLowerCase()).toContain('the market implies')
-    expect(html).toContain('9.0%')
+    expect(html).not.toContain('data-testid="market-implied-growth"')
+    expect(html).not.toContain('Market-implied growth')
   })
 
-  it('surfaces the implied exit multiple (§2 flag-only sanity output) as a ledger line', () => {
-    const html = render(baseCase({ implied_exit_multiple: 7.8 }), QUOTE)
-    expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('7.8× FCF (yr-10)')
+  it('F: the implied exit multiple no longer renders as a stat (rails stay internal)', () => {
+    const html = render(baseCase({ implied_exit_multiple: 12.3 }), QUOTE)
+    expect(html).not.toContain('Market-implied exit multiple')
+    expect(html).not.toContain('12.3× FCF (yr-10)')
   })
 
-  it('renders the implied-exit-multiple directional flag annotation when it fires (high), alongside the line', () => {
+  it('F: the implied-exit-multiple FLAG still renders in the sanity annotations (rails stay)', () => {
     const html = render(baseCase({
-      implied_exit_multiple: 21.4,
-      sanity_flags: [
-        'sanity_implied_exit_multiple_high: today\'s price implies an exit multiple of 21.4× owner-earnings (> the 18× sanity cap), well above a defensible exit.',
-      ],
-    }), QUOTE)
-    // The ledger line shows the multiple.
-    expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('21.4× FCF (yr-10)')
-    // The directional flag annotation renders inside the advisory (non-blocking) sanity-flags panel.
-    expect(html).toContain('data-testid="sanity-flags"')
-    expect(html.toLowerCase()).toContain('above a defensible exit')
-    expect(html.toLowerCase()).toContain('does not block')
+      implied_exit_multiple: 25.1,
+      sanity_flags: ["sanity_implied_exit_multiple_high: today's price implies an exit multiple of 25.1× year-10 FCF (> the 20× book-band ceiling), well above a defensible exit."],
+    } as never), QUOTE)
+    expect(html).toContain('sanity_implied_exit_multiple_high')
+    // But no implied stat line renders.
+    expect(html).not.toContain('Market-implied exit multiple')
   })
 
   it('E1: the inversion detail (strongest objection) renders on the Munger lattice panel — no red-team vocabulary', () => {
@@ -297,10 +291,9 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('Reference fair value')
     expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
     expect(html).not.toContain('$210.00')
-    // the two hidden price-implied assumptions surfaced together
-    expect(html).toContain('Market-implied growth')
-    expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('12.3× FCF (yr-10)')
+    // F: the implied reads are retired from the strip (book figures only).
+    expect(html).not.toContain('Market-implied growth')
+    expect(html).not.toContain('Market-implied exit multiple')
     // the strip uses the owl ledger-stat idiom
     expect(html).toContain('owl-ledger-line')
     expect(html).toContain('owl-ledger-stat')
@@ -1137,8 +1130,9 @@ describe('management pillar card (S5)', () => {
     } as unknown as AppResearchCase, QUOTE)
     expect(html).toContain('data-testid="management-pillar-card"')
     expect(html).toContain('MANAGEMENT VETO (integrity)')
-    expect(html).toContain('Integrity: RED FLAG')
-    expect(html).toContain('Talent: ADEQUATE')
+    // F (owner call): two labeled subpoints with explanations beneath each.
+    expect(html).toContain('1. Integrity — RED FLAG')
+    expect(html).toContain('2. Talent — ADEQUATE')
     expect(html).toContain('cite-verified): Undisclosed related-party purchases')
     expect(html).toContain('UNVERIFIED — carries no weight): Rumored option backdating')
     expect(html).toContain('ROIC: median 12.0% — solid')

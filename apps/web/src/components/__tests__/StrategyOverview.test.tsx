@@ -72,7 +72,7 @@ describe('StrategyOverview', () => {
     expect(lower).toContain('exit multiple')
     expect(lower).toContain('rule 7')
     expect(lower).toContain('rule 8')
-    expect(lower).toContain('market-implied growth')
+    expect(lower).not.toContain('market-implied growth') // F: the implied lens is retired
     // The OE-era framing is gone.
     expect(lower).not.toContain('owner-earnings fair value')
     expect(lower).not.toContain('reverse-dcf first')

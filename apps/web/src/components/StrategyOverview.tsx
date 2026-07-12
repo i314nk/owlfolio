@@ -32,7 +32,7 @@ const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 
 // Worked example — an investable compounder, computed from the live contract so the prose tracks params.
-// The DECISION lens is the reverse-DCF (market-implied vs the model's judged sustainable growth); the
+// The DECISION is price vs the computed book thresholds; the
 // forward two-stage number below is computed only as the LABELED REFERENCE cross-check that corroborates
 // the model's reasoning, never as the decision. Here a 12% sustainable rate the model judges and cites is
 // under the deterministic sanity cap but above GDP, so a sanity-check flags it for the human to weigh.
@@ -510,7 +510,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'industry exit multiple'),
         ` a buyer would plausibly pay in year ${STAGE1_HORIZON} (clamped to ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, conservative ${VALUATION_PARAMS.exit_multiple_fallback}× fallback when uncited). Everything is discounted at the flat `,
         createElement('span', { style: monoFigure }, pct(VALUATION_PARAMS.required_return_default)),
-        ' required return (user-settable) — “anything less, buy the index.” No WACC, no beta, ever. The market-implied growth (the same model inverted against today’s price) is the cross-check lens; deterministic sanity flags surface absurdity but never block. You audit the two judgments and decide.',
+        ' required return (user-settable) — “anything less, buy the index.” No WACC, no beta, ever. Deterministic sanity rails police absurdity internally but never block. You audit the two judgments and decide.',
       ),
       children: createElement(
         'div',
@@ -539,7 +539,6 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, `r    = the required return, flat ${pct(VALUATION_PARAMS.required_return_default)} default (Settings)`),
           createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}   (rule 7 — never less than a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety)`),
           createElement('div', null, `load = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}   (rule 8 — a ${pct(VALUATION_PARAMS.load_up_margin)} discount marks “load up the truck”)`),
-          createElement('div', null, 'lens = market-implied growth: the SAME model inverted against today’s price (the crazy-detector)'),
         ),
 
         createElement('p', { style: microLabel }, 'The model’s two judgments — everything else is arithmetic'),
@@ -582,7 +581,7 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: monoFigure }, `$${EX_BUY.toFixed(2)}`),
             ' (rule 7), load up below ',
             createElement('span', { style: monoFigure }, `$${EX_LOAD.toFixed(2)}`),
-            ' (rule 8). The market-implied growth read against the live price tells you what the market is assuming; when even the model’s own advisory buy price implies growth above the cap, the rails say so. At a 15% hurdle, buy zones are rare by design — anything less, buy the index (the passive sleeve is the default home for capital).',
+            ' (rule 8). When even the model’s own advisory buy price would require growth above the cap, the internal rails say so. At a 15% hurdle, buy zones are rare by design — anything less, buy the index (the passive sleeve is the default home for capital).',
           ),
         ),
       ),

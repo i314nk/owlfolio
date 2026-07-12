@@ -154,7 +154,7 @@ describe('LearnTabs', () => {
     expect(lower).toContain('cfo − capex')
     expect(lower).toContain('exit multiple')
     expect(lower).toContain('margin of safety')
-    expect(lower).toContain('market-implied growth')
+    expect(lower).not.toContain('market-implied growth') // F: the implied lens is retired
     // FCF is honest fail-closed (no proxy).
     expect(lower).toContain('fail-closed')
     // The retired band/gap framing must NOT be reintroduced (Phase-8 tripwire — retired band/MoS terms).

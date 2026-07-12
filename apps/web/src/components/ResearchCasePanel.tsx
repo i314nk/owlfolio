@@ -576,7 +576,9 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
   if (valuation === undefined) return null
   const moatJudgment = valuation.judgment?.moat
 
-  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } as const
+  // F (owner call, 2026-07-12): fonts match the other pillar cards — standard prose sizes, no mono-xs.
+  const muted = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } as const
+  const subhead = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 800, letterSpacing: '0.03em', margin: '0.55rem 0 0.15rem' } as const
 
   // Width headline: the resolved class + the gate read (always available — legacy cases carry moat_class).
   const widthClass = (valuation.moat_class ?? 'unknown').toUpperCase()
@@ -586,22 +588,31 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
       ? 'FAILS the investability gate'
       : 'gate not judged'
 
-  // Width provenance (proposed → resolved · grounded drivers · quant corroboration) — moved from the
-  // valuation panel (D1): the moat pillar owns its own provenance.
   const provenanceLabel = moatJudgment !== undefined
     ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
       + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
       + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
     : undefined
 
-  // Taxonomy chips: types come from GROUNDED drivers only.
-  const moatTypes = moatJudgment?.resolved_moat_types
-  const moatTypesLabel = moatTypes !== undefined && moatTypes.length > 0
-    ? moatTypes.map((t) => t.replace(/_/g, ' ')).join(', ')
-    : undefined
-
-  // The drivers themselves — the cited advantages, each labeled with its taxonomy type + grounding.
+  // F: each moat CLEARLY named with its PROOF beneath — the grounded drivers grouped by taxonomy type.
+  const typeLabel = (t: string) => t.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
   const drivers = moatJudgment?.moat_drivers ?? []
+  const byType = new Map<string, typeof drivers>()
+  for (const d of drivers) {
+    const key = d.moat_type ?? 'untyped'
+    byType.set(key, [...(byType.get(key) ?? []), d])
+  }
+  const moatSections: ReactNode[] = []
+  for (const [type, typeDrivers] of byType) {
+    moatSections.push(createElement('p', { key: `type-${type}`, style: subhead },
+      type === 'untyped' ? 'Moat (untyped driver)' : `${typeLabel(type)} moat`))
+    for (const [i, d] of typeDrivers.entries()) {
+      moatSections.push(createElement('p', { key: `proof-${type}-${i}`, style: { ...muted, marginBottom: '0.2rem' } },
+        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontWeight: 700 } }, 'Proof: '),
+        `${d.advantage} ${d.grounded ? '(cited, verified)' : '(uncited — carries no weight)'}`,
+      ))
+    }
+  }
 
   // Direction: grounded-or-labeled; a narrowing moat is a sell signal no matter how wide it still looks.
   const moatDirection = moatJudgment?.moat_direction
@@ -621,7 +632,7 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
 
   return createElement(
     'div',
-    { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.45rem' } },
+    { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.4rem' } },
     createElement('p', { className: 'owl-section-accent' }, 'Moats identified'),
     createElement(
       'p',
@@ -629,32 +640,22 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
       `${widthClass} moat — ${gateLabel}`,
     ),
     provenanceLabel === undefined
-      ? createElement('p', { style: mono }, 'Moat taxonomy not recorded — this case predates the moat-pillar judgment display.')
-      : createElement('p', { style: mono }, `Moat: ${provenanceLabel}`),
-    moatTypesLabel === undefined ? null : createElement(
-      'p',
-      { 'data-testid': 'moat-types', style: mono },
-      `Moat types (grounded): ${moatTypesLabel}`,
-    ),
-    drivers.length === 0 ? null : createElement(
-      'ul',
-      { 'data-testid': 'moat-drivers-list', style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', gap: '0.25rem', margin: 0, paddingLeft: '1.1rem' } },
-      ...drivers.map((driver, i) => createElement(
-        'li',
-        { key: `moat-driver-${i}`, style: { lineHeight: 1.5 } },
-        `${driver.advantage}`
-        + `${driver.moat_type !== undefined ? ` — ${driver.moat_type.replace(/_/g, ' ')}` : ''}`
-        + `${driver.grounded ? ' (grounded)' : ' (uncited — carries no weight)'}`,
-      )),
-    ),
+      ? createElement('p', { style: muted }, 'Moat taxonomy not recorded — this case predates the moat-pillar judgment display.')
+      : createElement('p', { style: muted }, `Moat: ${provenanceLabel}`),
+    // Keep the compact types line for scanning; the proof sections carry the substance.
+    (moatJudgment?.resolved_moat_types ?? []).length > 0
+      ? createElement('p', { 'data-testid': 'moat-types', style: muted },
+          `Moat types (grounded): ${(moatJudgment!.resolved_moat_types ?? []).map((t) => t.replace(/_/g, ' ')).join(', ')}`)
+      : null,
+    ...moatSections,
     moatDirectionLabel === undefined ? null : createElement(
       'p',
-      { 'data-testid': 'moat-direction', style: { ...mono, color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : mono.color } },
+      { 'data-testid': 'moat-direction', style: { ...muted, marginTop: '0.45rem', color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : muted.color } },
       `Moat direction: ${moatDirectionLabel}`,
     ),
     peerStandoutLabel === undefined ? null : createElement(
       'p',
-      { 'data-testid': 'peer-standout', style: mono },
+      { 'data-testid': 'peer-standout', style: muted },
       `Standout vs peers (model judgment): ${peerStandoutLabel}`,
     ),
   )
@@ -848,13 +849,17 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
       style: { color: 'var(--owl-color-risk-bright)', fontWeight: 800, fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' },
     }, `MANAGEMENT VETO (${vetoTrait}): ${researchCase.management_veto_reason ?? 'BUY clamped to RESEARCH_MORE.'}`))
   }
-  children.push(createElement('p', { key: 'tiers', style: { margin: '0 0 0.4rem', fontSize: 'var(--owl-text-base)' } },
-    createElement('strong', { style: { color: tierTone(mj.resolved_integrity) } }, `Integrity: ${(mj.resolved_integrity ?? 'undetermined').replace(/_/g, ' ').toUpperCase()}`),
-    ' · ',
-    createElement('strong', { style: { color: tierTone(mj.resolved_talent) } }, `Talent: ${(mj.resolved_talent ?? 'undetermined').toUpperCase()}`),
-    mj.judgment_degraded === true ? createElement('span', { style: { color: 'var(--owl-color-gold-bright)' } }, ' — the lane omitted its judgment blocks (resolved undetermined, never a silent clean)') : null,
-    mj.t0_contradicts_talent === true ? createElement('span', { style: { color: 'var(--owl-color-gold-bright)' } }, ' — advisory: the grounded EXCELLENT sits on a weak T0 ROIC') : null,
-  ))
+  // F (owner call, 2026-07-12): TWO labeled subpoints — Integrity and Talent — with their
+  // explanations underneath each (the card is titled 'Management pillar — integrity & talent').
+  const subhead = (key: string, text: string, tone: string) => createElement(
+    'p',
+    { key, style: { color: tone, fontSize: 'var(--owl-text-base)', fontWeight: 800, letterSpacing: '0.03em', margin: '0.6rem 0 0.2rem' } },
+    text,
+  )
+  children.push(subhead('integrity-head', `1. Integrity — ${(mj.resolved_integrity ?? 'undetermined').replace(/_/g, ' ').toUpperCase()}`, tierTone(mj.resolved_integrity)))
+  if (mj.judgment_degraded === true) {
+    children.push(createElement('p', { key: 'degraded', style: { ...muted, color: 'var(--owl-color-gold-bright)' } }, 'The lane omitted its judgment blocks — resolved undetermined, never a silent clean.'))
+  }
   const comp = mj.integrity?.comp_structure
   if (comp?.summary !== undefined) {
     children.push(createElement('p', { key: 'comp', style: muted },
@@ -867,11 +872,15 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
       `Integrity flag (${f.severity ?? 'unrated'}${f.grounded === true ? ', cite-verified' : ', UNVERIFIED — carries no weight'}): ${f.claim}`))
   }
   for (const [i, o] of (mj.integrity?.communication_observations ?? []).entries()) {
-    children.push(createElement('p', { key: `obs-${i}`, style: mono },
+    children.push(createElement('p', { key: `obs-${i}`, style: muted },
       `Communication: ${o.observation} ${o.grounded === true ? '(cited)' : '(uncited)'}`))
   }
+  children.push(subhead('talent-head', `2. Talent — ${(mj.resolved_talent ?? 'undetermined').toUpperCase()}`, tierTone(mj.resolved_talent)))
+  if (mj.t0_contradicts_talent === true) {
+    children.push(createElement('p', { key: 't0-contra', style: { ...muted, color: 'var(--owl-color-gold-bright)' } }, 'Advisory: the grounded EXCELLENT sits on a weak T0 ROIC.'))
+  }
   for (const [i, d] of (mj.talent?.talent_drivers ?? []).entries()) {
-    children.push(createElement('p', { key: `drv-${i}`, style: mono },
+    children.push(createElement('p', { key: `drv-${i}`, style: muted },
       `Talent driver: ${d.evidence} ${d.grounded === true ? '(cited)' : '(uncited)'}`))
   }
   // The T0 strip + the retained-earnings test — self-describing computable unions, rendered honestly.
@@ -1711,7 +1720,6 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const verdict = researchCase.investment_verdict ?? researchCase.decision
   const valuationStatus = researchCase.valuation_status
   const moat = researchCase.valuation?.moat_class
-  const impliedGrowth = researchCase.valuation?.market_implied_growth
   const buyBelow = researchCase.valuation?.proposed_buy_below ?? researchCase.valuation?.buy_price_per_share
   // D3: the T0-computed grade is the ONLY margin surface (the model-graded adequacy is retired).
   const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
@@ -1724,7 +1732,6 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
 
   const valuationValue = [
     valuationStatus === undefined ? undefined : valuationStatus.toLowerCase(),
-    impliedGrowth === undefined ? undefined : `market implies ~${(impliedGrowth * 100).toFixed(1)}% growth`,
     buyBelow === undefined ? undefined : `model buy-below $${buyBelow.toFixed(2)}`,
   ].filter((p): p is string => p !== undefined).join(' · ')
 
@@ -1826,8 +1833,6 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
   // in prose. Beyond buy-below / live price / buy-zone, surface the two hidden assumptions the price bakes in
   // — market-implied growth (reverse-DCF) and the implied exit multiple — together. Prose reasoning stays
   // below in the valuation panel. (forward-DCF removal: the dollar reference fair value is gone.)
-  const marketImpliedGrowth = valuation.market_implied_growth
-  const impliedExitMultiple = valuation.implied_exit_multiple
   // The model's assumed sustainable growth: the headline growth_rate IS the model's cite-verified
   // assumed_growth (architecture inversion); fall back to the raw valuation_reasoning field for
   // legacy shapes that predate the headline field.
@@ -1899,21 +1904,11 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       researchCase.valuation?.in_load_up_zone === true
         ? createValuationLedgerStat('Load-up zone', 'IN THE LOAD-UP ZONE', 'owl-ledger-figure-emerald')
         : null,
-      // The MODEL's assumed sustainable growth sits BESIDE the market-implied read (owner requirement):
-      // the gap between what the model judges sustainable and what the price demands is the decision.
+      // F (owner call, 2026-07-12): the book has no implied-growth lens — the key figures are the
+      // book numbers only (the model's cited growth; the internal rails still police absurdity).
       createValuationLedgerStat(
         'Model assumed growth',
         modelAssumedGrowth !== undefined ? `${(modelAssumedGrowth * 100).toFixed(1)}%` : 'Not yet available',
-        '',
-      ),
-      createValuationLedgerStat(
-        'Market-implied growth',
-        marketImpliedGrowth !== undefined ? `${(marketImpliedGrowth * 100).toFixed(1)}%` : 'Not yet available',
-        '',
-      ),
-      createValuationLedgerStat(
-        'Market-implied exit multiple',
-        impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× FCF (yr-10)` : 'Not yet available',
         '',
       ),
     ),
@@ -2100,11 +2095,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // NVO dogfood (2026-07-11): on a moat-gated case the buy-price math (fair-value derivatives, implied
   // growth/multiples, buy zone, MoS grade) is DELIBERATELY not computed — a below-gate name is set aside
   // before pricing. Say so once, instead of rendering a wall of "Pending" that reads as an incomplete run.
-  const moatGatedNotPriced = valuation.moat_passes_gate === false
 
   // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reverse-DCF
   // market-implied growth is the richness read. (forward-DCF removal: the dollar reference fair value is gone.)
-  const marketImpliedGrowth = valuation.market_implied_growth
   const reasoning = valuation.valuation_reasoning
   const discountRateVal = valuation.discount_rate
   const roic = valuation.roic
@@ -2114,7 +2107,6 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // §2 flag-only sanity output: the name-specific implied EXIT P/OE the live price requires (current price ÷
   // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
   // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
-  const impliedExitMultiple = valuation.implied_exit_multiple
   // Judgment-objectivity layer (Mechanisms 1+2): the MOAT provenance (proposed → resolved, taxonomy,
   // direction, peers) moved to the Pillar-2 moats card (D1); the runway read stays here with valuation.
   // C2: the runway judged axis is retired — no runway provenance renders (legacy tolerated by ignore).
@@ -2168,7 +2160,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The reasoning to audit. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model judges the growth and the exit multiple (cited). The market-implied growth is the price cross-check — the thresholds rest on the computed value.',
+      'The reasoning to audit. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model judges the growth and the exit multiple (cited). The thresholds rest on the computed value — price is compared to it, never trusted over it.',
     ),
     // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
     // assumed + WHY, the discount rationale). The substance the human audits.
@@ -2194,28 +2186,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         reasoning.discount_rationale,
       ) : null,
     ) : null,
-    // Reverse-DCF read (the primary lens): the market-implied growth vs the model's judged sustainable
-    // growth. The richness signal — what today's price requires the business to grow vs what the model judges.
-    marketImpliedGrowth !== undefined ? createElement(
-      'p',
-      { 'data-testid': 'market-implied-growth', style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.4rem 0 0' } },
-      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `The market implies ${pctPts(marketImpliedGrowth)} growth`),
-      assumedGrowth !== undefined ? ` — the model judges ${pctPts(assumedGrowth)} sustainable.` : '.',
-    ) : null,
-    // The two hidden assumptions baked into today's price, surfaced together and briefly explained (not two
-    // bare adjacent stats): the implied growth the price requires, and the implied EXIT multiple it must hold.
-    (marketImpliedGrowth !== undefined || impliedExitMultiple !== undefined) ? createElement(
-      'p',
-      { 'data-testid': 'price-implied-assumptions', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.3rem 0 0' } },
-      'Today\'s price bakes in two assumptions: ',
-      marketImpliedGrowth !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} market-implied growth`), ' (the rate the business must compound at to justify the price)')
-        : createElement('span', null, 'a market-implied growth (not computable without a live price)'),
-      ', and ',
-      impliedExitMultiple !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× market-implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
-        : createElement('span', null, 'a market-implied exit multiple (not yet computed).'),
-    ) : null,
+    // F (owner call): the implied-growth/exit reads are retired from display — the book has no such
+    // lens; the internal rails still police an absurd advisory price arithmetically.
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
       'p',
@@ -2229,21 +2201,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       `Market $${marketQuote.price_per_share.toFixed(2)} (${marketQuote.currency}) · Yahoo Finance, as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
     ) : null,
     // Key figures — the ledger-line of the valuation. The model's buy-below + verdict drive the decision;
-    // the reverse-DCF market-implied growth + the implied multiples are the kept valuation lens.
-    // (forward-DCF removal: the dollar reference fair value stat is gone.)
+    // F (owner call): the implied-growth/exit stats are retired — the book stats only.
     createElement(
       'div',
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
-      createValuationLedgerStat(
-        'Market-implied growth',
-        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'),
-        '',
-      ),
-      // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
-      // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
-      // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
-      // model judgment or vice versa.
-      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× FCF (yr-10)` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
       // E2: the T0 FCF basis (CFO − capex from the filing) replaces the owner-earnings stat.
       createValuationLedgerStat(
         'FCF basis (T0)',
