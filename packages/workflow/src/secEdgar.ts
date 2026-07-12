@@ -1084,7 +1084,7 @@ type ConceptMap = {
    */
   impermissibleIncome: { interest: string[]; dividend: string[]; combined: string[] }
   interest: string
-  stockholdersEquity: string
+  stockholdersEquity: string[]
   operatingIncome: string
   incomeTax: string
   /** Gross PP&E (instant) — for the Greenwald maintenance-capex proxy (Phase 1.2). Empty when unmapped. */
@@ -1211,7 +1211,10 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     ],
   },
   interest: 'InterestExpense',
-  stockholdersEquity: 'StockholdersEquity',
+  // Equity: parent-only preferred; the NCI-inclusive variant is the fallback for filers that stopped
+  // tagging the parent-only concept (V's last parent-only year is FY2011 — without the fallback the
+  // ROIC series is empty and the capital-efficiency test + talent T0 die on a 16-year-tagged filer).
+  stockholdersEquity: ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
   operatingIncome: 'OperatingIncomeLoss',
   incomeTax: 'IncomeTaxExpenseBenefit',
   // Gross PP&E (instant): the canonical gross carrying amount first; then the gross-before-accumulated-
@@ -1282,7 +1285,7 @@ const IFRS_CONCEPTS: ConceptMap = {
     combined: [],
   },
   interest: 'InterestExpense',
-  stockholdersEquity: 'Equity',
+  stockholdersEquity: ['Equity'],
   operatingIncome: 'ProfitLossFromOperatingActivities',
   incomeTax: 'IncomeTaxExpenseContinuingOperations',
   // IFRS gross PP&E (instant) best-effort: the gross cost-model carrying amount. Absent for many IFRS
@@ -1579,7 +1582,7 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const cfo = firstPopulatedByYear(facts, taxonomy, cm.cfo)
   const currentAssets = firstPopulatedByYear(facts, taxonomy, cm.currentAssets)
   const currentLiabilities = firstPopulatedByYear(facts, taxonomy, cm.currentLiabilities)
-  const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
+  const stockholdersEquity = firstPopulatedByYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
   // Filing metadata (filed date + period end) per fiscal year. Prefer the income-statement fact; fall

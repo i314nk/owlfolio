@@ -554,6 +554,37 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // FIX (live find, V/rc_v_1783859004568): Visa stopped tagging parent-only `StockholdersEquity`
+  // after FY2011 and carries only the NCI-INCLUSIVE variant since — leaving 0 usable ROIC years
+  // (capital-efficiency test + talent T0 dead) despite 16 years of tagged equity. The equity field
+  // resolves per-year with the parent-only concept preferred, the NCI-inclusive variant as fallback.
+  it('falls back to the NCI-inclusive equity concept for a filer that stopped tagging parent-only equity (V)', async () => {
+    const facts = {
+      entityName: 'ClassShareCo',
+      facts: {
+        'us-gaap': {
+          Revenues: annualFacts({ 2021: 100, 2022: 110, 2023: 120, 2024: 130, 2025: 140 }),
+          NetIncomeLoss: annualFacts({ 2021: 30, 2022: 33, 2023: 36, 2024: 40, 2025: 44 }),
+          OperatingIncomeLoss: annualFacts({ 2021: 40, 2022: 44, 2023: 48, 2024: 53, 2025: 58 }),
+          IncomeTaxExpenseBenefit: annualFacts({ 2021: 8, 2022: 9, 2023: 10, 2024: 11, 2025: 12 }),
+          // Parent-only equity: only an OLD year (the V shape — nothing after the switch).
+          StockholdersEquity: instantFacts({ 2021: 200 }),
+          // NCI-inclusive equity: the full modern span.
+          StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest:
+            instantFacts({ 2021: 205, 2022: 215, 2023: 230, 2024: 245, 2025: 260 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000002', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // The parent-only concept wins where tagged; the NCI-inclusive variant fills the rest.
+    const eq = Object.fromEntries(f.annual_series.map((a) => [a.fiscal_year, a.stockholders_equity_musd]))
+    expect(eq[2021]).toBeCloseTo(200, 0)
+    expect(eq[2025]).toBeCloseTo(260, 0)
+    expect(eq[2023]).toBeCloseTo(230, 0)
+  })
+
   // Shariah purification input: impermissible-income LINES extracted deterministically from XBRL (no
   // filing has an "impermissible income" line; the AAOIFI-computable components are disclosed interest
   // income, dividend income, and cash-instrument investment income). Each line is itemized (concept +

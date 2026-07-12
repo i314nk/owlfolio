@@ -477,6 +477,10 @@ export type ResearchCaseValuationProjection = {
    * optimistic + over-pessimistic catches + absurdity flags). NEVER blocks the verdict — advisory only.
    */
   sanity_flags?: string[]
+  /** HONEST unpriced/not-computed reasons (e.g. "diluted shares missing") — load-bearing when IV is absent. */
+  valuation_caveats?: string[]
+  /** Harness-degradation notes (e.g. shariah_ratios_unverified) — visible, never silent. */
+  degraded_flags?: string[]
   /** RELIGHTENED DECISION (R1): the MODEL's cited valuation reasoning (it shows its work). */
   valuation_reasoning?: ResearchCaseValuationReasoningProjection
   /**
@@ -1984,6 +1988,10 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (implied_exit_multiple !== undefined) projected.implied_exit_multiple = implied_exit_multiple
   const sanity_flags = getStringArray(value, 'sanity_flags')
   if (sanity_flags !== undefined) projected.sanity_flags = sanity_flags
+  const valuation_caveats = getStringArray(value, 'valuation_caveats')
+  if (valuation_caveats !== undefined) projected.valuation_caveats = valuation_caveats
+  const degraded_flags = getStringArray(value, 'degraded_flags')
+  if (degraded_flags !== undefined) projected.degraded_flags = degraded_flags
   const valuation_reasoning = getValuationReasoning(value)
   if (valuation_reasoning !== undefined) projected.valuation_reasoning = valuation_reasoning
   // LEGACY (R1 tolerates): the retired band verdict_state still projects from old events (no throw); new

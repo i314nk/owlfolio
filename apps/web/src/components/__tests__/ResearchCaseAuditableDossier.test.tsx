@@ -213,6 +213,29 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   // H (owner feedback, 2026-07-12): the "Synthesis & decision" section gets an ACTUAL synthesis card
   // (the synthesis agent's reconciliation narrative + confidence + caveats), and the deep-dive lanes
   // grid moves into Evidence & sources (it shows what the models actually returned — raw evidence).
+  // LIVE FIND (V): an unpriced dossier (fcf_basis computable but shares untagged) rendered an empty
+  // Pillar 4 with NO explanation, while the payload carried the exact honest reason. The valuation
+  // panel must surface valuation_caveats loud when the IV is absent, and degraded flags as fine print.
+  it('V-fix: an unpriced case renders the honest valuation caveat + degraded flags on Pillar 4', () => {
+    const base = baseCase()
+    const html = render({
+      ...base,
+      valuation: {
+        ...base.valuation,
+        buy_price_per_share: undefined,
+        proposed_buy_below: undefined,
+        intrinsic_value_per_share: undefined,
+        load_up_below: undefined,
+        valuation_caveats: ['Valuation not computed: diluted shares missing or non-positive — cannot derive a per-share value.'],
+        degraded_flags: ['shariah_ratios_unverified: market_cap_unavailable — the live price/market-cap fetch returned nothing.'],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="valuation-caveats"')
+    expect(html).toContain('Valuation not computed: diluted shares missing or non-positive')
+    expect(html).toContain('data-testid="valuation-degraded-flags"')
+    expect(html).toContain('shariah_ratios_unverified')
+  })
+
   it('H: renders the synthesis card with the reconciliation narrative, confidence, and caveats', () => {
     const html = render({
       ...baseCase(),

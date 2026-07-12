@@ -2167,6 +2167,17 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
       'The reasoning to audit. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model judges the growth and the exit multiple (cited). The thresholds rest on the computed value — price is compared to it, never trusted over it.',
     ),
+    // LIVE FIND (V): when the case is UNPRICED the reason must lead the panel loud — the engine's
+    // honest valuation_caveats (e.g. "diluted shares missing") were persisted but never displayed.
+    (valuation.valuation_caveats !== undefined && valuation.valuation_caveats.length > 0) ? createElement(
+      'div',
+      { 'data-testid': 'valuation-caveats', style: { border: '1px solid var(--owl-color-gold)', borderRadius: '0.5rem', display: 'grid', gap: '0.3rem', padding: '0.55rem 0.7rem' } },
+      ...valuation.valuation_caveats.map((c, i) => createElement(
+        'p',
+        { key: `vcaveat-${i}`, style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        c,
+      )),
+    ) : null,
     // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
     // assumed + WHY, the discount rationale). The substance the human audits.
     reasoning !== undefined ? createElement(
@@ -2289,6 +2300,17 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : '#9aa4b7', margin: 0 } },
         capexVsDa.note,
       ) : null,
+    ) : null,
+    // Harness-degradation notes (never-silent channel) — fine print; each names what could not be
+    // recomputed and why (e.g. shariah_ratios_unverified: market_cap_unavailable).
+    (valuation.degraded_flags !== undefined && valuation.degraded_flags.length > 0) ? createElement(
+      'div',
+      { 'data-testid': 'valuation-degraded-flags', style: { display: 'grid', gap: '0.25rem', marginTop: '0.4rem' } },
+      ...valuation.degraded_flags.map((f, i) => createElement(
+        'p',
+        { key: `vdeg-${i}`, style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
+        `⚠ ${f}`,
+      )),
     ) : null,
   )
 }
