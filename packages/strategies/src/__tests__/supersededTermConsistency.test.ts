@@ -137,14 +137,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // band the implied growth is judged against) and must NOT trip — so the matcher requires "ceiling".
     label: 'growth-band-ceiling — replaced by one named single_growth_cap (Phase 1.3)',
     pattern: /growth[\s-]band[\s-]ceiling|band[\s-]ceiling/i,
-    allow: [
-      {
-        file: 'docs/architecture/owlfolio-v2-buffett-munger-strategy.md',
-        snippet:
-          'This replaces the retired stacked reinvestment×ROIC + growth-band-ceilings + ROIC-eligibility-gate stack',
-        reason: '§4.2 names the RETIRED growth-band-ceilings stack to say it was replaced by one named cap.',
-      },
-    ],
+    // The strategy doc's book-model rewrite (2026-07) dropped its retirement-describing mention of the
+    // stacked growth-band-ceilings trio entirely, so no allow entries remain — any new hit is stale copy.
+    allow: [],
   },
   {
     // Valuation-core revision: the MoS-as-PRICE-HAIRCUT knob is retired. Conservatism is now the required
@@ -166,17 +161,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     label: 'valuation multiple as a HARD cap / truncation — now a surfaced cap_exceeded FLAG (Phase 1.6)',
     // A multiple framed as a hard cap or a (silent) truncation. The current copy says it is NOT one of these.
     pattern: /hard\s*cap|hard\s*truncation|silent(?:ly)?\s*truncat|\btruncat\w*/i,
-    allow: [
-      {
-        file: 'docs/architecture/owlfolio-v2-buffett-munger-strategy.md',
-        snippet:
-          '**`fv_cap_multiple = 18`** is a **surfaced sanity FLAG, not a hard truncation** (Phase 1.6): when the raw FV exceeds 18× OE the harness sets a `cap_exceeded` flag (which **widens the MoS**) and KEEPS the value. Only at/above `fv_absurd_multiple = 100×` OE is the value discarded as a units/scale-error guard. (The old 18× hard cap is gone.)',
-        reason: '§4.3 explicitly says the 18× multiple is a surfaced flag, NOT a hard truncation/hard cap.',
-      },
-      // E2 (2026-07-12): the cap_exceeded machinery is retired with the OE DCF — the UI copy no
-      // longer mentions caps/truncation at all, so no UI allow entries remain (the doc entry above
-      // stays until the strategy doc is revised).
-    ],
+    // E2 (2026-07-12): the cap_exceeded machinery is retired with the OE DCF, and the strategy doc's
+    // book-model rewrite dropped the 18×-flag passage — no allow entries remain anywhere.
+    allow: [],
   },
   // ─── Phase-8 cohesion sweep: the newly-retired DECISION mechanisms (R1 model-decides rework) ──────────
   //
