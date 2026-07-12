@@ -3704,6 +3704,9 @@ export async function runResearchDeepDivePhase(
         // E2: the T0 FCF basis provenance (replaces the owner-earnings bridge) + the factual
         // capex-vs-D&A reinvestment-mix note (no maintenance-capex proxy anywhere).
         ...(fcfBasis !== undefined ? { fcf_basis: fcfBasis } : {}),
+        // OPTION C provenance: the diluted count was recovered from the annual report's inline XBRL
+        // (a per-class filer whose share facts companyfacts drops) — labeled, never silent.
+        ...(edgarAnnual?.diluted_shares_source !== undefined ? { share_count_source: edgarAnnual.diluted_shares_source } : {}),
         capex_vs_da: capexVsDa,
         // Phase 2 V3: the deterministic foreign-filer conversion provenance (reporting→USD × ADR ratio).
         ...(fxConversion !== undefined ? { fx_conversion: fxConversion } : {}),

@@ -61,6 +61,12 @@ export type AnnualFacts = {
   gross_ppe_musd?: number
   sbc_musd?: number
   diluted_shares_m?: number
+  /**
+   * OPTION C (owner call, 2026-07-12): where the diluted share count came from. Absent = the normal
+   * companyfacts concepts; 'inline_xbrl_class_a' = recovered from the annual report's inline XBRL
+   * (a per-class filer whose share facts are all dimensioned — V-class). Display labels it.
+   */
+  diluted_shares_source?: 'inline_xbrl_class_a'
   shares_outstanding_m?: number
   total_debt_musd?: number
   cash_and_securities_musd?: number
@@ -1774,6 +1780,97 @@ export function selectRecentReadableFilings(
 }
 
 // ---------------------------------------------------------------------------
+// Inline-XBRL share recovery (per-class filers — OPTION C, owner call 2026-07-12)
+// ---------------------------------------------------------------------------
+// LIVE FIND (V): Visa tags EVERY share/EPS concept with a StatementClassOfStockAxis member, and the
+// companyfacts API drops dimensioned facts — a per-class filer extracts NO share count and goes
+// honestly unpriced despite a fully tagged filing. Recovery: read the annual report primary document
+// (inline XBRL) and take the Class-A-member weighted-average DILUTED share fact whose full-year
+// duration matches the requested fiscal year. For a multi-class filer the LISTED class's diluted
+// count is the as-converted total (V FY2025: 1,966M — matches the published market-cap denominator).
+// FAIL-CLOSED: exactly ONE distinct candidate value, ≥300-day duration, shares-scaled and sane;
+// any ambiguity returns undefined and the dossier stays unpriced.
+
+const INLINE_SHARE_CONCEPT = /name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding"/i
+const CLASS_A_MEMBER = /us-gaap:CommonClassAMember/i
+
+export type InlineXbrlShareRecovery = {
+  shares_m: number
+  fiscal_year: number
+}
+
+export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: number): InlineXbrlShareRecovery | undefined {
+  // Every inline fact tag for the diluted-shares concept, with its context ref, scale, and text value.
+  const factRe = /<ix:nonfraction\b[^>]*>/gi
+  const candidates = new Map<string, number>() // `${contextRef}` → value (deduped; the EPS note repeats the income-statement fact)
+  for (const m of html.matchAll(factRe)) {
+    const tag = m[0]
+    if (!INLINE_SHARE_CONCEPT.test(tag)) continue
+    const ctxMatch = /contextref="([^"]+)"/i.exec(tag)
+    if (ctxMatch === null) continue
+    const contextRef = ctxMatch[1]!
+    // The context must be a full-year duration for the requested fiscal year with the Class-A member.
+    const ctxBody = new RegExp(`<xbrli:context id="${contextRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</xbrli:context>`, 'i').exec(html)?.[1]
+    if (ctxBody === undefined) continue
+    if (!/StatementClassOfStockAxis/i.test(ctxBody) || !CLASS_A_MEMBER.test(ctxBody)) continue
+    const start = /<xbrli:startdate>([^<]+)</i.exec(ctxBody)?.[1]
+    const end = /<xbrli:enddate>([^<]+)</i.exec(ctxBody)?.[1]
+    if (start === undefined || end === undefined) continue
+    const days = (Date.parse(end) - Date.parse(start)) / 86_400_000
+    if (!(days >= 300 && days <= 400)) continue
+    const endYear = Number(end.slice(0, 4))
+    const endMonth = Number(end.slice(5, 7))
+    // The fiscal-year label of an annual period: calendar/late-year ends carry the end year; an
+    // early-calendar end (Jan–Jun) labels the PRIOR year's fiscal year on some filers — accept both.
+    if (endYear !== fiscalYear && !(endMonth <= 6 && endYear === fiscalYear + 1)) continue
+    // The value: tag text up to the closing '<', de-formatted; em-dash/empty facts are skipped.
+    const valueStart = (m.index ?? 0) + tag.length
+    const valueEnd = html.indexOf('<', valueStart)
+    if (valueEnd < 0) continue
+    const raw = html.slice(valueStart, valueEnd).replace(/[,\s]/g, '')
+    if (raw.length === 0 || raw.includes('&#8212;') || raw === '—') continue
+    const scale = Number(/scale="([^"]+)"/i.exec(tag)?.[1] ?? '0')
+    const numeric = Number(raw)
+    if (!Number.isFinite(numeric) || !Number.isFinite(scale)) continue
+    const sharesM = (numeric * Math.pow(10, scale)) / 1_000_000
+    if (!(sharesM >= 1 && sharesM <= 100_000)) continue
+    const existing = candidates.get(contextRef)
+    if (existing !== undefined && Math.abs(existing - sharesM) > 0.5) return undefined // conflicting repeats → fail closed
+    candidates.set(contextRef, sharesM)
+  }
+  // Exactly ONE distinct value across contexts (two contexts with the same FY + different counts is ambiguous).
+  const values = [...new Set([...candidates.values()].map((v) => Math.round(v * 10) / 10))]
+  if (values.length !== 1) return undefined
+  return { shares_m: values[0]!, fiscal_year: fiscalYear }
+}
+
+/** Fetch a raw EDGAR document (Archives HTML) with the same politeness/timeout conventions as fetchSecJson. */
+async function fetchSecText(rawUrl: string, deps?: SecEdgarDeps): Promise<string | undefined> {
+  let url: URL
+  try {
+    url = assertSecUrl(rawUrl)
+  } catch {
+    return undefined
+  }
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const timeoutMs = deps?.timeoutMs ?? SEC_DEFAULT_TIMEOUT_MS
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller.signal,
+      headers: { 'User-Agent': resolveUserAgent(deps), 'Accept': 'text/html' },
+    })
+    if (!response.ok) return undefined
+    return await response.text()
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -1816,6 +1913,23 @@ export async function fetchCompanyFundamentals(
     deps,
   )
   const filings = buildFilings(subs, cik10)
+
+  // OPTION C: a per-class filer with NO extractable share count (all share facts dimensioned) —
+  // recover the latest year's diluted count from the annual report's inline XBRL (fail-closed).
+  if (latest_annual.diluted_shares_m === undefined) {
+    const annualFiling = filings.find((x) => isAnnualForm(x.form))
+    if (annualFiling !== undefined) {
+      const doc = await fetchSecText(annualFiling.url, deps)
+      const recovered = doc !== undefined
+        ? recoverDilutedSharesFromInlineXbrl(doc, latest_annual.fiscal_year)
+        : undefined
+      if (recovered !== undefined) {
+        latest_annual.diluted_shares_m = recovered.shares_m
+        latest_annual.diluted_shares_source = 'inline_xbrl_class_a'
+      }
+    }
+  }
+
   const recent_filings = buildReadableRecentFilings(subs, cik10)
   const proxy_filings = buildProxyFilings(subs, cik10)
   const form4_filings = buildForm4Filings(subs, cik10)

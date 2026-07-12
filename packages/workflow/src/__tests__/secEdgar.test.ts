@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
+import { recoverDilutedSharesFromInlineXbrl, __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
 
 beforeEach(() => {
   // The ticker map is cached module-side; reset so fail-closed fetch-error tests are not masked
@@ -583,6 +583,87 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(eq[2021]).toBeCloseTo(200, 0)
     expect(eq[2025]).toBeCloseTo(260, 0)
     expect(eq[2023]).toBeCloseTo(230, 0)
+  })
+
+  // OPTION C (owner call, 2026-07-12 — the V share gap): a per-class filer (Visa) tags EVERY share
+  // concept with a StatementClassOfStockAxis member, and companyfacts DROPS dimensioned facts — so no
+  // share count extracts and the dossier goes unpriced despite a fully tagged filing. Recovery: parse
+  // the latest annual report's INLINE XBRL and take the Class-A-member weighted-average DILUTED share
+  // fact for the latest fiscal year (the listed class's diluted count is the as-converted total —
+  // V FY2025: 1,966M matches the published market-cap denominator). FAIL-CLOSED on ambiguity.
+  describe('inline-XBRL share recovery (per-class filers)', () => {
+    const INLINE_XBRL_FIXTURE = `<html><body>
+<div style="display:none">
+<xbrli:context id="c-2"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2024-10-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-10"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">v:CommonClassB1Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2024-10-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-30"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2023-10-01</xbrli:startDate><xbrli:endDate>2024-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-q4"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2025-07-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+</div>
+<p>Weighted-average diluted shares (Class A, FY2025): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-2" unitRef="shares" scale="6" decimals="-6" format="ixt:num-dot-decimal">1,966</ix:nonFraction></p>
+<p>Class B-1 (FY2025): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-10" unitRef="shares" scale="6">5</ix:nonFraction></p>
+<p>Class A (FY2024): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-30" unitRef="shares" scale="6">2,029</ix:nonFraction></p>
+<p>EPS-note duplicate of the FY2025 Class A fact (same context, same value — must dedupe): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-2" unitRef="shares" scale="6">1,966</ix:nonFraction></p>
+<p>A QUARTERLY Class A fact (short duration — must be ignored): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-q4" unitRef="shares" scale="6">1,951</ix:nonFraction></p>
+</body></html>
+`
+
+    it('recovers the FY-matched Class-A diluted share count (dedupes the EPS-note repeat; ignores quarters and other classes)', () => {
+      const r = recoverDilutedSharesFromInlineXbrl(INLINE_XBRL_FIXTURE, 2025)
+      expect(r).toBeDefined()
+      expect(r?.shares_m).toBeCloseTo(1966, 0)
+      expect(r?.fiscal_year).toBe(2025)
+    })
+
+    it('fails closed when two DISTINCT Class-A diluted values exist for the same fiscal year', () => {
+      const conflicted = INLINE_XBRL_FIXTURE.replace(
+        'contextRef="c-2" unitRef="shares" scale="6">1,966</ix:nonFraction></p>\n<p>A QUARTERLY',
+        'contextRef="c-2" unitRef="shares" scale="6">1,999</ix:nonFraction></p>\n<p>A QUARTERLY',
+      )
+      expect(recoverDilutedSharesFromInlineXbrl(conflicted, 2025)).toBeUndefined()
+    })
+
+    it('fails closed when no Class-A diluted fact matches the fiscal year', () => {
+      expect(recoverDilutedSharesFromInlineXbrl(INLINE_XBRL_FIXTURE, 2022)).toBeUndefined()
+    })
+
+    it('wires into fetchCompanyFundamentals: a factless-shares filer recovers the count from the annual report doc', async () => {
+      const facts = {
+        entityName: 'ClassShareCo',
+        facts: {
+          'us-gaap': {
+            Revenues: annualFacts({ 2021: 100, 2022: 110, 2023: 120, 2024: 130, 2025: 140 }),
+            NetIncomeLoss: annualFacts({ 2021: 30, 2022: 33, 2023: 36, 2024: 40, 2025: 44 }),
+            NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 60 }),
+            PaymentsToAcquirePropertyPlantAndEquipment: annualFacts({ 2025: 10 }),
+            // NO share or EPS concepts — the per-class filer shape.
+          },
+        },
+      }
+      const subs = {
+        filings: {
+          recent: {
+            form: ['10-K'],
+            filingDate: ['2025-11-15'],
+            accessionNumber: ['0000000002-25-000001'],
+            primaryDocument: ['co-20250930.htm'],
+          },
+        },
+      }
+      const fetchImpl: typeof fetch = (async (input: string | URL | Request) => {
+        const u = String(input)
+        if (u.includes('companyfacts')) return new Response(JSON.stringify(facts), { status: 200 })
+        if (u.includes('submissions')) return new Response(JSON.stringify(subs), { status: 200 })
+        if (u.endsWith('co-20250930.htm')) return new Response(INLINE_XBRL_FIXTURE, { status: 200 })
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch
+      const f = await fetchCompanyFundamentals('0000000002', { fetchImpl })
+      expect(f).toBeDefined()
+      expect(f?.latest_annual.diluted_shares_m).toBeCloseTo(1966, 0)
+      expect(f?.latest_annual.diluted_shares_source).toBe('inline_xbrl_class_a')
+      // The companyfacts path never stamps the provenance marker.
+      const fy2024 = f?.annual_series.find((a) => a.fiscal_year === 2024)
+      expect(fy2024?.diluted_shares_m).toBeUndefined()
+    })
   })
 
   // Shariah purification input: impermissible-income LINES extracted deterministically from XBRL (no

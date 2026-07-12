@@ -477,6 +477,8 @@ export type ResearchCaseValuationProjection = {
    * optimistic + over-pessimistic catches + absurdity flags). NEVER blocks the verdict — advisory only.
    */
   sanity_flags?: string[]
+  /** OPTION C: 'inline_xbrl_class_a' when the diluted count was recovered from the filing's inline XBRL. */
+  share_count_source?: string
   /** HONEST unpriced/not-computed reasons (e.g. "diluted shares missing") — load-bearing when IV is absent. */
   valuation_caveats?: string[]
   /** Harness-degradation notes (e.g. shariah_ratios_unverified) — visible, never silent. */
@@ -1988,6 +1990,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (implied_exit_multiple !== undefined) projected.implied_exit_multiple = implied_exit_multiple
   const sanity_flags = getStringArray(value, 'sanity_flags')
   if (sanity_flags !== undefined) projected.sanity_flags = sanity_flags
+  const share_count_source = getString(value, 'share_count_source')
+  if (share_count_source !== undefined) projected.share_count_source = share_count_source
   const valuation_caveats = getStringArray(value, 'valuation_caveats')
   if (valuation_caveats !== undefined) projected.valuation_caveats = valuation_caveats
   const degraded_flags = getStringArray(value, 'degraded_flags')

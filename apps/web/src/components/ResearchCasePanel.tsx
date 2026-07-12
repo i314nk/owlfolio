@@ -2350,7 +2350,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         + `${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year}` : ''}${fcfBasis.reporting_currency !== undefined && fcfBasis.fiscal_year !== undefined ? `, ${fcfBasis.reporting_currency})` : fcfBasis.fiscal_year !== undefined ? ')' : ''}`,
       ) : null,
       fcfBasis?.source_id !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0 0 0.4rem' } },
-        `T0 — tagged XBRL facts from ${fcfBasis.source_id}`,
+        `T0 — tagged XBRL facts from ${fcfBasis.source_id}`
+        + (valuation.share_count_source === 'inline_xbrl_class_a' ? ' · share count recovered from the filing\u2019s inline XBRL (Class A diluted, as-converted)' : ''),
       ) : null,
       capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : '#9aa4b7', margin: 0 } },
         capexVsDa.note,
