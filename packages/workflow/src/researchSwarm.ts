@@ -1018,7 +1018,6 @@ async function emitMoatGateShortCircuit(args: {
       valuation: {
         moat_class: resolvedMoatClass,
         moat_passes_gate: false,
-        runway: judgment.runway?.resolved_runway ?? 'none',
         ...(args.moatGrounded ? {} : { moat_grounding_unmet: true }),
         ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),
       },
@@ -1669,8 +1668,6 @@ export async function runResearchDeepDivePhase(
       const moatRequired: RequiredFieldCheck<z.infer<typeof MoatLaneSchema>>[] = [
         { name: 'moat_drivers', present: (a) => Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0, hint: 'the durable competitive advantages, each {advantage, citation} cited to a verified primary source' },
         { name: 'proposed_moat_class', present: (a) => a.proposed_moat_class !== undefined, hint: "'narrow' | 'moderate' | 'wide' | 'monopoly' — your grounded moat judgment" },
-        { name: 'runway_drivers', present: (a) => Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0, hint: 'the reinvestment-runway headroom drivers, each {headroom, citation} cited to a verified primary source' },
-        { name: 'proposed_runway', present: (a) => a.proposed_runway !== undefined, hint: "'proven' | 'limited' | 'none' — your grounded runway judgment" },
         // S3: the pillar extensions are retry-FORCED (like the fields above); after retries the
         // resolver fails each closed (direction 'undetermined', no taxonomy chips, no peer table).
         { name: 'moat_direction', present: (a) => a.moat_direction !== undefined, hint: "'widening' | 'stable' | 'narrowing' — the moat's direction, with cited direction_drivers" },
@@ -1707,11 +1704,7 @@ export async function runResearchDeepDivePhase(
       // undefined → the resolver fails closed to narrow + judgment_degraded, never a silent admit).
       const moatThesisPresent =
         Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0 && a.proposed_moat_class !== undefined
-      // The grounded runway thesis is present only when BOTH the drivers (non-empty) and the proposed
-      // runway survived (the fallback path leaves runway_thesis undefined → the resolver fails closed to a
-      // conservative runway + judgment_degraded; never a silent admit).
-      const runwayThesisPresent =
-        Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0 && a.proposed_runway !== undefined
+      // C2: the runway judged axis is retired — the judgment carries the moat thesis only.
       const moat_judgment: MoatLaneJudgment = {
         ...(moatThesisPresent
           ? {
@@ -1725,17 +1718,6 @@ export async function runResearchDeepDivePhase(
                 ...(Array.isArray(a.direction_drivers) && a.direction_drivers.length > 0 ? { direction_drivers: a.direction_drivers } : {}),
                 ...(a.direction_reasoning !== undefined ? { direction_reasoning: a.direction_reasoning } : {}),
                 ...(a.peer_standout !== undefined ? { peer_standout: a.peer_standout } : {}),
-              },
-            }
-          : {}),
-        runway: a.runway,
-        ...(a.runway_exceptional !== undefined ? { runway_exceptional: a.runway_exceptional } : {}),
-        ...(runwayThesisPresent
-          ? {
-              runway_thesis: {
-                runway_drivers: a.runway_drivers,
-                proposed_runway: a.proposed_runway,
-                runway_reasoning: a.runway_reasoning ?? '',
               },
             }
           : {}),
@@ -1918,11 +1900,6 @@ export async function runResearchDeepDivePhase(
     // MOAT (B6 reframe): the grounded cited thesis (moat_drivers + proposed_moat_class). When the lane
     // omitted it, the moat axis fails closed to narrow + judgment_degraded (the silent-skip guard).
     ...(moatJudgment?.moat_thesis !== undefined ? { moatThesis: moatJudgment.moat_thesis } : {}),
-    // RUNWAY (runway reframe): the grounded cited thesis (runway_drivers + proposed_runway). When the lane
-    // omitted it, the runway axis fails closed to a conservative runway + judgment_degraded.
-    ...(moatJudgment?.runway_thesis !== undefined ? { runwayThesis: moatJudgment.runway_thesis } : {}),
-    // Holistic runway fallback so the resolved runway is NEVER undefined when the grounded thesis is omitted.
-    ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
     verifiedCitationHashes: stageACitationHashes,
   })
@@ -2062,7 +2039,6 @@ export async function runResearchDeepDivePhase(
       preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
       caseDigest: {
         moat_class: judgment.moat!.resolved_moat_class,
-        runway: judgment.runway!.resolved_runway,
       },
       ...(primaryFilingBlock === undefined ? {} : { primaryFilingBlock }),
       circleDigest: {
@@ -2125,7 +2101,6 @@ export async function runResearchDeepDivePhase(
       // so the red team gets the concrete resolved tiers as its target (not a pending placeholder).
       caseDigest: {
         moat_class: judgment.moat!.resolved_moat_class,
-        runway: judgment.runway!.resolved_runway,
       },
       corpusSourceIds: corpusBeforeSynthesis.map((s) => s.source_id),
       verifiedCitationHashes: corpusHashesBeforeSynthesis,
@@ -2291,7 +2266,7 @@ export async function runResearchDeepDivePhase(
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
-      + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
+      + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}'`
       + (shariahLaneJudgment !== undefined ? `; the Shariah screen assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
@@ -2560,10 +2535,10 @@ export async function runResearchDeepDivePhase(
       + '(segment-revenue + impermissible-income) did not complete; the verdict rests on the quick-screen gate.',
     )
   }
-  if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
+  if (judgment.moat?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
-      'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat/runway thesis; the moat '
-      + 'class and reinvestment runway were resolved from the holistic lane judgment (or a conservative default), '
+      'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat thesis; the moat '
+      + 'class was resolved from the holistic lane judgment (or a conservative default), '
       + 'NOT from a grounded, cite-verified thesis.',
     )
   }
@@ -2801,10 +2776,6 @@ export async function runResearchDeepDivePhase(
   if (reinvestmentSanity.rejected && reinvestmentSanity.flag !== undefined) degradedFlags.push(reinvestmentSanity.flag)
   // A rejected reinvestment_rate floors to 0 (no growth credited from an implausible rate).
   const reinvestment_rate = reinvestmentSanity.value ?? 0
-  // resolved_runway is guaranteed defined by resolveJudgmentTiers (never undefined).
-  const runway = judgment.runway!.resolved_runway
-  // runway_exceptional is now the MOAT lane's judgment (spec-correct decomposition), defaulting false.
-  const runway_exceptional = moatJudgment?.runway_exceptional ?? false
 
   const valuationCaveats: string[] = []
   // E2: the reference value is the BOOK FCF intrinsic value ONLY (set below when computable) — the
@@ -3641,15 +3612,11 @@ export async function runResearchDeepDivePhase(
   // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
   // B6: the moat exceptionality justification is now the GROUNDED moat thesis (cite-verified drivers) —
   // each grounded {advantage, citation} maps onto an {claim, citation_hash} justification. Only grounded
-  // drivers count (an ungrounded driver is no justification). Runway reframe: the grounded runway thesis
-  // (cite-verified headroom drivers) likewise contributes — only grounded {headroom, citation} drivers.
+  // drivers count (an ungrounded driver is no justification). C2: the runway thesis is retired.
   const exceptionalityJustifications = [
     ...((judgment.moat?.moat_drivers ?? [])
       .filter((d) => d.grounded)
       .map((d) => ({ claim: d.advantage, citation_hash: d.citation }))),
-    ...((judgment.runway?.runway_drivers ?? [])
-      .filter((d) => d.grounded)
-      .map((d) => ({ claim: d.headroom, citation_hash: d.citation }))),
   ]
   // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
   const roicForecastGt20 =
@@ -3767,8 +3734,6 @@ export async function runResearchDeepDivePhase(
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
-        runway,
-        ...(runway_exceptional ? { runway_exceptional } : {}),
         discount_rate: discount,
         // Discount provenance (Phase 1.4 / F.2): the COMPLIANT risk-free SAVINGS rate (app-config or the
         // config default) + the uniform equity premium. basis 'compliant_savings' when sourced from the

@@ -83,7 +83,7 @@ export type InversionResult = InversionOutput | InversionIncomplete
 
 /**
  * Compact digest of one lane finding for the inversion prompt. The inversion attacks the SHARED
- * narrative, so it sees each lane's summary + confidence + the resolved moat/runway tiers.
+ * narrative, so it sees each lane's summary + confidence + the resolved moat tier.
  */
 export type InversionLaneDigest = {
   lane: string
@@ -100,7 +100,6 @@ export type RunInversionPassArgs = {
   /** Resolved tiers + key valuation inputs the inversion must attack. */
   caseDigest: {
     moat_class: string
-    runway: string
     credited_growth_rate?: number
     incremental_roic?: number
   }
@@ -121,8 +120,8 @@ function buildInversionPrompt(args: RunInversionPassArgs): string {
     `You are the Munger INVERSION agent for ${args.ticker} — "invert, always invert". Your ONLY job is to `
     + `argue this case AGAINST itself. Do not balance, hedge, or restate the bull thesis — find the strongest `
     + `reason this is a mistake.\n\n`
-    + `The ${buffettMungerDeepDiveLanes.length} deep-dive lanes concluded (shared narrative below). The harness resolved moat=${args.caseDigest.moat_class}, `
-    + `runway=${args.caseDigest.runway}${cg !== undefined ? `, credited growth g=${(cg * 100).toFixed(1)}%` : ''}`
+    + `The ${buffettMungerDeepDiveLanes.length} deep-dive lanes concluded (shared narrative below). The harness resolved moat=${args.caseDigest.moat_class}`
+    + `${cg !== undefined ? `, credited growth g=${(cg * 100).toFixed(1)}%` : ''}`
     + `${ir !== undefined ? `, incremental ROIC=${(ir * 100).toFixed(0)}%` : ''}.\n\n`
     + `Lane findings:\n${laneLines}\n\n`
     + `Produce: (1) the strongest CASE AGAINST (strongest_case_against); (2) the moat-decay scenario (how the `

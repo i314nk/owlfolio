@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { AnnualFacts } from '../secEdgar'
 import {
   computeMoatAnchor,
-  computeRunwayAnchor,
 } from '../judgmentAnchor'
 
 // A 10-year series where ROIC (NOPAT/invested-capital proxy) is comfortably > 15% every year and
@@ -153,19 +152,6 @@ describe('computeMoatAnchor — the owner\'s named tests as anchor components (C
   })
 })
 
-describe('computeRunwayAnchor — R1 from incremental ROIC', () => {
-  it('high incremental ROIC -> R1=2, proven-leaning anchor', () => {
-    const anchor = computeRunwayAnchor(highRoicSeries())
-    expect(anchor.computable).toBe(true)
-    if (!anchor.computable) return
-    expect(anchor.row_scores['R1']).toBe(2)
-  })
-
-  it('fails closed when incremental ROIC is not computable', () => {
-    const anchor = computeRunwayAnchor([])
-    expect(anchor.computable).toBe(false)
-  })
-})
 
 // S1 (Phase 3 pillars): the per-year ratio helpers are exported so the moat tests (S2) and the
 // management talent block (S5) reuse the SAME arithmetic the anchor uses (one source of truth).

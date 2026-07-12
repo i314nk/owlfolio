@@ -1169,7 +1169,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const caseProjection = projections.find((c) => c.research_case_id === 'rc_mock_valuation')
     expect(caseProjection?.valuation?.moat_class).toBe('monopoly')
-    expect(caseProjection?.valuation?.runway).toBe('proven')
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['runway']).toBeUndefined() // C2: retired
     expect(caseProjection?.valuation?.roic).toBe(0.25)
     // E2: OE is retired and no EDGAR fundamentals were injected → honestly unpriced (fail-closed).
     expect(caseProjection?.valuation?.buy_price_per_share).toBeUndefined()
@@ -1179,7 +1179,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const valuation = (analysis?.payload as Record<string, unknown>)['valuation'] as Record<string, unknown>
     expect((valuation['degraded_flags'] as string[]).join(' ')).toMatch(/fcf_not_computable/)
   })
-  it('projects the judgment layer: grounded moat thesis (B6) + runway rubric, anchor-vs-proposed-vs-resolved', async () => {
+  it('projects the judgment layer: grounded moat thesis (B6), anchor-vs-proposed-vs-resolved (C2: no runway)', async () => {
     // No EDGAR fundamentals injected -> moat quant anchor not computable. The mock emits a grounded cited
     // moat thesis (3 grounded drivers proposing monopoly -> resolved monopoly). The dossier surfaces the
     // cited moat_drivers + grounded count + that the quant anchor was not computable.
@@ -1216,15 +1216,9 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(judgment?.moat?.grounded_driver_count).toBeGreaterThanOrEqual(3)
     // resolved moat_class fed downstream is monopoly.
     expect(c?.valuation?.moat_class).toBe('monopoly')
-    // runway axis (runway reframe): the mock emits a grounded cited runway thesis (2 grounded headroom
-    // drivers proposing proven -> resolved proven). The dossier surfaces the cited runway_drivers + count.
-    expect(judgment?.runway?.proposed_tier).toBe('proven')
-    expect(judgment?.runway?.resolved_tier).toBe('proven')
-    expect((judgment?.runway?.runway_drivers ?? []).length).toBeGreaterThanOrEqual(2)
-    expect((judgment?.runway?.runway_drivers ?? []).every((d) => d.grounded)).toBe(true)
-    expect(judgment?.runway?.grounded_driver_count).toBeGreaterThanOrEqual(2)
-    // resolved runway fed downstream is proven.
-    expect(c?.valuation?.runway).toBe('proven')
+    // C2: the runway judged axis is retired — nothing projects for it on new events.
+    expect((judgment as Record<string, unknown> | undefined)?.['runway']).toBeUndefined()
+    expect((c?.valuation as Record<string, unknown> | undefined)?.['runway']).toBeUndefined()
   })
 })
 
@@ -1609,21 +1603,21 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
   })
 
-  it('growth is no longer driven by runway/incremental-ROIC (Phase 1.3): runway none still floors the demonstrated reference to 0', async () => {
+  it('C2: growth is the demonstrated reference + the model cited judgment (no runway axis exists)', async () => {
     // The old banding (runway/inc-ROIC/exceptional) is gone — with no demonstrated CAGR available the
     // demonstrated-history REFERENCE is the honest no-growth floor regardless of the runway/inc-ROIC the lane
     // proposes. The headline growth is the model's assumed_growth (0.06), independent of runway too.
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'none', incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'runway-none', { fundamentals: null })
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
-    expect(cp?.valuation?.runway).toBe('none')
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['runway']).toBeUndefined() // C2: retired
   })
 
-  it('runway_exceptional no longer lifts growth (Phase 1.3): the demonstrated reference stays at the no-growth floor without a CAGR', async () => {
+  it('C2: no runway field lifts growth — the demonstrated reference floors honestly without a CAGR', async () => {
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', runway_exceptional: true, incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'mono-exceptional', { fundamentals: null })
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
-    expect(cp?.valuation?.runway_exceptional).toBe(true)
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['runway_exceptional']).toBeUndefined() // C2: retired
     // E2: the internal OE DCF is retired — implied_multiple / cap_exceeded no longer exist; the case
     // has no FCF basis (fundamentals: null) so it is honestly unpriced.
     expect((cp?.valuation as Record<string, unknown> | undefined)?.['implied_multiple']).toBeUndefined()
@@ -3665,32 +3659,17 @@ describe('resolveJudgmentTiers — grounded-thesis fails closed on an ungrounded
 describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted (never undefined)', () => {
   const verified = new Set<string>()
 
-  it('moat FAILS CLOSED to narrow when NO thesis is supplied; runway keeps its holistic fallback; both flagged', () => {
+  it('moat FAILS CLOSED to narrow when NO thesis is supplied — flagged, never silent (C2: no runway axis)', () => {
     const res = resolveJudgmentTiers({
-      // No moatThesis / runwayRubric — mirrors the live dogfood (the lane omitted its judgment block).
-      holisticRunway: 'limited',
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
     // B6 fail-closed: with no grounded moat thesis the moat resolves to narrow (a moat class requires a
-    // grounded, cite-verified thesis — silence is not trusted to pass the gate). Runway is not a gate, so
-    // it keeps the holistic fallback ('limited').
+    // grounded, cite-verified thesis — silence is not trusted to pass the gate).
     expect(res.moat?.resolved_moat_class).toBe('narrow')
-    expect(res.runway?.resolved_runway).toBe('limited')
-    // and the degradation is visible (not a silent substitution).
     expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
-    expect(res.runway?.judgment_degraded).toBe('rubric_not_emitted')
-  })
-
-  it('falls back to a conservative explicit default (narrow / none) when BOTH rubric and holistic are absent', () => {
-    const res = resolveJudgmentTiers({
-      series: tenYearHighRoicSeries(),
-      verifiedCitationHashes: verified,
-    })
-    // never undefined — a conservative default that fails the moat gate.
-    expect(res.moat?.resolved_moat_class).toBe('narrow')
-    expect(res.runway?.resolved_runway).toBe('none')
-    expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
+    // C2: the runway judged axis is retired.
+    expect('runway' in res).toBe(false)
   })
 })
 

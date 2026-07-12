@@ -125,20 +125,6 @@ export const PeerStandoutSchema = z.object({
   reasoning: z.string().min(1),
 })
 
-// A single cited REINVESTMENT-RUNWAY driver: the headroom TEXT (REQUIRED — mirrors MoatDriverSchema; an
-// empty claim must not clear the bar on its citation alone) + the source_id (or content_hash) of a
-// VERIFIED primary source. The runway reframe (mirror of the moat reframe, db691ac): the model argues the
-// durable reinvestment opportunities/headroom (TAM, new markets/segments, reinvestment-at-high-ROIC
-// runway), each cited; the harness cite-verifies and requires non-empty text to count the driver grounded.
-export const RunwayDriverSchema = z.object({
-  // A specific durable reinvestment opportunity / source of headroom for THIS business (TAM under-
-  // penetration, new markets/segments, announced capacity, demonstrated reinvestment-at-high-ROIC). REQUIRED.
-  headroom: z.string().min(1),
-  // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the headroom (a real
-  // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → not counted.
-  citation: z.string().min(1),
-})
-
 // MOAT lane (B6 reframe): the lane emits a GROUNDED CITED THESIS, mirroring the circle gate — NOT a per-row
 // M1-M6 numeric rubric. The model argues the durable competitive advantages (each cited to a verified
 // primary source), proposes the moat_class, and gives its reasoning. The QUANT (M1 ROIC + M2 margin) is
@@ -153,23 +139,9 @@ export const MoatLaneSchema = z.object({
   proposed_moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
   // The model's narrative moat reasoning.
   moat_reasoning: z.string().min(1),
-  // RUNWAY axis (reframe — mirror of the moat reframe): a GROUNDED CITED THESIS, NOT a per-row R1-R3 rubric.
-  // The model argues the durable reinvestment opportunities/headroom (each cited to a verified primary
-  // source), proposes the runway, and gives its reasoning. The QUANT (R1 incremental ROIC) is computed by
-  // the HARNESS from EDGAR to CORROBORATE; the harness cite-verifies each driver and resolves the tier.
-  // The runway lane keeps emitting the holistic `runway` (used as the legacy holistic fallback when the
-  // grounded thesis is absent) — its grounded judgment is `proposed_runway` below.
-  runway: z.enum(['proven', 'limited', 'none']),
-  // Optional: the lane may flag an exceptional runway (with headroom evidence) to allow the top of a
-  // growth band. Defaults to false when omitted.
-  runway_exceptional: z.boolean().optional(),
-  // The durable reinvestment-runway drivers, each with REQUIRED text + a verified-primary-source citation
-  // (mirror moat_drivers). The harness cite-verifies these; a proven/limited runway must be GROUNDED here.
-  runway_drivers: z.array(RunwayDriverSchema).min(1),
-  // The model's grounded runway judgment (the tier its cited drivers argue for).
-  proposed_runway: z.enum(['proven', 'limited', 'none']),
-  // The model's narrative runway reasoning.
-  runway_reasoning: z.string().min(1),
+  // C2 (owner-locked 2026-07-12): the RUNWAY judged tier is RETIRED — a pre-pillar rubric-era axis.
+  // Reinvestment headroom is argued inside the model's cited GROWTH rationale (the valuation stage's
+  // judgment); legacy events keep their runway fields read-only.
   // ---- S3 (Phase 3 pillars): direction + peer standout. Optional at the schema level (legacy
   // tolerance + degrade-not-destroy); the prompt demands them and the requiredFields retry forces them.
   // Moat DIRECTION: "a narrowing moat is a sell signal no matter how wide it still looks." Resolves
@@ -453,9 +425,8 @@ export const AGENT_TIMEOUT_MS = resolveAgentTimeoutMs(process.env['OWLFOLIO_AGEN
 // the circle gate, NOT a per-row numeric rubric). The lane argues the durable competitive advantages, each
 // cited to a verified primary source; proposes the moat_class; and states the quant (ROIC/margins) will
 // corroborate. The harness cite-verifies each driver, resolves the tier from the grounded thesis, and uses
-// the EDGAR quant (M1/M2) only as corroboration. The RUNWAY axis is now ALSO a grounded cited thesis
-// (runway_drivers + proposed_runway) — same reframe; the harness cite-verifies the runway_drivers and uses
-// the EDGAR incremental-ROIC quant (R1) only as corroboration (never substitutes/overrides).
+// the EDGAR quant (M1/M2) only as corroboration. C2: the RUNWAY judged axis is RETIRED — reinvestment
+// headroom is argued inside the model's cited growth rationale at the valuation stage.
 export const MOAT_PILLAR_PROMPT =
   ` As the MOAT lane you ALSO produce the durable-moat judgment for this case — as a GROUNDED CITED THESIS, `
   + `the SAME discipline as the circle-of-competence gate: argue it, do not assert it. `
@@ -472,25 +443,7 @@ export const MOAT_PILLAR_PROMPT =
   + `harness-verified source_ids (e.g. sec_edgar_10k_<cik>_fy<year>) listed in the pre-verified sources; do NOT `
   + `fetch or cite your OWN SEC archive URL for the primary 10-K (it fetches unreliably and will FAIL the `
   + `cite-check). outside/narrow is a valid, common answer — do NOT over-claim a moat you cannot ground. `
-  + `ALSO produce the REINVESTMENT-RUNWAY judgment — a SEPARATE axis from moat width — as a GROUNDED CITED `
-  + `THESIS, the SAME discipline (argue it, do not assert it). The runway is the DURABLE REINVESTMENT `
-  + `OPPORTUNITY: can this business deploy incremental capital at high ROIC for years with visible remaining `
-  + `headroom? Emit runway_drivers: the SPECIFIC sources of that headroom for THIS business — TAM under- `
-  + `penetration, new markets/segments, announced capacity, demonstrated reinvestment-at-high-ROIC runway — `
-  + `EACH with concrete TEXT (the headroom) AND a citation (the source_id of a VERIFIED primary source). Then `
-  + `set proposed_runway ('proven' | 'limited' | 'none' — your grounded judgment; proven means ≥5 yrs of `
-  + `incremental capital deployed at high ROIC WITH visible remaining headroom) and runway_reasoning (your `
-  + `narrative). The quant (computed incremental-ROIC headroom) will be computed by the harness from the EDGAR `
-  + `filings to CORROBORATE your thesis; do NOT score it yourself. GROUNDING IS THE BAR (mirror the moat): the `
-  + `harness cite-verifies each runway_driver and counts ONLY drivers with non-empty headroom text AND a `
-  + `citation that verifies; a proven runway is honored ONLY when enough drivers GROUND (≈2 grounded distinct `
-  + `headroom drivers for proven, ≈1 for limited). STEER: for filing-backed claims, cite the named harness- `
-  + `verified source_ids (e.g. sec_edgar_10k_<cik>_fy<year>) listed in the pre-verified sources; do NOT fetch `
-  + `or cite your OWN SEC archive URL for the primary 10-K (it fetches unreliably and will FAIL the cite-check). `
-  + `limited/none is a valid, common answer — do NOT over-claim a runway you cannot ground. Set the holistic `
-  + `runway field to the same grounded judgment, and runway_exceptional only with explicit headroom evidence. `
   + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}]. `
-  + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}]. `
   // ---- S3 (Phase 3 pillars): taxonomy + direction + peer standout ----
   + `TAG EVERY moat_driver with its moat_type — WHICH kind of moat the advantage is, from EXACTLY this `
   + `taxonomy: 'brand' (loyalty/pricing power from the name), 'switching_costs', 'network_effect', `

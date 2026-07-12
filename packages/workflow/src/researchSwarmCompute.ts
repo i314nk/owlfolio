@@ -2,7 +2,6 @@ import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { JUDGMENT_RUBRICS, type RubricTier } from '@owlfolio/strategies/judgmentRubrics'
 import {
   computeMoatAnchor,
-  computeRunwayAnchor,
   type ResolveRubricTierResult,
 } from './judgmentAnchor'
 import type { AnnualFacts, Fundamentals } from './secEdgar'
@@ -51,13 +50,6 @@ export type PeerStandoutInput = {
   reasoning: string
 }
 
-/** A single cited reinvestment-runway headroom driver from the RUNWAY thesis (runway reframe — mirror of
- *  MoatDriverInput). The harness cite-verifies the citation AND requires non-empty headroom text. */
-export type RunwayDriverInput = {
-  headroom: string
-  citation: string
-}
-
 /** The MOAT lane's GROUNDED CITED THESIS (B6 reframe — mirrors the circle gate): cited drivers + the
  *  model's proposed moat_class + reasoning. The harness cite-verifies the drivers and resolves the tier
  *  from the grounded thesis with the EDGAR quant as corroboration (NOT a per-row M1-M6 rubric). */
@@ -74,25 +66,11 @@ export type MoatThesisInput = {
   peer_standout?: PeerStandoutInput
 }
 
-/** The RUNWAY GROUNDED CITED THESIS (runway reframe — mirrors the moat thesis): cited reinvestment-headroom
- *  drivers + the model's proposed_runway + reasoning. The harness cite-verifies the drivers and resolves the
- *  tier from the grounded thesis with the EDGAR incremental-ROIC quant as corroboration (NOT an R1-R3 rubric). */
-export type RunwayThesisInput = {
-  runway_drivers: RunwayDriverInput[]
-  proposed_runway: 'proven' | 'limited' | 'none'
-  runway_reasoning: string
-}
-
-/** The MOAT lane's judgment output: the grounded moat thesis + the grounded runway thesis (both reframes
- *  live on this one lane). moat_thesis / runway_thesis are OPTIONAL — the schema-retry fallback (lane
- *  omitted its judgment block) leaves them absent, which fails each axis closed to its conservative default
- *  (narrow / none) + judgment_degraded (never a silent admit). `runway` is the holistic fallback the runway
- *  axis uses ONLY when the grounded runway_thesis is absent. */
+/** The MOAT lane's judgment output (C2: the runway judged axis is retired). moat_thesis is OPTIONAL —
+ *  the schema-retry fallback (lane omitted its judgment block) leaves it absent, which fails the axis
+ *  closed to narrow + judgment_degraded (never a silent admit). */
 export type MoatLaneJudgment = {
   moat_thesis?: MoatThesisInput
-  runway: 'proven' | 'limited' | 'none'
-  runway_exceptional?: boolean
-  runway_thesis?: RunwayThesisInput
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -321,7 +299,6 @@ export type JudgmentDegraded = 'rubric_not_emitted'
  *  moat gate (narrow) / earn no growth credit (none) — never an undefined that silently voids the
  *  valuation downstream. */
 const DEFAULT_MOAT_CLASS = 'narrow' as const
-const DEFAULT_RUNWAY = 'none' as const
 
 /** A single moat-thesis driver after cite-verification (the grounded flag mirrors the circle gate). */
 export type ResolvedMoatDriver = {
@@ -357,13 +334,6 @@ export type ResolvedPeerStandout = {
   grounded_peer_count: number
 }
 
-/** A single runway-thesis driver after cite-verification (mirror of ResolvedMoatDriver). */
-export type ResolvedRunwayDriver = {
-  headroom: string
-  citation: string
-  grounded: boolean
-}
-
 export type JudgmentResolution = {
   moat?: ResolveRubricTierResult & {
     /** ALWAYS defined: grounded-thesis resolved tier -> conservative default. Never undefined. */
@@ -395,24 +365,6 @@ export type JudgmentResolution = {
     direction_reasoning?: string
     /** The peer-standout judgment with per-peer model_asserted/grounded stamps. */
     peer_standout?: ResolvedPeerStandout
-  }
-  runway?: ResolveRubricTierResult & {
-    /** ALWAYS defined: grounded-thesis resolved tier -> holistic fallback -> conservative default. Never undefined. */
-    resolved_runway: 'proven' | 'limited' | 'none'
-    anchor_note?: string
-    /** Set when no grounded runway thesis existed (resolved holistically / by default). Surfaced, not silent. */
-    judgment_degraded?: JudgmentDegraded
-    // ---- Grounded-thesis runway fields (runway reframe — mirror the moat thesis) ----
-    /** The cited runway headroom drivers, each with a cite-verified `grounded` flag. */
-    runway_drivers?: ResolvedRunwayDriver[]
-    /** Count of distinct grounded drivers (non-empty headroom AND cite-verified citation). */
-    grounded_driver_count?: number
-    /** The EDGAR incremental-ROIC quant corroboration signal (R1) — corroborates, never substitutes/overrides. */
-    quant_anchor_tier?: RubricTier
-    /** True when the model proposed proven but the grounded thesis couldn't back it. ADVISORY (runway is NOT a gate). */
-    runway_grounding_unmet?: boolean
-    /** Advisory: a grounded proven runway sits on a WEAK incremental-ROIC quant. Surfaced, never blocks. */
-    quant_contradicts_runway?: boolean
   }
 }
 
@@ -603,112 +555,8 @@ function resolveMoatThesis(args: {
 /** Minimum distinct GROUNDED runway_drivers each tier requires. A proven runway needs at least two
  *  independently-cited durable headroom drivers; a limited runway at least one; below that -> none (the
  *  rarest, highest-stakes claim — proven — carries the higher burden). Mirror of the moat thresholds. */
-const GROUNDED_DRIVERS_FOR_PROVEN = 2
-const GROUNDED_DRIVERS_FOR_LIMITED = 1
 
-const RUNWAY_ORDER: readonly ('none' | 'limited' | 'proven')[] = ['none', 'limited', 'proven']
 
-/**
- * Resolve the RUNWAY tier from the model's GROUNDED CITED THESIS (runway reframe) — mirroring the moat
- * thesis rather than the fragile per-row R1-R3 rubric. The model emits runway_drivers (each {headroom,
- * citation}) + a proposed_runway; the harness cite-verifies each driver with the SAME primitive (non-empty
- * text AND isCitationGrounded), counts the grounded distinct drivers, and resolves the tier:
- *   - 'proven' is HONORED only when >=2 drivers ground; 'limited' when >=1; otherwise FAIL CLOSED to the
- *     tier the grounded drivers support + runway_grounding_unmet (ADVISORY — runway is not a gate).
- *   - resolved_runway = min(proposed, supported-by-count): the model can go LOWER than its grounded
- *     drivers support but not HIGHER.
- *   - the EDGAR incremental-ROIC quant (computeRunwayAnchor: R1) CORROBORATES but never substitutes (0
- *     grounded drivers -> none/limited regardless of a strong quant) and never overrides (a grounded proven
- *     thesis on a weak quant -> proven + an ADVISORY quant_contradicts_runway flag, surfaced, never blocks).
- */
-function resolveRunwayThesis(args: {
-  thesis: RunwayThesisInput
-  series: AnnualFacts[]
-  verifiedCitationHashes: ReadonlySet<string>
-}): NonNullable<JudgmentResolution['runway']> {
-  const { thesis, series, verifiedCitationHashes } = args
-
-  // Cite-verify each driver (mirror the moat: non-empty TEXT AND a citation that verifies against the
-  // content-hash-verified corpus). An empty headroom with a verified citation does NOT count.
-  const runway_drivers = thesis.runway_drivers.map((d) => ({
-    headroom: d.headroom ?? '',
-    citation: d.citation,
-    grounded: (d.headroom?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, verifiedCitationHashes),
-  }))
-  // Count DISTINCT grounded headroom drivers (dedupe identical text so a repeated driver can't pad).
-  const grounded_driver_count = new Set(
-    runway_drivers.filter((d) => d.grounded).map((d) => d.headroom.trim().toLowerCase()),
-  ).size
-
-  // The tier the GROUNDED thesis supports (the cap): >=2 -> proven; >=1 -> limited; 0 -> none.
-  const supportedRunway: 'none' | 'limited' | 'proven' =
-    grounded_driver_count >= GROUNDED_DRIVERS_FOR_PROVEN
-      ? 'proven'
-      : grounded_driver_count >= GROUNDED_DRIVERS_FOR_LIMITED
-        ? 'limited'
-        : 'none'
-
-  // resolved = MIN of what the model proposed and what the grounded thesis supports — the grounded thesis
-  // is a CEILING (it can only cap a proposal down, never inflate it). A 'none' proposal stays none.
-  const proposedIdx = RUNWAY_ORDER.indexOf(thesis.proposed_runway)
-  const supportedIdx = RUNWAY_ORDER.indexOf(supportedRunway)
-  const resolvedIdx = Math.min(proposedIdx, supportedIdx)
-  const resolved_runway = RUNWAY_ORDER[resolvedIdx]!
-
-  // runway_grounding_unmet: the model REACHED for proven but the grounded thesis could not back it (resolved
-  // below the proposal). ADVISORY (runway is not a verdict gate). A genuinely-none/limited proposal (or one
-  // fully supported) is NOT unmet.
-  const modelClaimedProven = thesis.proposed_runway === 'proven'
-  const runway_grounding_unmet = modelClaimedProven && resolvedIdx < proposedIdx
-
-  // The EDGAR incremental-ROIC quant corroboration (R1). quant_contradicts_runway is an ADVISORY flag: a
-  // grounded proven runway sitting on a WEAK quant (anchor 'none' / not computable) — surfaced, NEVER blocks.
-  const anchor = computeRunwayAnchor(series)
-  const quant_anchor_tier: RubricTier | undefined = anchor.computable ? anchor.anchor_tier : undefined
-  const resolvedIsProven = resolved_runway === 'proven'
-  const quant_contradicts_runway =
-    resolvedIsProven && (!anchor.computable || anchor.anchor_tier === 'none')
-
-  const anchor_note = anchor.computable
-    ? anchor.note
-    : `Runway quant corroboration not computable: ${anchor.reason}`
-
-  const violations: string[] = []
-  if (runway_grounding_unmet) {
-    violations.push(
-      `runway-grounding-unmet (advisory): proposed 'proven' but only ${grounded_driver_count} grounded `
-      + `driver(s) (need ${GROUNDED_DRIVERS_FOR_PROVEN}) — failed closed to '${resolved_runway}' (runway feeds `
-      + `growth credit, not the verdict gate; no RESEARCH_MORE)`,
-    )
-  }
-  if (quant_contradicts_runway) {
-    violations.push(
-      `quant-contradicts-runway (advisory): a grounded 'proven' runway thesis sits on a weak EDGAR `
-      + `incremental-ROIC quant (${quant_anchor_tier ?? 'not computable'}) — surfaced, does NOT block the thesis`,
-    )
-  }
-
-  return {
-    // ResolveRubricTierResult-compatible fields so downstream consumers + the projection keep working.
-    anchor_computable: anchor.computable,
-    anchor_tier: quant_anchor_tier,
-    proposed_tier: thesis.proposed_runway,
-    resolved_tier: resolved_runway,
-    resolved_row_scores: anchor.computable ? anchor.row_scores : {},
-    adjustment_applied: false,
-    verified_evidence_count: grounded_driver_count,
-    grounding_capped: runway_grounding_unmet,
-    violations,
-    // Grounded-thesis fields.
-    resolved_runway,
-    runway_drivers,
-    grounded_driver_count,
-    ...(quant_anchor_tier !== undefined ? { quant_anchor_tier } : {}),
-    ...(runway_grounding_unmet ? { runway_grounding_unmet: true } : {}),
-    ...(quant_contradicts_runway ? { quant_contradicts_runway: true } : {}),
-    anchor_note,
-  }
-}
 
 /**
  * Resolve the moat + runway tiers — ALWAYS yielding a defined resolved tier so the omission of either
@@ -727,10 +575,6 @@ function resolveRunwayThesis(args: {
 export function resolveJudgmentTiers(args: {
   /** The MOAT lane's grounded cited thesis (B6). When absent -> fail closed to narrow + judgment_degraded. */
   moatThesis?: MoatThesisInput | undefined
-  /** The grounded cited runway thesis (runway reframe). When absent -> fail closed to none + judgment_degraded. */
-  runwayThesis?: RunwayThesisInput | undefined
-  /** Holistic runway the synthesis lane proposes (the schema-required field). Used as the fallback. */
-  holisticRunway?: 'proven' | 'limited' | 'none' | undefined
   series?: AnnualFacts[] | undefined
   verifiedCitationHashes: ReadonlySet<string>
 }): JudgmentResolution {
@@ -768,28 +612,8 @@ export function resolveJudgmentTiers(args: {
     }
   }
 
-  // --- Runway axis (runway reframe: GROUNDED CITED THESIS, not a per-row rubric) ---
-  let runway: JudgmentResolution['runway']
-  if (args.runwayThesis !== undefined) {
-    runway = resolveRunwayThesis({
-      thesis: args.runwayThesis,
-      series,
-      verifiedCitationHashes: args.verifiedCitationHashes,
-    })
-  } else {
-    // No runway thesis supplied — FAIL CLOSED to a CONSERVATIVE runway (the holistic runway the lane still
-    // emits, or none), VISIBLY flagged. Runway feeds GROWTH credit, not the verdict gate, so an ungrounded
-    // holistic runway cannot admit a name (it only credits less growth). No RESEARCH_MORE.
-    const fallback = args.holisticRunway ?? DEFAULT_RUNWAY
-    runway = {
-      ...degradedResult(fallback as RubricTier),
-      resolved_runway: fallback,
-      judgment_degraded: 'rubric_not_emitted',
-      anchor_note: 'Runway thesis not emitted by the model — resolved from the holistic runway (or conservative default). Runway feeds growth credit, not the verdict gate.',
-    }
-  }
-
-  return { moat, runway }
+  // C2 (owner-locked): the runway judged axis is retired.
+  return { moat }
 }
 
 type JudgmentAxisProjection = {
@@ -818,10 +642,6 @@ type JudgmentAxisProjection = {
   direction_ungrounded?: boolean
   direction_reasoning?: string
   peer_standout?: ResolvedPeerStandout
-  // ---- Grounded-thesis RUNWAY projection (runway reframe) — the cited headroom drivers + flags. ----
-  runway_drivers?: ResolvedRunwayDriver[]
-  runway_grounding_unmet?: boolean
-  quant_contradicts_runway?: boolean
 }
 
 type JudgmentProjection = {
@@ -859,10 +679,6 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       direction_ungrounded?: boolean
       direction_reasoning?: string
       peer_standout?: ResolvedPeerStandout
-      // Grounded-thesis runway fields (present only on the runway axis).
-      runway_drivers?: ResolvedRunwayDriver[]
-      runway_grounding_unmet?: boolean
-      quant_contradicts_runway?: boolean
     }) | undefined,
   ): JudgmentAxisProjection | undefined {
     if (r === undefined) return undefined
@@ -890,15 +706,10 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       ...(r.direction_ungrounded ? { direction_ungrounded: true } : {}),
       ...(r.direction_reasoning === undefined ? {} : { direction_reasoning: r.direction_reasoning }),
       ...(r.peer_standout === undefined ? {} : { peer_standout: r.peer_standout }),
-      // Grounded-thesis runway projection (the cited headroom drivers + grounded flags + the flags).
-      ...(r.runway_drivers === undefined ? {} : { runway_drivers: r.runway_drivers }),
-      ...(r.runway_grounding_unmet ? { runway_grounding_unmet: true } : {}),
-      ...(r.quant_contradicts_runway ? { quant_contradicts_runway: true } : {}),
     }
   }
   const moat = axis(judgment.moat)
-  const runway = axis(judgment.runway)
-  if (moat === undefined && runway === undefined) return undefined
+  if (moat === undefined) return undefined
   const engineCommit = resolveEngineCommit()
   return {
     rubric_version: JUDGMENT_RUBRICS.version,
@@ -906,7 +717,6 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
     engine_version: ENGINE_VERSION,
     ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
     ...(moat === undefined ? {} : { moat }),
-    ...(runway === undefined ? {} : { runway }),
   }
 }
 

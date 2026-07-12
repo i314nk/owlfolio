@@ -4,7 +4,7 @@
 // advance. Lanes score evidence; the harness maps scores to conclusions."
 //
 // This module is the quant-corroboration side of the harness:
-//   computeMoatAnchor / computeRunwayAnchor — score the COMPUTABLE rubric rows from PRIMARY EDGAR
+//   computeMoatAnchor — score the COMPUTABLE rubric rows from PRIMARY EDGAR (C2: runway anchor retired)
 //   data alone (deterministic), sum them to a sub-score, and map that to a mechanical `anchor_tier`
 //   (the quant prior). Fail-closed to { computable: false } when EDGAR is insufficient.
 //
@@ -16,7 +16,7 @@
 // (The per-row resolveRubricTier mapping was retired by the rubric→grounded-thesis migration.)
 
 import { type RubricTier } from '@owlfolio/strategies/judgmentRubrics'
-import { computeIncrementalRoic, type AnnualFacts } from './secEdgar'
+import { type AnnualFacts } from './secEdgar'
 import { yearGrossMargin, yearOperatingMargin, yearRoic } from './annualRatios'
 import { computeMoatTests } from './moatTests'
 
@@ -79,10 +79,6 @@ function moatTierForSubScore(subScore: number): RubricTier {
   return 'narrow'
 }
 
-function runwayTierForSubScore(subScore: number): RubricTier {
-  if (subScore >= 1) return 'limited'
-  return 'none'
-}
 
 // ---------------------------------------------------------------------------
 // Moat anchor (S4 recomposition, owner-locked 2026-07-11): the anchor components are the owner's
@@ -148,24 +144,6 @@ export function computeMoatAnchor(series: AnnualFacts[]): RubricAnchor {
  * high ROIC), reusing computeIncrementalRoic. R1=2 when incremental ROIC > 10%, 1 when positive, else 0.
  * Fail-closed to { computable: false } when incremental ROIC is not computable.
  */
-export function computeRunwayAnchor(series: AnnualFacts[]): RubricAnchor {
-  if (series.length < 2) {
-    return { computable: false, reason: 'fewer than two years for the runway anchor' }
-  }
-  const inc = computeIncrementalRoic(series)
-  if (!inc.computable) {
-    return { computable: false, reason: `incremental ROIC not computable: ${inc.reason}` }
-  }
-  const r1 = inc.incremental_roic > 0.10 ? 2 : inc.incremental_roic > 0 ? 1 : 0
-  const row_scores: Record<string, number> = { R1: r1 }
-  const sub_score = r1
-  const sub_score_max = 2
-  const anchor_tier = runwayTierForSubScore(sub_score)
-  const note =
-    `Runway anchor from EDGAR: R1=${r1} (incremental ROIC ${(inc.incremental_roic * 100).toFixed(1)}% `
-    + `FY${inc.from_fiscal_year}->FY${inc.to_fiscal_year}). Sub-score ${sub_score}/${sub_score_max} -> '${anchor_tier}' (proven needs cited headroom).`
-  return { computable: true, row_scores, sub_score, sub_score_max, anchor_tier, note }
-}
 
 // ---------------------------------------------------------------------------
 // Moat/runway resolution result shape (consumed by researchSwarmCompute)

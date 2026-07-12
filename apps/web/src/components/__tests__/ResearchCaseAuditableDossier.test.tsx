@@ -510,23 +510,17 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
 
   // JUDGMENT PROVENANCE (Priority 2) — the moat / runway "proposed → resolved" anchor reads are PROSE; they
   // belong as labeled text lines, never crammed into numeric ledger-stat blocks.
-  it('renders the moat/runway judgment provenance as labeled text, not inside numeric ledger-stats', () => {
+  it('C2: the runway judgment provenance is retired — no provenance block, no Runway stat', () => {
     const html = render(baseCase({
       judgment: {
         moat: { proposed_tier: 'wide', resolved_tier: 'moderate', grounded_driver_count: 3, anchor_computable: false },
-        runway: { proposed_tier: 'proven', resolved_tier: 'proven', grounded_driver_count: 2, anchor_computable: false },
       },
     } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
-    // The prose anchor reads are gone from the numeric stat-strip (no "Moat anchor"/"Runway anchor" stats).
-    expect(html).not.toContain('Moat anchor')
-    expect(html).not.toContain('Runway anchor')
-    // They render in a dedicated Judgment provenance text block instead — the provenance prose lives there.
-    const provIdx = html.indexOf('data-testid="judgment-provenance"')
-    expect(provIdx).toBeGreaterThan(-1)
-    const provHtml = html.slice(provIdx, html.indexOf('</div>', provIdx))
-    expect(provHtml).toContain('proposed →')
-    expect(html).toContain('Moat: WIDE proposed → MODERATE resolved')
-    expect(html).toContain('Runway: PROVEN proposed → PROVEN resolved')
+    expect(html).not.toContain('data-testid="judgment-provenance"')
+    expect(html).not.toContain('Runway (model)')
+    expect(html).not.toContain('Runway:')
+    // The MOAT provenance lives on the Pillar-2 moats card.
+    expect(html).toContain('WIDE proposed → MODERATE resolved')
   })
 
   // S3 (Phase 3 pillars) — the moat pillar judgment display: taxonomy chips from GROUNDED drivers,

@@ -83,8 +83,8 @@ export type RunValuationReasoningPassArgs = {
    * id the harness reliably verifies, do NOT fetch a self-archive URL). May be empty.
    */
   preVerifiedSourceIds: string[]
-  /** Phase 2 V1 (always-on stage): the RESOLVED moat/runway tiers (mechanical anchor ±1, cite-gated). */
-  caseDigest?: { moat_class: string; runway: string }
+  /** Phase 2 V1 (always-on stage): the RESOLVED moat tier (mechanical anchor ±1, cite-gated). */
+  caseDigest?: { moat_class: string }
   /** Phase 2 V1: the harness-fetched primary-filing NUMBERS block (the same injection the lanes get). */
   primaryFilingBlock?: string
   /** Phase 2 V1: the circle gate's grounded cashflow drivers/breakers (predictability context). */
@@ -114,7 +114,7 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `valuation stage: the specialist lanes have reported and the moat tier is resolved — your FOCUSED, `
     + `REQUIRED job is to produce the grounded valuation judgment the synthesis will consume.\n\n`
     + `Lane findings (the shared narrative to value from):\n${laneLines}\n\n`
-    + (args.caseDigest === undefined ? '' : `Resolved judgment tiers (mechanical anchor ±1, cite-gated): moat_class=${args.caseDigest.moat_class}, runway=${args.caseDigest.runway}.\n`)
+    + (args.caseDigest === undefined ? '' : `Resolved judgment tier (mechanical anchor ±1, cite-gated): moat_class=${args.caseDigest.moat_class}.\n`)
     + (args.circleDigest === undefined ? '' : `Circle-gate grounded cashflow drivers: ${args.circleDigest.drivers.join('; ') || '(none)'} | predictability breakers: ${args.circleDigest.breakers.join('; ') || '(none)'}.\n`)
     + (args.primaryFilingBlock ?? '')
     + `\n`

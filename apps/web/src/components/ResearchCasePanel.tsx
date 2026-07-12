@@ -2111,19 +2111,13 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const incrementalRoic = valuation.incremental_roic
   const growthRate = valuation.growth_rate
   const terminalGrowthRate = valuation.terminal_growth_rate
-  const runway = valuation.runway
   // §2 flag-only sanity output: the name-specific implied EXIT P/OE the live price requires (current price ÷
   // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
   // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
   const impliedExitMultiple = valuation.implied_exit_multiple
   // Judgment-objectivity layer (Mechanisms 1+2): the MOAT provenance (proposed → resolved, taxonomy,
   // direction, peers) moved to the Pillar-2 moats card (D1); the runway read stays here with valuation.
-  const runwayJudgment = valuation.judgment?.runway
-  const runwayAnchorLabel = runwayJudgment !== undefined
-    ? `${(runwayJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
-      + ` · ${runwayJudgment.grounded_driver_count ?? 0} grounded driver(s)`
-      + ` · quant ${runwayJudgment.anchor_computable === false ? 'n/a' : (runwayJudgment.anchor_tier ?? '?').toUpperCase()}`
-    : undefined
+  // C2: the runway judged axis is retired — no runway provenance renders (legacy tolerated by ignore).
 
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
   // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
@@ -2146,11 +2140,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // demonstrated-history reference (demonstrated_growth_reference), not shown here. ROIC is context only.
   const eligRoic = incrementalRoic ?? roic
   const fadeLabel = terminalGrowthRate !== undefined ? ` → terminal ${(terminalGrowthRate * 100).toFixed(0)}%` : ''
-  const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}${runwayLabel}`
-      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
@@ -2259,25 +2252,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           : 'Not computable',
         'owl-ledger-figure-money',
       ),
-      createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount (policy)', discountLabel, ''),
     ),
     // Discount provenance: B2 runs show the flat required return; legacy runs keep the savings-anchor line.
     researchCase.valuation?.discount_inputs?.required_return !== undefined
       ? createRequiredReturnProvenance(researchCase)
       : createDiscountAnchorProvenance(savings),
-    // Judgment provenance (Priority 2): the RUNWAY "proposed → resolved" anchor read is PROSE, not a
-    // numeric — a labeled mono/muted text line. The MOAT provenance moved to the Pillar-2 moats card (D1).
-    runwayAnchorLabel !== undefined ? createElement(
-      'div',
-      { 'data-testid': 'judgment-provenance', style: { display: 'grid', gap: '0.25rem', marginTop: '0.7rem' } },
-      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'Judgment provenance'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Runway: ${runwayAnchorLabel}`,
-      ),
-    ) : null,
+    // C2: the runway provenance block is retired (the moat provenance lives on the P2 moats card).
+
     // Mechanism 3: base-rate burden — exceptional claims lacking structural evidence (surfaced, never passed).
     unmetBaseRateFlags.length > 0 ? createElement(
       'div',
