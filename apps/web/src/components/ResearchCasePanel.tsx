@@ -482,7 +482,6 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
     //    the actionable plans (admit / position plan / sizing / sell). ──
     createPillarHeader('synthesis', 'Synthesis & decision', undefined),
-    createSynthesisPanel(researchCase),
     createCaseAgainstPanel(researchCase),
     createForecastsPanel(researchCase),
     makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
@@ -927,34 +926,6 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
       : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
   }
   return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
-}
-
-// H (owner feedback, 2026-07-12): the ACTUAL synthesis card — the synthesis agent's own
-// reconciliation narrative (how the pillar findings combine into the thesis), with its confidence
-// and open caveats. Legacy cases without the projected narrative render no card (no empty shell).
-function createSynthesisPanel(researchCase: AppResearchCase) {
-  const summary = researchCase.synthesis_summary
-  if (summary === undefined || summary.trim().length === 0) return null
-  const caveats = researchCase.caveats ?? []
-  const children: ReactNode[] = [
-    createElement('p', { key: 'narrative', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } }, summary),
-    researchCase.confidence === undefined ? null : createElement(
-      'p',
-      { key: 'confidence', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } },
-      `Synthesis confidence: ${researchCase.confidence}`,
-    ),
-    caveats.length === 0 ? null : createElement(
-      'div',
-      { key: 'caveats', style: { display: 'grid', gap: '0.25rem' } },
-      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } }, 'Open caveats'),
-      ...caveats.map((c, i) => createElement(
-        'p',
-        { key: `caveat-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        `• ${c}`,
-      )),
-    ),
-  ]
-  return createCollapsibleSection('synthesis-card', 'Synthesis — the pillars reconciled', true, children)
 }
 
 // G (owner call, 2026-07-12): the Munger LATTICE is retired — the inversion pass stands alone as the
@@ -1746,15 +1717,10 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const shariah = researchCase.shariah_status
 
-  // POLISH (owner-agreed, 2026-07-12): when the SYNTHESIS card carries the reconciliation narrative,
-  // the hero keeps only the scannable bullets + next action (one home for the prose). Legacy cases
-  // without a synthesis narrative keep the hero prose — nothing vanishes.
-  const synthesisCarriesNarrative = typeof (researchCase as { synthesis_summary?: string }).synthesis_summary === 'string'
-    && ((researchCase as { synthesis_summary?: string }).synthesis_summary ?? '').trim().length > 0
-  const fullThesis = synthesisCarriesNarrative
-    ? undefined
-    : firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
-  const thesis = fullThesis ?? (verdict === undefined && !synthesisCarriesNarrative ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
+  // The WHOLE thesis leads the verdict summary as prose (owner call 2026-07-12: the hero paragraph
+  // is the narrative's ONE home — the standalone synthesis card was removed as a duplicate).
+  const fullThesis = firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
+  const thesis = fullThesis ?? (verdict === undefined ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
 
   const valuationValue = [
     valuationStatus === undefined ? undefined : valuationStatus.toLowerCase(),
@@ -1996,6 +1962,25 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
     ) : null,
     // The deterministic sanity-check flags — advisory amber annotations, never blocks.
     sanityFlags.length > 0 ? createSanityFlags(sanityFlags) : null,
+    // The synthesis's own residual uncertainty (owner call 2026-07-12: the standalone synthesis card
+    // was removed; its confidence + open questions live HERE, beside the decision they qualify).
+    createSynthesisOpenQuestions(researchCase),
+  )
+}
+
+function createSynthesisOpenQuestions(researchCase: AppResearchCase) {
+  const caveats = researchCase.caveats ?? []
+  if (caveats.length === 0) return null
+  return createElement(
+    'div',
+    { 'data-testid': 'synthesis-open-questions', style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.25rem', paddingTop: '0.55rem' } },
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } },
+      `Open questions the synthesis left${researchCase.confidence !== undefined ? ` (confidence: ${researchCase.confidence})` : ''}`),
+    ...caveats.map((c, i) => createElement(
+      'p',
+      { key: `oq-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      `• ${c}`,
+    )),
   )
 }
 
