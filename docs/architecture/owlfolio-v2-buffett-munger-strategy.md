@@ -12,7 +12,7 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 
 - **Concentrated** — up to 20 positions, maximum 15 % per position, 3 % minimum cash buffer.
 - **Quality** — investable only when the business has a durable wide economic moat and positive normalized owner earnings.
-- **Value** — the book intrinsic value (2026-07 book alignment, `valuation-2026-07-book-alignment-1`): ten years of free cash flow (CFO − capex, tagged XBRL facts only) grown at the model's cited durable rate, discounted at the **15 % required return** (a user-changeable Setting; the default is the book's rate, not a market-derived one), plus a cite-checked industry **exit multiple** (harness-clamped 8–20×, conservative 12× fallback) on year-10 FCF, plus net cash − debt. Buy = **IV × 0.70** (rule 7, the 30 % required margin) and load-up = **IV × 0.50** (rule 8, the concentrated-sizing zone). A filer without a tagged CFO goes honestly **unpriced** — there is no proxy fallback. The certainty difference between moat classes is captured by the moat gate and sizing, **not** by tiering the discount rate or the margin.
+- **Value** — the book intrinsic value (2026-07 book alignment, `valuation-2026-07-book-alignment-1`): ten years of free cash flow (CFO − capex, tagged XBRL facts only) grown at the model's cited durable rate, discounted at the **15 % required return** (a user-changeable Setting; the default is the book's rate, not a market-derived one), plus a cite-checked **exit multiple anchored to named comparables** (median of the model's own comps, tilted conservative; 12× fallback only when absent or absurd — the book's 8–20× was an example, not a ceiling) on year-10 FCF, plus net cash − debt. Buy = **IV × 0.70** (rule 7, the 30 % required margin) and load-up = **IV × 0.50** (rule 8, the concentrated-sizing zone). A filer without a tagged CFO goes honestly **unpriced** — there is no proxy fallback. The certainty difference between moat classes is captured by the moat gate and sizing, **not** by tiering the discount rate or the margin.
 - **Shariah-first** — Shariah screening is the first hard gate; a non-compliant result stops the deep-dive before provider cost is incurred.
 
 ### Pipeline
@@ -33,7 +33,7 @@ Discovery
      harness ROIC/payout/debt T0 block + the retained-earnings test). A GROUNDED worst-tier judgment
      (integrity red_flag OR poor talent) vetoes an unattended BUY → RESEARCH_MORE naming the trait.
   → Valuation judgment (dedicated grounded stage: the model judges the durable FCF growth rate and the
-     industry exit multiple, cite-checked; the harness computes the book intrinsic value — 10y discounted
+     comps-anchored exit multiple, cite-checked; the harness computes the book intrinsic value — 10y discounted
      FCF (CFO − capex) + exit-multiple terminal + net cash − debt at the 15% required return — plus the
      rule-7 buy price (IV × 0.70), the rule-8 load-up price (IV × 0.50), and the T0 margin-of-safety
      GRADE, converting foreign-filer per-share values deterministically; CFO-untagged filers go honestly
@@ -163,8 +163,11 @@ corpus:
   names with reasons, and set the multiple from the **median of the named set, tilted conservative**
   and priced for the exit-state (year-10) business. An unnamed "industry average" or a bare number is
   an incomplete answer (retry-forced). The basis note (comps + figures + exclusions) renders on the
-  dossier. The harness **clamps to [8×, 20×]** and falls back to a conservative **12×** when the
-  judgment is absent or unusable (`exit_multiple_source` records which).
+  dossier, and the comps also arrive STRUCTURED so the harness deterministically checks the chosen
+  multiple against **the median of the model's own named comps** (choosing above it is flagged —
+  the band IS the comps set; owner rule: the book's 8–20× was an example, and each industry carries
+  different multiples). Only an ABSURD value (outside [3×, 40×], a units/scale error) is discarded
+  for the conservative **12×** fallback (`exit_multiple_source` records which).
 
 ### 4.3 Intrinsic value (harness-computed)
 

@@ -2903,10 +2903,25 @@ export async function runResearchDeepDivePhase(
     : undefined
   const exitCitationGrounded = exitProposed?.citation !== undefined
     && isCitationGrounded(exitProposed.citation, verifiedCitationHashes)
+  // OWNER RULE (2026-07-12): the reference band IS the named-comps set — median of the model's own
+  // structured comps, checked deterministically by the resolver (no fixed clamp; absurdity guard only).
+  const exitCompsPfcf = (exitProposed?.comps ?? [])
+    .map((c) => c.p_fcf)
+    .filter((x): x is number => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b)
+  const exitCompsMedian = exitCompsPfcf.length > 0
+    ? (exitCompsPfcf.length % 2 === 1
+        ? exitCompsPfcf[(exitCompsPfcf.length - 1) / 2]!
+        : (exitCompsPfcf[exitCompsPfcf.length / 2 - 1]! + exitCompsPfcf[exitCompsPfcf.length / 2]!) / 2)
+    : undefined
   const exitResolution = resolveExitMultiple({
     ...(exitProposed?.multiple !== undefined ? { proposed: exitProposed.multiple } : {}),
     grounded: exitCitationGrounded,
+    ...(exitCompsMedian !== undefined ? { comps_median: exitCompsMedian } : {}),
   })
+  // The exit-multiple self-consistency reads (comps median / unstructured / absurd-fallback) join
+  // the advisory sanity channel — visible, never blocking.
+  advisorySanityCarryover.push(...exitResolution.flags)
   let market_implied_growth: number | undefined
   if (current_price !== undefined && fcfMusdUsd !== undefined && fcfMusdUsd > 0 && shares_valid) {
     market_implied_growth = fcfImpliedGrowth({
@@ -3385,10 +3400,10 @@ export async function runResearchDeepDivePhase(
   // (g) implied EXIT multiple absurdity — DIRECTIONAL, flag-only. Too HIGH (> the book band's 20×
   // ceiling) → the live price requires exiting at a P/FCF no defensible buyer would pay. The LOW
   // direction is fail-closed (non-computable emits nothing). Advisory only — never blocks or clamps.
-  if (implied_exit_multiple !== undefined && implied_exit_multiple > VALUATION_PARAMS.exit_multiple_max) {
+  if (implied_exit_multiple !== undefined && implied_exit_multiple > exitResolution.multiple * 1.25) {
     sanity_flags.push(
       `sanity_implied_exit_multiple_high: today's price implies an exit multiple of ${implied_exit_multiple.toFixed(1)}× year-10 FCF `
-      + `(> the ${VALUATION_PARAMS.exit_multiple_max}× book-band ceiling), well above a defensible exit — to merely earn the discount you would have to `
+      + `(well above the ${exitResolution.multiple}× the method underwrites from the named comps) — to merely earn the discount you would have to `
       + `sell at a richer multiple than the method would underwrite. Treat the price as rich; re-check the inputs.`,
     )
   }

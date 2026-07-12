@@ -52,9 +52,12 @@ export const ValuationReasoningSchema = z.object({
   industry_exit_multiple: z
     .object({
       multiple: z.number().positive(),
-      // What industry set / valuation norm the multiple reflects (e.g. "US warehouse-club retail
-      // has traded 15–18× FCF over the last decade").
+      // What comps the multiple reflects (named companies + figures + exclusion reasoning).
       basis_note: z.string().min(1),
+      // OWNER RULE (2026-07-12): the reference band IS the named-comps set — structured so the
+      // harness can check the chosen multiple against their MEDIAN deterministically (the
+      // conservative-tilt rule). Optional at the schema level; absence is a visible advisory.
+      comps: z.array(z.object({ name: z.string().min(1), p_fcf: z.number().positive() })).optional(),
       citation: z.string().optional(),
     })
     .optional(),
@@ -141,7 +144,9 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `hot comp must not drag it up), and priced for the EXIT-STATE business (year-10 is more mature than `
     + `today, so sit at or below where the comps trade now, never extrapolate today's premium). basis_note `
     + `MUST carry the named comps + their multiples + the exclusion reasoning — a bare number or an `
-    + `unnamed "industry average" is an incomplete answer. Include citation ONLY if a figure comes from a `
+    + `unnamed "industry average" is an incomplete answer. ALSO return the comps STRUCTURED — `
+    + `"comps":[{"name":"Mastercard","p_fcf":28}] — so the harness can verify your multiple sits at or `
+    + `below their median (choosing above your own comps' median is flagged). Include citation ONLY if a figure comes from a `
     + `corpus-verifiable source (an honest uncited judgment is labeled model-asserted — better than a fake `
     + `citation, which FAILS the cite-check). The harness clamps to a sane band and computes the terminal `
     + `value deterministically.\n`

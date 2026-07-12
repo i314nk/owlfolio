@@ -508,7 +508,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'growth'),
         ' it believes the free cash flow can sustain, and the ',
         createElement('span', { style: goldText }, 'industry exit multiple'),
-        ` a buyer would plausibly pay in year ${STAGE1_HORIZON} (clamped to ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, conservative ${VALUATION_PARAMS.exit_multiple_fallback}× fallback when uncited). Everything is discounted at the flat `,
+        ` a buyer would plausibly pay in year ${STAGE1_HORIZON} (anchored to the median of NAMED comparables — no fixed band; conservative ${VALUATION_PARAMS.exit_multiple_fallback}× fallback when absent or absurd). Everything is discounted at the flat `,
         createElement('span', { style: monoFigure }, pct(VALUATION_PARAMS.required_return_default)),
         ' required return (user-settable) — “anything less, buy the index.” No WACC, no beta, ever. Deterministic sanity rails police absurdity internally but never block. You audit the two judgments and decide.',
       ),
@@ -534,7 +534,7 @@ export function StrategyOverview(): ReactNode {
           },
           createElement('div', null, 'FCF  = cash from operations − capital expenditures   (tagged XBRL facts, T0 — no proxies)'),
           createElement('div', null, `g    = the model’s judged FCF growth, CITED; sanity-flagged above ${pct(SINGLE_GROWTH_CAP)} (or ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim)`),
-          createElement('div', null, `exit = the model’s judged industry P/FCF at year ${STAGE1_HORIZON}, cited-or-labeled; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, fallback ${VALUATION_PARAMS.exit_multiple_fallback}×`),
+          createElement('div', null, `exit = the median P/FCF of the model’s NAMED comparables at year ${STAGE1_HORIZON}, tilted conservative; fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when absent/absurd`),
           createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  [t=1..${STAGE1_HORIZON}]  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
           createElement('div', null, `r    = the required return, flat ${pct(VALUATION_PARAMS.required_return_default)} default (Settings)`),
           createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}   (rule 7 — never less than a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety)`),
@@ -546,7 +546,7 @@ export function StrategyOverview(): ReactNode {
           headings: ['Judgment', 'Discipline'],
           rows: [
             [createElement('span', { style: goldText }, 'Assumed FCF growth'), createElement('span', { style: monoFigure }, `cited; sanity-flagged > ${pct(SINGLE_GROWTH_CAP)}`)],
-            [createElement('span', { style: goldText }, 'Industry exit multiple'), createElement('span', { style: monoFigure }, `cited-or-labeled; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×`)],
+            [createElement('span', { style: goldText }, 'Exit multiple (named comps)'), createElement('span', { style: monoFigure }, 'median of the model’s own named comparables, tilted conservative; checked by the harness')],
           ],
         }),
 

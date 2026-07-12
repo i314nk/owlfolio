@@ -7,29 +7,39 @@ import { VALUATION_PARAMS } from '../valuationParams'
 // params and the deterministic arithmetic (hand-checked below).
 
 describe('VALUATION_PARAMS — the book-aligned knobs (owner-locked 2026-07-11)', () => {
-  it('pins 30% required margin, 50% load-up, 15% default required return, the 8–20× clamp + 12× fallback', () => {
+  it('pins 30% required margin, 50% load-up, 15% default required return, the absurdity guard + 12× fallback', () => {
     expect(VALUATION_PARAMS.required_margin_of_safety).toBe(0.30)
     expect(VALUATION_PARAMS.load_up_margin).toBe(0.50)
     expect(VALUATION_PARAMS.required_return_default).toBe(0.15)
-    expect(VALUATION_PARAMS.exit_multiple_min).toBe(8)
-    expect(VALUATION_PARAMS.exit_multiple_max).toBe(20)
+    // Owner rule (2026-07-12): the fixed [8, 20] clamp is retired — the book's band was an example.
+    // Only the units-error absurdity guard remains hard.
+    expect(VALUATION_PARAMS.exit_multiple_absurd_min).toBe(3)
+    expect(VALUATION_PARAMS.exit_multiple_absurd_max).toBe(40)
     expect(VALUATION_PARAMS.exit_multiple_fallback).toBe(12)
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-07-book-alignment-1')
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-07-book-alignment-2')
   })
 })
 
-describe('resolveExitMultiple — model-judged, clamped, fail-closed', () => {
-  it('honors a grounded in-band multiple; labels an uncited one model_asserted', () => {
-    expect(resolveExitMultiple({ proposed: 18, grounded: true })).toEqual({ multiple: 18, source: 'model_grounded' })
-    expect(resolveExitMultiple({ proposed: 18, grounded: false })).toEqual({ multiple: 18, source: 'model_asserted' })
+describe('resolveExitMultiple — model-judged, comps-anchored, fail-closed on absurdity', () => {
+  it('honors a grounded multiple; labels an uncited one model_asserted', () => {
+    expect(resolveExitMultiple({ proposed: 18, grounded: true, comps_median: 20 })).toEqual({ multiple: 18, source: 'model_grounded', flags: [] })
+    expect(resolveExitMultiple({ proposed: 18, grounded: false, comps_median: 20 })).toEqual({ multiple: 18, source: 'model_asserted', flags: [] })
   })
-  it('clamps out-of-band values into [8, 20]', () => {
-    expect(resolveExitMultiple({ proposed: 35, grounded: true })).toEqual({ multiple: 20, source: 'model_clamped' })
-    expect(resolveExitMultiple({ proposed: 4, grounded: true })).toEqual({ multiple: 8, source: 'model_clamped' })
+  it('no fixed clamp — comps-median discipline + the absurdity guard', () => {
+    // Owner rule: NO fixed clamp — a judged 35× (inside the absurdity guard) is honored as judged;
+    // the discipline is the comps-median check, not a ceiling.
+    expect(resolveExitMultiple({ proposed: 35, grounded: true })).toEqual({ multiple: 35, source: 'model_grounded', flags: expect.arrayContaining([expect.stringContaining('comps_unstructured')]) })
+    expect(resolveExitMultiple({ proposed: 4, grounded: true, comps_median: 5 })).toEqual({ multiple: 4, source: 'model_grounded', flags: [] })
+    // The ABSURDITY guard (units/scale error) still falls back hard.
+    expect(resolveExitMultiple({ proposed: 55, grounded: true })).toEqual({ multiple: 12, source: 'fallback', flags: expect.arrayContaining([expect.stringContaining('exit_multiple_absurd')]) })
+    // Comps-median self-consistency: choosing ABOVE the model's own named-comps median flags.
+    const above = resolveExitMultiple({ proposed: 24, grounded: false, comps_median: 22 })
+    expect(above.multiple).toBe(24)
+    expect(above.flags.some((f) => f.includes('above_comps_median'))).toBe(true)
   })
   it('falls back to the conservative 12× when absent or invalid', () => {
-    expect(resolveExitMultiple({ grounded: false })).toEqual({ multiple: 12, source: 'fallback' })
-    expect(resolveExitMultiple({ proposed: -3, grounded: true })).toEqual({ multiple: 12, source: 'fallback' })
+    expect(resolveExitMultiple({ grounded: false })).toEqual({ multiple: 12, source: 'fallback', flags: [] })
+    expect(resolveExitMultiple({ proposed: -3, grounded: true })).toEqual({ multiple: 12, source: 'fallback', flags: [] })
   })
 })
 

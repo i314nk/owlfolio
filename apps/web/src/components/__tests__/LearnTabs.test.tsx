@@ -142,11 +142,13 @@ describe('LearnTabs', () => {
     expect(nextTabIndex(2, 'a', LEARN_TABS.length)).toBe(2) // ignored key
   })
 
-  it('E2c: renders the live BOOK-model params (FCF, exit band, 15% required return, 30/50 margins)', () => {
+  it('E2c: renders the live BOOK-model params (FCF, comps-anchored exit, 15% required return, 30/50 margins)', () => {
     const html = render('strategy')
     const lower = html.toLowerCase()
-    // Live params from the versioned valuation config: the 8–20× exit band + the flat 15% required return.
-    expect(html).toContain('8–20×')
+    // Owner rule (2026-07-12): the fixed exit band is retired — the exit multiple is anchored to
+    // the model's own NAMED comparables (median, tilted conservative); no band renders.
+    expect(html).not.toContain('8–20×')
+    expect(html.toLowerCase()).toContain('named comparables')
     expect(html).toContain('15%')
     expect(html).toContain('30%')
     expect(html).toContain('50%')

@@ -16,28 +16,47 @@ import { VALUATION_PARAMS } from './valuationParams'
 
 export type ExitMultipleResolution = {
   multiple: number
-  /** 'model_grounded' = cited + verified + in band; 'model_clamped' = model value pulled into the
-   *  band; 'model_asserted' = uncited/unverified but in-band (labeled, still used — the clamp bounds
-   *  the damage); 'fallback' = absent or invalid → the conservative default. */
-  source: 'model_grounded' | 'model_clamped' | 'model_asserted' | 'fallback'
+  /** 'model_grounded' = cited + verified; 'model_asserted' = uncited/unverified (labeled, still
+   *  used); 'fallback' = absent, invalid, or ABSURD (units/scale-error guard) → the conservative
+   *  default. ('model_clamped' is a LEGACY value on historical payloads — the fixed band is retired;
+   *  the reference is the model's own named comps, checked via comps_median below.) */
+  source: 'model_grounded' | 'model_asserted' | 'fallback'
+  /** Advisory self-consistency reads (owner rule: the band IS the named-comps set). */
+  flags: string[]
 }
 
-/** Resolve the exit multiple from the model's judged industry P/FCF (clamped, fail-closed). */
+/**
+ * Resolve the exit multiple from the model's judged P/FCF. OWNER RULE (2026-07-12): no fixed clamp —
+ * the book's 8–20× was an example, and each industry carries different multiples. The discipline is
+ * the NAMED-COMPARABLES anchoring: when the model supplies structured comps, the harness checks the
+ * chosen multiple against their MEDIAN (the conservative-tilt rule) and flags any excess. Only an
+ * ABSURD value (units/scale error, outside [3, 40]) is discarded for the conservative fallback.
+ */
 export function resolveExitMultiple(args: {
   proposed?: number | undefined
   /** True when the model's citation verified against the corpus. */
   grounded: boolean
+  /** Median P/FCF of the model's own named comps, when structured comps were supplied. */
+  comps_median?: number | undefined
 }): ExitMultipleResolution {
-  const { proposed, grounded } = args
-  const min = VALUATION_PARAMS.exit_multiple_min
-  const max = VALUATION_PARAMS.exit_multiple_max
+  const { proposed, grounded, comps_median } = args
   if (proposed === undefined || !Number.isFinite(proposed) || proposed <= 0) {
-    return { multiple: VALUATION_PARAMS.exit_multiple_fallback, source: 'fallback' }
+    return { multiple: VALUATION_PARAMS.exit_multiple_fallback, source: 'fallback', flags: [] }
   }
-  if (proposed < min || proposed > max) {
-    return { multiple: Math.min(Math.max(proposed, min), max), source: 'model_clamped' }
+  if (proposed < VALUATION_PARAMS.exit_multiple_absurd_min || proposed > VALUATION_PARAMS.exit_multiple_absurd_max) {
+    return {
+      multiple: VALUATION_PARAMS.exit_multiple_fallback,
+      source: 'fallback',
+      flags: [`exit_multiple_absurd: the judged ${proposed}× is outside the [${VALUATION_PARAMS.exit_multiple_absurd_min}, ${VALUATION_PARAMS.exit_multiple_absurd_max}] units-error guard — discarded for the conservative ${VALUATION_PARAMS.exit_multiple_fallback}× fallback.`],
+    }
   }
-  return { multiple: proposed, source: grounded ? 'model_grounded' : 'model_asserted' }
+  const flags: string[] = []
+  if (comps_median === undefined) {
+    flags.push('exit_multiple_comps_unstructured: the model supplied no structured comps — the median self-consistency check is not computable; audit the basis note.')
+  } else if (proposed > comps_median + 1e-9) {
+    flags.push(`exit_multiple_above_comps_median: the chosen ${proposed}× EXCEEDS the median of the model's own named comps (${comps_median}×) — the conservative-tilt rule says at or below; audit the basis note.`)
+  }
+  return { multiple: proposed, source: grounded ? 'model_grounded' : 'model_asserted', flags }
 }
 
 export type FcfValuationResult = {

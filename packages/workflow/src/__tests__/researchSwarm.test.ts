@@ -1883,7 +1883,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       id: 'exitmult-high', price: 600, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 590,
     })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /exit multiple/i.test(f) && /above a defensible exit/i.test(f))).toBe(true)
+    expect(flags.some((f) => /exit multiple/i.test(f) && /the method underwrites/i.test(f))).toBe(true)
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
     // The exit-multiple SANITY FLAG itself never blocks; the verdict here derates to WATCH only because
     // the price ($600) is above the model's own buy-below ($590) — the owner-rule buy-zone gate.

@@ -47,7 +47,8 @@ failure) → **Pillar 2: the moat** (structural protection, cite-checked, with
 three harness-computed tests; a below-gate moat ends the run before further
 spend) → **Pillar 3: management** (integrity & talent, DEF 14A-grounded, with
 a veto) → **Pillar 4: value the business** (a computed intrinsic value on
-free cash flow with rule-7/rule-8 buy thresholds) → an adversarial inversion
+free cash flow — the exit multiple anchored to named comparables — with
+rule-7/rule-8 buy thresholds) → an adversarial inversion
 pass → a drafted decision → watchlist/holding transitions you explicitly
 author → ongoing check-ins as new SEC filings land. Everything is recorded in an append-only
 SQLite event ledger with causation/correlation IDs, so every number and claim is

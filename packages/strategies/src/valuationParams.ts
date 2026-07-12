@@ -123,8 +123,15 @@ export type ValuationParams = {
    *  concentrated-sizing zone (the book's recommended margin; required_margin_of_safety is the 30% floor). */
   load_up_margin: number
   /** Clamp band for the model-judged industry P/FCF exit multiple (terminal value = FCF10 × multiple). */
-  exit_multiple_min: number
-  exit_multiple_max: number
+  /**
+   * OWNER RULE (2026-07-12): the fixed [8, 20] CLAMP is retired — the book's 8–20× was an EXAMPLE,
+   * not a ceiling, and each industry carries different multiples. The reference band is now the
+   * model's own NAMED COMPARABLES (the harness checks the chosen multiple against their median).
+   * These bounds are the ABSURDITY guard only (units/scale-error, mirrors fv_absurd_multiple):
+   * outside them the judgment is discarded for the conservative fallback.
+   */
+  exit_multiple_absurd_min: number
+  exit_multiple_absurd_max: number
   /** Conservative fallback exit multiple when the model's judgment is absent/ungrounded/out-of-band-invalid. */
   exit_multiple_fallback: number
 }
@@ -146,7 +153,7 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-07-book-alignment-1',
+  version: 'valuation-2026-07-book-alignment-2',
   // F.2 ANCHOR SWAP: discount_rate = savings_rate_default (0.02) + equity_premium (0.055) = 0.075. The
   // compliant risk-free anchor is the SAVINGS rate (Mudarabah expected profit) — the same baseline the
   // deployment-hurdle + sizing engines already use — NOT the interest-bearing 10y Treasury (retired).
@@ -192,7 +199,7 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // exit-multiple clamp band + conservative fallback (industry P/FCF is model-judged, cite-labeled).
   required_return_default: 0.15,
   load_up_margin: 0.50,
-  exit_multiple_min: 8,
-  exit_multiple_max: 20,
+  exit_multiple_absurd_min: 3,
+  exit_multiple_absurd_max: 40,
   exit_multiple_fallback: 12,
 }) as ValuationParams
