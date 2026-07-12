@@ -467,7 +467,9 @@ export const MOAT_PILLAR_PROMPT =
   + `erosion, price-realization decline, a structural attacker); an ungrounded direction resolves `
   + `'undetermined' and carries no weight. `
   + `ALSO produce the STANDOUT peer comparison — peer_standout: does this business clearly rise above the `
-  + `pack on GROSS MARGIN within its industry? Name the 2-5 closest peers with their gross margins `
+  + `pack on GROSS MARGIN within its industry? (If the company's income statement has NO gross-profit line `
+  + `— e.g. a payments network — compare on OPERATING margin instead and SAY SO in the reasoning; the `
+  + `harness computes the company side on the same fallback basis.) Name the 2-5 closest peers with their gross margins `
   + `(gross_margin_note like "~38% FY2024 gross margin") and judge 'stands_out' | 'in_line' | 'lags' | `
   + `'cannot_assess' with reasoning. For each peer, include a citation ONLY when the figure comes from a `
   + `corpus-verifiable source; otherwise OMIT the citation — the harness labels the figure model-asserted `

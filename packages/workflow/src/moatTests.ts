@@ -57,7 +57,8 @@ export type TwoEngineTest =
 export type StandoutTest =
   | {
       computable: true
-      basis: 'gross_margin'
+      /** 'operating_margin' = the no-COGS-filer fallback (payments networks etc.) — basis-labeled, never silent. */
+      basis: 'gross_margin' | 'operating_margin'
       gross_margin_latest: number
       gross_margin_median: number
       gross_margin_trend_bps_per_year: number
@@ -177,11 +178,27 @@ function standout(window: AnnualFacts[]): StandoutTest {
   const points = usablePoints(window, yearGrossMargin)
   if (points.length < MIN_YEARS_FOR_MOAT_TESTS) {
     const anyGp = window.some((a) => a.gross_profit_musd !== undefined)
+    if (anyGp) {
+      return { computable: false, reason: `standout needs >=${MIN_YEARS_FOR_MOAT_TESTS} usable gross-margin years (have ${points.length})` }
+    }
+    // Owner find (V, 2026-07-12): a no-COGS filer (a payments network's income statement has no
+    // gross-profit line) is not a data GAP — gross margin is undefined for its presentation. Fall
+    // back to OPERATING margin, basis-labeled, so the standout read exists on the honest comparable.
+    const opPoints = usablePoints(window, yearOperatingMargin)
+    if (opPoints.length < MIN_YEARS_FOR_MOAT_TESTS) {
+      return { computable: false, reason: 'gross profit not tagged by this filer (no cost-of-revenue line) and fewer than 5 usable operating-margin years for the fallback' }
+    }
+    const opMed = median(opPoints.map((p) => p.y))
+    const opLatest = (opPoints[opPoints.length - 1] as { y: number }).y
+    const opSlopeBps = olsSlope(opPoints) * 10_000
     return {
-      computable: false,
-      reason: anyGp
-        ? `standout needs >=${MIN_YEARS_FOR_MOAT_TESTS} usable gross-margin years (have ${points.length})`
-        : 'gross profit not tagged by this filer (neither GrossProfit nor revenue−COGS resolves)',
+      computable: true,
+      basis: 'operating_margin',
+      gross_margin_latest: opLatest,
+      gross_margin_median: opMed,
+      gross_margin_trend_bps_per_year: opSlopeBps,
+      years_used: opPoints.length,
+      note: `This filer reports no cost-of-revenue line (gross margin is undefined for its presentation) — the standout read falls back to OPERATING margin: ${(opLatest * 100).toFixed(1)}% (median ${(opMed * 100).toFixed(1)}%, trend ${opSlopeBps.toFixed(0)}bps/yr). Compare peers on the SAME basis; the peer half is the moat lane's cite-labeled judgment.`,
     }
   }
   const med = median(points.map((p) => p.y))

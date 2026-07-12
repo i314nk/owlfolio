@@ -143,12 +143,41 @@ describe('computeMoatTests — standout (company-side gross margin only)', () =>
     expect(t.note).toMatch(/peer/i)
   })
 
-  it('fails closed when the filer does not tag gross profit (and the others still compute)', () => {
+  it('falls back to the OPERATING-margin basis when the filer does not tag gross profit (owner find: V)', () => {
     const noGp = compounder().map((a) => { const { gross_profit_musd: _gp, ...rest } = a; return rest as AnnualFacts })
     const r = computeMoatTests(noGp)
-    expect(r.standout.computable).toBe(false)
-    if (!r.standout.computable) expect(r.standout.reason).toMatch(/gross profit/i)
+    expect(r.standout.computable).toBe(true)
+    if (r.standout.computable) {
+      expect(r.standout.basis).toBe('operating_margin')
+      expect(r.standout.note).toMatch(/no cost-of-revenue line/i)
+    }
     expect(r.capital_efficiency.computable).toBe(true)
     expect(r.two_engine.computable).toBe(true)
+  })
+})
+// Owner find (V, 2026-07-12): a payments network reports NO cost-of-revenue line — gross margin is
+// not defined for its presentation. The standout test falls back to OPERATING margin, basis-labeled,
+// instead of dying 'not computable' on a filer with a 66% operating margin.
+describe('standout operating-margin fallback (no-COGS filers)', () => {
+  const year = (fy: number, extra: Record<string, number> = {}) => ({
+    fiscal_year: fy, period_end: `${fy}-09-30`, currency: 'USD',
+    revenue_musd: 1000 + fy, operating_income_musd: 660, ...extra,
+  })
+  it('falls back to operating margin when no gross profit is tagged anywhere', () => {
+    const series = [2021, 2022, 2023, 2024, 2025].map((fy) => year(fy))
+    const t = computeMoatTests(series as never).standout
+    expect(t.computable).toBe(true)
+    if (t.computable) {
+      expect(t.basis).toBe('operating_margin')
+      expect(t.gross_margin_latest).toBeCloseTo(660 / 3025, 2)
+      expect(t.note).toContain('no cost-of-revenue line')
+      expect(t.note).toContain('OPERATING margin')
+    }
+  })
+  it('prefers gross margin when tagged (no silent basis swap)', () => {
+    const series = [2021, 2022, 2023, 2024, 2025].map((fy) => year(fy, { gross_profit_musd: 800 }))
+    const t = computeMoatTests(series as never).standout
+    expect(t.computable).toBe(true)
+    if (t.computable) expect(t.basis).toBe('gross_margin')
   })
 })

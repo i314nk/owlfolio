@@ -592,8 +592,9 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
   const moatJudgment = valuation.judgment?.moat
 
   // F (owner call, 2026-07-12): fonts match the other pillar cards — standard prose sizes, no mono-xs.
-  const muted = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } as const
-  const subhead = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 800, letterSpacing: '0.03em', margin: '0.55rem 0 0.15rem' } as const
+  // Owner call (2026-07-12): body content follows the circle-card format (text-base body, sm bold subheads).
+  const muted = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } as const
+  const subhead = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: '0.55rem 0 0.15rem' } as const
 
   // Width headline: the resolved class + the gate read (always available — legacy cases carry moat_class).
   const widthClass = (valuation.moat_class ?? 'unknown').toUpperCase()
@@ -623,7 +624,7 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
       type === 'untyped' ? 'Moat (untyped driver)' : `${typeLabel(type)} moat`))
     for (const [i, d] of typeDrivers.entries()) {
       moatSections.push(createElement('p', { key: `proof-${type}-${i}`, style: { ...muted, marginBottom: '0.2rem' } },
-        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontWeight: 700 } }, 'Proof: '),
+        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontWeight: 700 } }, 'Evidence (cited): '),
         `${d.advantage} ${d.grounded ? '(cited, verified)' : '(uncited — carries no weight)'}`,
       ))
     }
@@ -648,8 +649,10 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
   return createElement(
     'div',
     { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.4rem' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Moats identified'),
-    createElement(
+    createElement('p', { className: 'owl-section-accent' }, 'Likely moats — model-identified, cite-checked'),
+
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'Model-claimed protection mechanisms with cited filing evidence. A citation proves the mechanism is REAL, not that it protects — whether the protection shows up in the economics is the three T0 tests below.'),    createElement(
       'p',
       { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } },
       `${widthClass} moat — ${gateLabel}`,
@@ -679,7 +682,8 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
 function createMoatTestsCard(researchCase: AppResearchCase) {
   const tests = researchCase.moat_tests
   if (tests === undefined) return null
-  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 }
+  // Owner call (2026-07-12): card content follows the circle-card format — body text, not mono fine print.
+  const mono = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 }
   const line = (testId: string, label: string, t?: { computable?: boolean; note?: string; reason?: string; passes?: boolean; band?: string }) =>
     t === undefined
       ? null
@@ -693,7 +697,7 @@ function createMoatTestsCard(researchCase: AppResearchCase) {
       'Harness-computed from the EDGAR annual series (T0). Capital efficiency + two-engine also form the mechanical moat anchor; standout is displayed, not scored — its peer half is the moat lane\u2019s labeled judgment.'),
     line('capital-efficiency', 'Capital efficiency (ROIC bands)', tests.capital_efficiency),
     line('two-engine', 'Two-engine (revenue + margins)', tests.two_engine),
-    line('standout', 'Standout (gross margin vs peers)', tests.standout),
+    line('standout', (tests.standout as { basis?: string })?.basis === 'operating_margin' ? 'Standout (operating margin vs peers — no gross-profit line)' : 'Standout (gross margin vs peers)', tests.standout),
   ]
   return createCollapsibleSection('moat-tests-card', 'The three moat tests (T0)', false, children)
 }
@@ -824,7 +828,7 @@ function createOnePagerCard(researchCase: AppResearchCase) {
           'div',
           { key: label, style: { display: 'grid', gap: '0.25rem' } },
           createElement('p', { style: { color: 'var(--owl-color-gold)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' as const } }, label),
-          createElement('ul', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0, paddingLeft: '1.1rem' } },
+          createElement('ul', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0, paddingLeft: '1.1rem' } },
             ...items.map((item, i) => createElement('li', { key: i }, item))),
         )
   const children: ReactNode[] = [
@@ -849,7 +853,8 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
   const mj = researchCase.management_judgment
   if (mj === undefined) return null
   const vetoTrait = researchCase.management_veto_applied
-  const muted = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.35rem 0' }
+  // Owner call (2026-07-12): body content follows the circle-card format.
+  const muted = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.35rem 0' }
   const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 }
   const tierTone = (tier?: string) => tier === 'red_flag' || tier === 'poor'
     ? 'var(--owl-color-risk-bright)'
