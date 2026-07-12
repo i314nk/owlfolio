@@ -2816,13 +2816,18 @@ export async function runResearchDeepDivePhase(
     ...(laneArguedGrowth !== undefined ? { agent_proposed_growth: laneArguedGrowth } : {}),
   })
   const effective_growth_rate = growthResult.growth
+  // FIX (live find, V rc_v_1783881150952): the lane-argue parser can bind a DECOMPOSITION fragment
+  // ("3% real GDP" inside a 9%-growth rationale) as the lane arguing total growth down — which then
+  // masqueraded as the "demonstrated history" (a false above-history flag) and SUPPRESSED the growth
+  // base-rate burden. The demonstrated-history rate is the capped demonstrated measure, NO lane-argue.
+  const demonstrated_capped = creditedGrowth(buffettMungerStrategy, { demonstrated_growth }).growth
   const growth_basis: 'edgar_fcf_cagr' | 'none' =
     fundamentals?.annual_series !== undefined && demonstrated_growth > 0 ? 'edgar_fcf_cagr' : 'none'
   // Above-GDP coupling flag → surfaced so growth is reviewed WITH the moat-durability input.
   if (moat_passes_gate && growthResult.above_gdp && growthResult.above_gdp_flag !== undefined) {
     advisorySanityCarryover.push(growthResult.above_gdp_flag)
   }
-  if (moat_passes_gate && effective_growth_rate === 0) {
+  if (moat_passes_gate && demonstrated_capped === 0) {
     degradedFlags.push(
       'valuation_degraded: demonstrated_growth_reference_floored_g0 — the demonstrated FCF/share '
       + 'CAGR was unavailable or non-positive, so the demonstrated-history reference growth was floored to g=0 '
@@ -3403,11 +3408,11 @@ export async function runResearchDeepDivePhase(
     // reference (growth_basis 'none'). Comparing the model's growth against that artificial 0% is a data
     // artifact, not evidence — the floored-g0 degraded flag already tells the "history unavailable" story.
     && growth_basis !== 'none'
-    && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
+    && headline_growth > demonstrated_capped + DEMONSTRATED_HISTORY_MARGIN
   ) {
     sanity_flags.push(
       `sanity_assumed_growth_above_demonstrated_history: the model assumes ~${(headline_growth * 100).toFixed(1)}% near-term `
-      + `growth — above the ~${(effective_growth_rate * 100).toFixed(1)}% demonstrated FCF/share history `
+      + `growth — above the ~${(demonstrated_capped * 100).toFixed(1)}% demonstrated FCF/share history `
       + `(credited reference). Advisory only: verify the durable cited source that defends growth above demonstrated `
       + `history before relying on the headline. The verdict is unchanged — the model owns the growth judgment.`,
     )
@@ -3593,7 +3598,10 @@ export async function runResearchDeepDivePhase(
     .test(`${dec.analysis.growth_assumptions} ${dec.analysis.valuation_rationale}`)
   const baseRateBurden = evaluateBaseRateBurden({
     moat_class: moatClass,
-    credited_growth_rate: effective_growth_rate,
+    // FIX (V live find): the burden guards the growth the valuation actually UNDERWRITES — the
+    // model's cite-verified headline — not the lane-argued credited rail (which a mis-parsed
+    // decomposition fragment can deflate below the trigger, silently suppressing the burden).
+    credited_growth_rate: headline_growth ?? demonstrated_capped,
     roic_forecast_gt_20: roicForecastGt20,
     margin_expansion_claimed: marginExpansionClaimed,
     exceptionality_justifications: exceptionalityJustifications,
@@ -3683,7 +3691,7 @@ export async function runResearchDeepDivePhase(
         // share CAGR through the forecasting-humility cap; lane may argue lower) — DEMOTED to a demonstrated-
         // history SANITY reference. NOT the headline. An advisory sanity flag fires (above) when the model's
         // headline assumed_growth materially exceeds this.
-        demonstrated_growth_reference: effective_growth_rate,
+        demonstrated_growth_reference: demonstrated_capped,
         growth_basis,
         // Phase 7 S4 — data-completeness evidence (item 11): CARRY the demonstrated-growth measure's own
         // window/points/method that the valuation already consumed (persist-only; NO new derivation). Lets

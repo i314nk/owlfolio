@@ -2311,6 +2311,21 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         'owl-ledger-figure-money',
       ),
       createValuationLedgerStat('Discount (policy)', discountLabel, ''),
+      // Owner call (2026-07-12): Pillar 4 carries its own answer — the DCF-computed intrinsic value
+      // and both book thresholds render HERE, not only in the decision box at the end.
+      (valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share !== undefined
+        ? createValuationLedgerStat(
+            'Intrinsic value (computed)',
+            `$${(valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share!.toFixed(2)}`,
+            'owl-ledger-figure-money',
+          )
+        : null,
+      valuation.buy_price_per_share !== undefined
+        ? createValuationLedgerStat('Buy below (rule 7)', `$${valuation.buy_price_per_share.toFixed(2)}`, 'owl-ledger-figure-money')
+        : null,
+      (valuation as { load_up_below?: number }).load_up_below !== undefined
+        ? createValuationLedgerStat('Load-up below (rule 8)', `$${(valuation as { load_up_below?: number }).load_up_below!.toFixed(2)}`, 'owl-ledger-figure-money')
+        : null,
     ),
     // Discount provenance: B2 runs show the flat required return; legacy runs keep the savings-anchor line.
     researchCase.valuation?.discount_inputs?.required_return !== undefined

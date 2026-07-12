@@ -1477,7 +1477,7 @@ function configurableSwarmProvider(opts: {
         // Allow a test to override the synthesis-owned joint margin-of-safety judgment (Guard 1/Guard 2).
         ...(opts.synthesis?.margin_of_safety !== undefined ? { margin_of_safety: opts.synthesis.margin_of_safety } : {}),
         // moat_class / runway now come from the MOAT lane; the synthesis schema no longer carries them.
-        growth_assumptions: 'Two-stage DCF; credited g banded by incremental ROIC and runway.',
+        growth_assumptions: (opts.synthesis as { growth_assumptions?: string } | undefined)?.growth_assumptions ?? 'Two-stage DCF; credited g banded by incremental ROIC and runway.',
         owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
         roic: opts.synthesis?.roic ?? 0.30,
         incremental_roic: opts.synthesis?.incremental_roic ?? 0.20,
@@ -1776,6 +1776,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     fundamentals?: Fundamentals
     /** S3: override/extend the moat lane payload (e.g. a grounded narrowing direction). */
     moatLaneExtras?: Record<string, unknown>
+    /** V live-find pin: the synthesis growth narrative (feeds the lane-argue parser). */
+    growthAssumptions?: string
   }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -1783,6 +1785,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       ...(opts.moatLaneExtras !== undefined ? { moatLaneExtras: opts.moatLaneExtras } : {}),
       synthesis: {
         moat_class: opts.moatClass ?? 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43,
+        ...(opts.growthAssumptions !== undefined ? { growth_assumptions: opts.growthAssumptions } : {}),
         ...(opts.proposedBuyBelow !== undefined ? { proposed_buy_below: opts.proposedBuyBelow } : {}),
         valuation_reasoning: {
           owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
@@ -2177,6 +2180,30 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(valuation?.['demonstrated_growth_reference'] as number).toBeGreaterThan(0)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.2, 6)
     // Advisory only — never blocks/changes the model verdict.
+    expect(cp?.investment_verdict).toBe('WATCH')
+  })
+
+  // V LIVE FIND (rc_v_1783881150952): the lane-argue parser bound a DECOMPOSITION fragment ("3% real
+  // GDP growth" inside a 9%-growth rationale) as the lane arguing total growth down to 3% — which then
+  // (a) masqueraded as the demonstrated history (a FALSE above-history flag: 9% is BELOW the real ~14%)
+  // and (b) SUPPRESSED the growth base-rate burden (3% < the 4% trigger on a 9% underwritten claim).
+  it('V pin: a decomposition fragment cannot pollute the demonstrated reference or suppress the base-rate burden', async () => {
+    const { cp, valuation } = await runRelit({
+      id: 'decomp-fragment', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.06,
+      growthAssumptions: 'Normalized revenue growth of 6% annually, comprising 3% real GDP growth plus pricing and mix.',
+      fundamentals: costFundamentals,
+    })
+    // The demonstrated-history reference is the REAL capped history (costFundamentals FCF/share slope
+    // ≈ 7.6%), NOT the parsed 3% fragment.
+    expect(valuation?.['demonstrated_growth_reference'] as number).toBeGreaterThan(0.06)
+    expect(valuation?.['demonstrated_growth_reference'] as number).not.toBeCloseTo(0.03, 2)
+    // 6% assumed < ~7.6% demonstrated → NO above-history flag (the polluted 3% reference would have fired it).
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /above demonstrated history/i.test(f))).toBe(false)
+    // The base-rate burden guards the UNDERWRITTEN claim (6% ≥ the 4% trigger) — the entry exists
+    // (the polluted 3% credited rail would have suppressed it).
+    const burden = valuation?.['base_rate_burden'] as { flags?: Array<{ base_rate_id?: string }> } | undefined
+    expect((burden?.flags ?? []).some((f) => f.base_rate_id === 'credited_g_4_5')).toBe(true)
     expect(cp?.investment_verdict).toBe('WATCH')
   })
 
