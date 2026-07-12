@@ -101,6 +101,28 @@ describe('runInversionPass', () => {
   })
 })
 
+describe('inversion prompt calibration (live find: prose cited instead of source_ids)', () => {
+  it('the prompt steers citations to be corpus source_ids verbatim, never quoted prose', async () => {
+    const calls: string[] = []
+    const provider = {
+      provider_id: 'fake-prompt-probe',
+      capabilities: {} as never,
+      complete: async () => { throw new Error('unused') },
+      runWithTools: async () => { throw new Error('unused') },
+      structured: async (req: { prompt: string }) => {
+        calls.push(req.prompt)
+        return validInversionPayload()
+      },
+    }
+    await runInversionPass(provider as never, baseArgs, { ground: verifyAllGround })
+    const prompt = calls[0] ?? ''
+    expect(prompt).toContain('CITATION FORMAT')
+    expect(prompt).toContain('VERBATIM')
+    expect(prompt).toContain('are NOT citations')
+    expect(prompt).toContain('put ONLY the source_id in citations')
+  })
+})
+
 describe('buildInversionLayer — no obligation machinery', () => {
   const completeInversion: InversionResult = {
     status: 'complete',

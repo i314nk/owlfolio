@@ -135,6 +135,17 @@ function buildInversionPrompt(args: RunInversionPassArgs): string {
     + `GROUNDING (non-negotiable): you may cite ANY source category (you are the consensus-knowing call), but every `
     + `objection must be GROUNDED — strongest_objection.citations and proposed_sources must reference the verified `
     + `corpus. Available corpus source_ids: ${corpus}. Cite from these and return them in proposed_sources with real URLs. `
+    // Live find (COST, kimi 2026-07-12): the model cited QUOTED FILING PROSE ("Risk Factors, Item 1A:
+    // '...'") in citations — every one failed the cite-check and the lattice honestly marked inversion
+    // unavailable. Steer exactly like the valuation stage: a citation IS a source_id, never prose.
+    + `CITATION FORMAT (this fails silently if you get it wrong): each entry in strongest_objection.citations `
+    + `and consensus_check.citations MUST be one of the corpus source_ids above VERBATIM (e.g. `
+    + `"sec_edgar_10k_<cik>_fy<year>"). Quoted filing text, section names ("Risk Factors, Item 1A"), or `
+    + `page references are NOT citations — the harness cite-checks by exact id and an objection whose `
+    + `citations are prose loses ALL of them (a fabricated counter-argument carries no weight). Put the `
+    + `supporting QUOTE in the claim text itself; put ONLY the source_id in citations. `
+    + `EXAMPLE (shape only): {"strongest_objection":{"claim":"Renewal rates have peaked — Item 1A warns membership-fee `
+    + `increases are limited by member acceptance","severity":"high","citations":["sec_edgar_10k_<cik>_fy<year>"]}}. `
     + `An objection with no verifiable citation will be dropped — do not fabricate.`
   )
 }
