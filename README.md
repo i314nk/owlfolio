@@ -39,19 +39,26 @@ accounting, pipeline, lifecycle, audit trail, the Learn docs, and the strategy o
 ## What it is
 
 Owlfolio runs a strategy-driven research workflow (default: Buffett-Munger) on
-your own machine: discovery → a grounded Shariah gate → a circle-of-competence
-gate → a multi-agent deep dive → a dedicated grounded valuation judgment
-(with an arithmetic margin-of-safety grade) → a drafted
-decision → watchlist/holding transitions you explicitly author → ongoing
-re-review as new SEC filings land. Everything is recorded in an append-only
+your own machine, structured as **Buffett's four pillars applied in order**:
+discovery → a grounded Shariah front gate → **Pillar 1: understand the
+business** (the circle-of-competence gate answers two questions — how does
+this company make money, and what key moving parts determine its success or
+failure) → **Pillar 2: the moat** (structural protection, cite-checked, with
+three harness-computed tests; a below-gate moat ends the run before further
+spend) → **Pillar 3: management** (integrity & talent, DEF 14A-grounded, with
+a veto) → **Pillar 4: value the business** (a computed intrinsic value on
+free cash flow with rule-7/rule-8 buy thresholds) → an adversarial inversion
+pass → a drafted decision → watchlist/holding transitions you explicitly
+author → ongoing check-ins as new SEC filings land. Everything is recorded in an append-only
 SQLite event ledger with causation/correlation IDs, so every number and claim is
 auditable back to its source.
 
 The core design rule is **"code computes, judgment proposes"**:
 
-- Deterministic code computes numbers (owner earnings, ratios, valuations,
-  purification amounts). Models never set a figure anyone acts on.
-- Models propose judgments (moat, risks, thesis) — but every citable source is
+- Deterministic code computes numbers (free cash flow, intrinsic value and
+  the buy thresholds, ratios, purification amounts). Models never set a
+  figure anyone acts on.
+- Models propose judgments (moat, management, thesis) — but every citable source is
   fetched by the harness itself (SSRF-guarded, SEC-host-allowlisted),
   SHA-256-hashed, and recorded in a source ledger. Citations that don't verify
   are discarded, and judgments built on them fail closed to a visibly flagged
