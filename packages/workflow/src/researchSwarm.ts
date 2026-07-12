@@ -2072,7 +2072,6 @@ export async function runResearchDeepDivePhase(
             assumed_growth_rationale: valuationStageOutcome.valuation_reasoning.assumed_growth_rationale,
             assumed_growth_citation: valuationStageOutcome.valuation_reasoning.assumed_growth_citation,
             ...(valuationStageOutcome.valuation_reasoning.proposed_buy_below === undefined ? {} : { proposed_buy_below: valuationStageOutcome.valuation_reasoning.proposed_buy_below }),
-            ...(valuationStageOutcome.valuation_reasoning.valuation_status === undefined ? {} : { valuation_status: valuationStageOutcome.valuation_reasoning.valuation_status }),
           }
         : { failure_reason: valuationStageOutcome.reason }),
       corpus_source_ids: [...accumulated.values()].map((s) => s.source_id),
@@ -2259,7 +2258,6 @@ export async function runResearchDeepDivePhase(
         ? `THE VALUATION STAGE already produced the grounded valuation judgment — reconcile with it, do NOT re-value: `
           + `assumed_growth=${valuationStageOutcome.valuation_reasoning.assumed_growth}, `
           + `${valuationStageOutcome.valuation_reasoning.proposed_buy_below !== undefined ? `proposed_buy_below=${valuationStageOutcome.valuation_reasoning.proposed_buy_below}, ` : ''}`
-          + `${valuationStageOutcome.valuation_reasoning.valuation_status !== undefined ? `valuation_status=${valuationStageOutcome.valuation_reasoning.valuation_status}, ` : ''}`
           + `basis: the harness's deterministic FCF (CFO − capex) intrinsic value ` 
         : `The valuation stage did not produce a grounded judgment (${valuationStageOutcome.status === 'failed' ? valuationStageOutcome.reason : 'unavailable'}) — the harness records the valuation as ungrounded; write your valuation_rationale accordingly (do not fabricate figures). `)
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. IMPORTANT: these REQUIRED audit artifacts do NOT argue against your own verdict — every sound thesis still has a nameable wrong-assumption and concrete break triggers; recording them is bookkeeping for the human, not evidence of fragility. Judge the verdict on the thesis itself. `
@@ -3168,9 +3166,8 @@ export async function runResearchDeepDivePhase(
   // Verdict = the MODEL's investment_verdict, clamped ONLY by the existing cheap deterministic gates:
   // moat-gate (below wide → PASS), Shariah-FAIL → PASS/block, and RESEARCH_MORE when the required data
   // (owner-earnings / price) is missing. There is NO band-derived verdict.
-  // Phase 2 V4: the valuation stage owns valuation_status (undefined when the stage failed → the
-  // analysis emission falls back to INSUFFICIENT_DATA below, honestly).
-  const valuation_status = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.valuation_status : undefined
+  // C3 (owner-locked 2026-07-12): valuation_status is DERIVED arithmetic — the computed zones ARE the
+  // status; the model's qualitative price call is retired (declared where the thresholds compute, below).
 
   // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
   // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
@@ -3250,6 +3247,19 @@ export async function runResearchDeepDivePhase(
     ? current_price <= load_up_below
     : undefined
 
+  // C3: the DERIVED valuation status — pure arithmetic against the computed thresholds ("code
+  // computes"): in the buy zone → ATTRACTIVE; below intrinsic value but above the margin → FAIR;
+  // above value → EXPENSIVE; unpriced or no live price → INSUFFICIENT_DATA.
+  const valuation_status: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA' | undefined = !moat_passes_gate
+    ? undefined // the gated invariant below emits INSUFFICIENT_DATA
+    : current_price === undefined || mosReferenceValue === undefined || buy_below === undefined
+      ? 'INSUFFICIENT_DATA'
+      : current_price <= buy_below
+        ? 'ATTRACTIVE'
+        : current_price <= mosReferenceValue
+          ? 'FAIR'
+          : 'EXPENSIVE'
+
   // ---- Phase 2 V2 (owner-validated 2026-07-11): the T0 MARGIN-OF-SAFETY GRADE ----
   // The model no longer grades its own margin (the joint judgment keeps ONLY the narrative — which
   // source the margin rests on and why). The GRADE is arithmetic: the buy-below's discount to the
@@ -3314,7 +3324,6 @@ export async function runResearchDeepDivePhase(
   // exit-multiple sanity outputs below are the kept lens.)
   const sanity_flags: string[] = [...advisorySanityCarryover]
   const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
-  const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
 
   // (a) MODEL-assumed growth above the forecasting-humility cap. OWNER RULE (2026-07-04): the cap
   // disciplines what the METHOD will underwrite — the model's OWN judgment — never the market-implied
@@ -3328,51 +3337,8 @@ export async function runResearchDeepDivePhase(
     )
   }
 
-  // (d/e) SYMMETRIC valuation_status vs evidence contradiction (both directions).
-  if (market_implied_growth !== undefined) {
-    if (valuation_status === 'ATTRACTIVE' && market_implied_growth > singleGrowthCap) {
-      // Over-OPTIMISTIC catch: model calls it attractive, yet the market already prices implausible growth.
-      sanity_flags.push(
-        `sanity_status_contradicts_evidence: model says valuation is ATTRACTIVE, yet today's price already implies `
-        + `~${(market_implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — the market `
-        + `already prices implausible growth, so "attractive" is hard to credit. Re-check.`,
-      )
-    } else if (valuation_status === 'EXPENSIVE' && market_implied_growth <= gdpThreshold) {
-      // Over-PESSIMISTIC catch: model calls it expensive, yet the market implies only modest growth.
-      sanity_flags.push(
-        `sanity_status_contradicts_evidence: model says valuation is EXPENSIVE, yet today's price implies only `
-        + `~${(market_implied_growth * 100).toFixed(1)}% growth (at/below the ${(gdpThreshold * 100).toFixed(0)}% GDP rate) — the market `
-        + `implies only modest growth, so "expensive" is hard to credit. Re-check.`,
-      )
-    }
-  }
-
-  // (d2) DIRECT self-coherence: the model's valuation_status vs its OWN proposed buy-below (in_buy_zone).
-  // The model owns BOTH the qualitative label AND the buy-below number; when they disagree about TODAY's
-  // price the read is internally incoherent (e.g. "EXPENSIVE" while the price is at/below the price it said
-  // it would buy at). The (d/e) check above catches this only INDIRECTLY via market-implied growth — a
-  // contradiction with normal-band implied growth would slip through. This is the direct check. Flag-only —
-  // never blocks/clamps the verdict; the model owns the judgment, the human reconciles.
-  // TOLERANCE (flag-relevance review, 2026-07-11): "ATTRACTIVE, but I'd buy a few percent lower" is a
-  // coherent value-investor position, not a contradiction — the flag fires only when the label and the
-  // buy threshold disagree about today's price by MORE than this band (live SPGI noise: $431 vs $420).
-  const BUY_ZONE_COHERENCE_TOLERANCE = 0.05
-  if (in_buy_zone !== undefined && buy_below !== undefined && current_price !== undefined) {
-    if (valuation_status === 'EXPENSIVE' && in_buy_zone === true && current_price < buy_below * (1 - BUY_ZONE_COHERENCE_TOLERANCE)) {
-      sanity_flags.push(
-        `sanity_status_contradicts_buy_zone: model labels the valuation EXPENSIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is at/below the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
-        + `the label and the buy threshold disagree about today's price. Reconcile (an over-pessimistic label, `
-        + `or a buy-below set too high).`,
-      )
-    } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false && current_price > buy_below * (1 + BUY_ZONE_COHERENCE_TOLERANCE)) {
-      sanity_flags.push(
-        `sanity_status_contradicts_buy_zone: model labels the valuation ATTRACTIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is ABOVE the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
-        + `it calls the price attractive but would not buy at it. Reconcile.`,
-      )
-    }
-  }
+  // C3: the (d/e)+(d2) status-coherence flags are retired with the model's qualitative price call —
+  // the status is now derived from the same arithmetic it used to be checked against.
 
   // Advisory cross-check (R1 superseded, owner-approved 2026-07-11): the model's price view vs the
   // METHOD's computed threshold — divergence >25% asks the human to reconcile.
@@ -3809,11 +3775,10 @@ export async function runResearchDeepDivePhase(
         ...(moat_passes_gate && fcfValuation !== undefined ? { intrinsic_value_per_share: Number(fcfValuation.intrinsic_value_per_share.toFixed(2)) } : {}),
         // R1 superseded: the model's own price view, recorded as ADVISORY (the divergence flag reconciles).
         ...(moat_passes_gate && modelProposedBuyBelow !== undefined ? { model_proposed_buy_below: modelProposedBuyBelow } : {}),
-        ...(!moat_passes_gate && (modelProposedBuyBelow !== undefined || valuation_status !== undefined)
+        ...(!moat_passes_gate && modelProposedBuyBelow !== undefined
           ? {
               unvetted_model_proposals: {
                 ...(modelProposedBuyBelow !== undefined ? { proposed_buy_below: modelProposedBuyBelow } : {}),
-                ...(valuation_status !== undefined ? { valuation_status } : {}),
                 note: 'Recorded for audit only — the case was set aside at the moat gate BEFORE the buy-price sanity rails ran; these model proposals are UNVETTED.',
               },
             }

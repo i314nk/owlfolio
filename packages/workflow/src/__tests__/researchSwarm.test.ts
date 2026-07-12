@@ -1838,94 +1838,27 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(vr?.['owner_earnings_basis']).toBeUndefined()
   })
 
-  it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → flag fires AND the T0 buy-below gate derates the BUY', async () => {
-    // A very high price → reverse-DCF implies growth above the 15% cap; the model nonetheless says
-    // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. OWNER RULE
-    // (2026-07-10 SPGI dogfood): the FLAG still never blocks, but a BUY in this shape can no longer
-    // survive — an in-zone buy-below above such a price necessarily ALSO implies above-cap growth, so
-    // the T0 buy_below_implies_absurd_growth GATE (arithmetic, not the flag) derates the BUY to WATCH.
-    const { valuation, cp } = await runRelit({
-      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 850,
-    })
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.length).toBeGreaterThan(0)
-    expect(flags.some((f) => /attractive/i.test(f) && /implausible|cap/i.test(f))).toBe(true)
-    // Post-flip: the price ($800) sits far above the COMPUTED threshold (184.86) → the zone gate
-    // derates the BUY to WATCH (the flag itself still never blocks).
+  // C3 (owner-locked): valuation_status is DERIVED arithmetic — the computed zones ARE the status.
+  it('C3: valuation_status derives from the computed thresholds (ATTRACTIVE in zone / FAIR below IV / EXPENSIVE above)', async () => {
+    // Fixture IV 264.08, buy 184.86: price 150 → ATTRACTIVE; 220 → FAIR; 800 → EXPENSIVE.
+    const cheap = await runRelit({ id: 'c3-attractive', price: 150, investmentVerdict: 'WATCH', proposedBuyBelow: 150 })
+    expect(cheap.cp?.valuation_status).toBe('ATTRACTIVE')
+    const fair = await runRelit({ id: 'c3-fair', price: 220, investmentVerdict: 'WATCH', proposedBuyBelow: 150 })
+    expect(fair.cp?.valuation_status).toBe('FAIR')
+    const rich = await runRelit({ id: 'c3-expensive', price: 800, investmentVerdict: 'WATCH', proposedBuyBelow: 150 })
+    expect(rich.cp?.valuation_status).toBe('EXPENSIVE')
+    // The retired status-coherence flags never fire (nothing model-proposed to contradict).
+    for (const r of [cheap, fair, rich]) {
+      const flags = (r.valuation?.['sanity_flags'] as string[] | undefined) ?? []
+      expect(flags.some((f) => /contradicts_evidence|contradicts_buy_zone/.test(f))).toBe(false)
+    }
+  })
+
+  it('C3: an over-rich BUY still derates via the arithmetic zone gate (flags never needed)', async () => {
+    const { cp } = await runRelit({ id: 'c3-derate', price: 800, investmentVerdict: 'BUY', proposedBuyBelow: 850 })
+    expect(cp?.valuation_status).toBe('EXPENSIVE')
     expect(cp?.investment_verdict).toBe('WATCH')
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(true)
-  })
-
-  it('SANITY (over-PESSIMISTIC): status EXPENSIVE + market implies only MODEST growth → a sanity flag (verdict NOT blocked)', async () => {
-    // A low price → reverse-DCF implies a modest (≤ GDP) growth; the model says EXPENSIVE — the symmetric
-    // sanity-check must fire the over-pessimistic catch.
-    const { valuation, cp } = await runRelit({
-      id: 'sanity-pessimistic', price: 150, valuationStatus: 'EXPENSIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 120,
-    })
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /expensive/i.test(f) && /modest|gdp/i.test(f))).toBe(true)
-    expect(cp?.investment_verdict).toBe('WATCH')
-  })
-
-  it('CLEAN: status consistent with the evidence (FAIR + modest implied growth) → NO sanity flag', async () => {
-    // A mid price → implied growth in the modest band; status FAIR is consistent — no contradiction flag,
-    // no above-cap flag.
-    const { valuation } = await runRelit({
-      id: 'sanity-clean', price: 220, valuationStatus: 'FAIR', investmentVerdict: 'WATCH', proposedBuyBelow: 180, assumedGrowth: 0.05,
-    })
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /contradicts_evidence/.test(f))).toBe(false)
-    expect(flags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
-  })
-
-  it('SANITY (self-coherence TOLERANCE, 2026-07-11): ATTRACTIVE with the price only slightly above the buy-below → NO flag (coherent "wait for my price")', async () => {
-    // "Attractive, I'd buy a few percent lower" is a coherent position. Post-flip the tolerance is
-    // measured against the COMPUTED threshold (184.86): a price within the 5% band stays quiet.
-    const { valuation } = await runRelit({
-      id: 'coherence-attractive-nearzone', price: 192, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
-    })
-    expect(valuation?.['in_buy_zone']).toBe(false)
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /contradicts_buy_zone/.test(f))).toBe(false)
-  })
-
-  it('SANITY (self-coherence): status EXPENSIVE + price within the model\'s OWN buy-below (in_buy_zone) → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
-    // The model's two outputs disagree about TODAY's price: it labels the valuation EXPENSIVE yet sets a
-    // proposed_buy_below ABOVE the current price (so in_buy_zone is true — it would buy here per its own
-    // threshold). The direct self-coherence check must flag it, independent of where market-implied growth
-    // sits (the (d/e) implied-growth proxy only catches this indirectly). Flag-only — verdict unchanged.
-    const { valuation, cp } = await runRelit({
-      id: 'coherence-expensive-inzone', price: 110, valuationStatus: 'EXPENSIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 240,
-    })
-    expect(valuation?.['in_buy_zone']).toBe(true)
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /expensive/i.test(f))).toBe(true)
-    expect(cp?.investment_verdict).toBe('WATCH')
-  })
-
-  it('SANITY (self-coherence): status ATTRACTIVE + price ABOVE the model\'s OWN buy-below → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
-    // Symmetric: the model calls it ATTRACTIVE yet its buy-below is BELOW today's price (in_buy_zone false —
-    // it would not buy at today's price). Self-contradiction → flag.
-    const { valuation, cp } = await runRelit({
-      id: 'coherence-attractive-outzone', price: 600, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 400,
-    })
-    expect(valuation?.['in_buy_zone']).toBe(false)
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /attractive/i.test(f))).toBe(true)
-    // OWNER RULE (2026-07-04): the out-of-zone BUY no longer passes through flag-only — it derates to
-    // WATCH by the model's own arithmetic (see the buy_out_of_buy_zone gate tests).
-    expect(cp?.investment_verdict).toBe('WATCH')
-  })
-
-  it('SANITY (self-coherence CLEAN): status EXPENSIVE + price ABOVE the buy-below (normal expensive) → NO contradicts-buy-zone flag', async () => {
-    // The coherent expensive case (KO-like): EXPENSIVE label AND price above the buy-below (in_buy_zone false).
-    // The label and the buy threshold AGREE — no self-coherence flag.
-    const { valuation } = await runRelit({
-      id: 'coherence-clean', price: 300, valuationStatus: 'EXPENSIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 200,
-    })
-    expect(valuation?.['in_buy_zone']).toBe(false)
-    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
-    expect(flags.some((f) => /contradicts_buy_zone/.test(f))).toBe(false)
   })
 
   it('IMPLIED EXIT MULTIPLE (surfaced): a normal case computes a sane, name-specific implied_exit_multiple', async () => {
@@ -3430,13 +3363,13 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
         assumed_growth_rationale: 'Modest growth grounded to the 10-K.',
         assumed_growth_citation: 'src_dec_1',
         proposed_buy_below: 333,
-        valuation_status: 'FAIR',
       },
     })
     // R1 superseded: the stage's 333 is the ADVISORY price; the operative threshold is computed.
     expect(valuation?.['buy_price_per_share']).toBe(172.37) // E2 fixture IV@g=0.05 (246.24) × 0.70
     expect(valuation?.['model_proposed_buy_below']).toBe(333)
-    expect(cp?.valuation_status).toBe('FAIR')
+    // C3: the status is DERIVED — price 60 sits inside the computed buy zone (172.37) → ATTRACTIVE.
+    expect(cp?.valuation_status).toBe('ATTRACTIVE')
   })
 
   it('Test 2 — decision drops it AND the focused call ALSO fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted', async () => {

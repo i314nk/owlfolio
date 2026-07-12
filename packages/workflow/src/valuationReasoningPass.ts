@@ -43,8 +43,8 @@ export const ValuationReasoningSchema = z.object({
   // The model's judged buy-below price (price currency). Verbatim — the deterministic rails
   // (buy-zone clamp, absurd-implied-growth clamp, T0 MoS grade in V2) police it.
   proposed_buy_below: z.number().positive().optional(),
-  // The model's qualitative read of TODAY's price vs value.
-  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']).optional(),
+  // C3 (owner-locked 2026-07-12): valuation_status is retired from the stage — the harness DERIVES
+  // it arithmetically from the computed thresholds (a legacy emission is stripped as an unknown key).
   // ---- Phase 4 (book alignment): the industry-typical P/FCF EXIT MULTIPLE — the terminal value is
   // year-10 FCF × this. Cited-or-labeled (peer-standout pattern): include a citation ONLY when the
   // figure comes from a corpus-verifiable source; the harness clamps to [8, 20] and falls back to a
@@ -132,8 +132,6 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
     + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
     + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
-    + `  - valuation_status: ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your qualitative read of `
-    + `TODAY's price vs value (keep it coherent with your own proposed_buy_below).\n`
     + `  - industry_exit_multiple: the INDUSTRY-TYPICAL price-to-free-cash-flow multiple this business `
     + `would plausibly sell for in ~10 years ({multiple, basis_note, citation?}). Name the industry norm in `
     + `basis_note; include citation ONLY if the figure comes from a corpus-verifiable source (an honest `
@@ -173,11 +171,6 @@ export async function runValuationReasoningPass(
       name: 'valuation_reasoning.proposed_buy_below',
       present: (a) => typeof a.valuation_reasoning?.proposed_buy_below === 'number' && Number.isFinite(a.valuation_reasoning.proposed_buy_below) && a.valuation_reasoning.proposed_buy_below > 0,
       hint: 'the price at/below which you would buy, in the US-LISTED quote currency (a positive number)',
-    },
-    {
-      name: 'valuation_reasoning.valuation_status',
-      present: (a) => a.valuation_reasoning?.valuation_status !== undefined,
-      hint: "ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your read of TODAY's price vs value",
     },
     // Phase 4 (book alignment): the industry P/FCF exit multiple — retry-forced; an exhausted retry
     // degrades to the harness's conservative fallback multiple (12×), never a hard throw.
