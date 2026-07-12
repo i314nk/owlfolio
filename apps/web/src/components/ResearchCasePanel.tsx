@@ -404,6 +404,26 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
       : undefined
   const p2Status = outsideCircle ? notEvaluatedReason : undefined
   const p3p4Status = notEvaluatedReason
+  // E3: the collapsed-summary hints — the pillar ladder scans without opening anything.
+  const p1Hint = researchCase.circle_competence?.in_competence === true
+    ? 'IN COMPETENCE'
+    : researchCase.circle_competence?.in_competence === false
+      ? 'OUTSIDE THE CIRCLE'
+      : undefined
+  const p2Hint = researchCase.valuation?.moat_class !== undefined
+    ? `${researchCase.valuation.moat_class.toUpperCase()}${researchCase.valuation.moat_passes_gate === true ? ' · PASSES GATE' : researchCase.valuation.moat_passes_gate === false ? ' · FAILS GATE' : ''}`
+    : undefined
+  const mgmtJ = researchCase.management_judgment as { resolved_integrity?: string; resolved_talent?: string } | undefined
+  const p3Hint = mgmtJ?.resolved_integrity !== undefined || mgmtJ?.resolved_talent !== undefined
+    ? [mgmtJ?.resolved_integrity !== undefined ? `INTEGRITY ${mgmtJ.resolved_integrity.toUpperCase()}` : undefined,
+       mgmtJ?.resolved_talent !== undefined ? `TALENT ${mgmtJ.resolved_talent.toUpperCase()}` : undefined,
+      ].filter((x): x is string => x !== undefined).join(' · ')
+    : undefined
+  const p4IvE3 = (researchCase.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share
+  const p4BuyE3 = researchCase.valuation?.buy_price_per_share
+  const p4Hint = p4IvE3 !== undefined && p4BuyE3 !== undefined
+    ? `IV $${p4IvE3.toFixed(2)} · BUY < $${p4BuyE3.toFixed(2)}`
+    : valuationHint
 
   return createElement(
     'section',
@@ -428,25 +448,31 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
       : null,
     // ── Exit post-mortem (predicted vs realized) ─────────────────────────────
     createPostMortemPanel(researchCase),
+    // ── E3 (owner call): ONE card per pillar — the header is the summary, the verdict hint scans
+    //    closed, the pillar's merged content expands. Gated pillars render the plain header. ──
     // ── FRONT GATE — Shariah (precedes Buffett's four filters; sector judgment + AAOIFI ratios) ──
-    createPillarHeader('front-gate', 'Front gate — Shariah', undefined),
-    makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
+    createPillarSection('front-gate', 'Front gate — Shariah', undefined, researchCase.shariah_status, [
+      createComplianceRatioBlock(researchCase),
+    ]),
     // ── PILLAR 1 — Understand the business (the circle-of-competence judgment + the one-pager) ──
-    createPillarHeader('pillar-1', 'Pillar 1 — Understand the business', undefined),
-    makeCollapsible(createCircleCompetencePanel(researchCase), false),
-    createOnePagerCard(researchCase),
-    // ── PILLAR 2 — Moat: FIRST which moats were identified (taxonomy, drivers, direction, peers),
-    //    THEN whether the numbers back them (the three named tests). ──
-    createPillarHeader('pillar-2', 'Pillar 2 — Moat', p2Status),
-    p2Status === undefined ? createMoatsIdentifiedCard(researchCase) : null,
-    p2Status === undefined ? createMoatTestsCard(researchCase) : null,
+    createPillarSection('pillar-1', 'Pillar 1 — Understand the business', undefined, p1Hint, [
+      createCircleCompetencePanel(researchCase),
+      createOnePagerCard(researchCase),
+    ]),
+    // ── PILLAR 2 — Moat: FIRST which moats were identified, THEN whether the numbers back them. ──
+    createPillarSection('pillar-2', 'Pillar 2 — Moat', p2Status, p2Hint, [
+      createMoatsIdentifiedCard(researchCase),
+      createMoatTestsCard(researchCase),
+    ]),
     // ── PILLAR 3 — Management (integrity & talent + the deterministic insider summary) ──
-    createPillarHeader('pillar-3', 'Pillar 3 — Management', p3p4Status),
-    p3p4Status === undefined ? createManagementPillarPanel(researchCase) : null,
-    p3p4Status === undefined ? createInsiderActivityPanel(researchCase) : null,
+    createPillarSection('pillar-3', 'Pillar 3 — Management', p3p4Status, p3Hint, [
+      createManagementPillarPanel(researchCase),
+      createInsiderActivityPanel(researchCase),
+    ]),
     // ── PILLAR 4 — Value the business (price is the LAST filter; the decision moves to the END) ──
-    createPillarHeader('pillar-4', 'Pillar 4 — Value the business', p3p4Status),
-    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), true, valuationHint),
+    createPillarSection('pillar-4', 'Pillar 4 — Value the business', p3p4Status, p4Hint, [
+      createValuationPanel(researchCase, marketQuote, savings),
+    ]),
     // ── SYNTHESIS & DECISION — the reasoning (lattice, lanes, forecasts) leads; the DECISION lands at
     //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
     //    the actionable plans (admit / position plan / sizing / sell). ──
@@ -471,17 +497,67 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
 
 // ── S8: pillar section header — the dossier reads as the four filters applied in order. A pillar
 // that never ran says so in the header (the gated-dossier invariant, structurally). ──
+// E3 (owner call, 2026-07-12): the pillar title row — slightly bigger, with a column ornament on
+// BOTH sides of the title (the dossier reads as Buffett's colonnade). Shared by the plain header
+// (gated/synthesis) and the collapsible pillar-section summary.
+function pillarTitleRow(id: string, title: string, status: string | undefined, hint?: string) {
+  const ornament = (key: string) => createElement(
+    'span',
+    { key, 'aria-hidden': true, 'data-testid': 'pillar-ornament', style: { color: 'var(--owl-color-gold)', fontSize: 'var(--owl-text-base)', lineHeight: 1 } },
+    '⌶',
+  )
+  return [
+    createElement(
+      'span',
+      { key: 'title-group', style: { alignItems: 'center', display: 'inline-flex', gap: '0.55rem' } },
+      ornament('orn-l'),
+      createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' as const } }, title),
+      ornament('orn-r'),
+    ),
+    status !== undefined
+      ? createElement('span', { key: 'status', 'data-testid': `pillar-status-${id}`, style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, status)
+      : hint !== undefined
+        ? createElement('span', { key: 'hint', 'data-testid': `pillar-hint-${id}`, style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', marginLeft: 'auto' } }, hint)
+        : null,
+  ]
+}
+
 function createPillarHeader(id: string, title: string, status: string | undefined) {
   return createElement(
     'div',
     {
       'data-testid': `pillar-header-${id}`,
-      style: { alignItems: 'baseline', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.25rem' },
+      style: { alignItems: 'center', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.3rem' },
     },
-    createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' as const } }, title),
-    status === undefined
-      ? null
-      : createElement('span', { 'data-testid': `pillar-status-${id}`, style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, status),
+    ...pillarTitleRow(id, title, status),
+  )
+}
+
+/**
+ * E3: ONE card per pillar — the pillar header IS the collapsible summary (click to open the pillar's
+ * merged content; the verdict/status hint sits on the right so the whole ladder scans closed). A
+ * gated pillar (status text, no data) renders the plain header instead — nothing to expand.
+ */
+function createPillarSection(
+  id: string,
+  title: string,
+  status: string | undefined,
+  hint: string | undefined,
+  children: ReactNode[],
+) {
+  const body = children.filter((c) => c !== null && c !== undefined)
+  if (status !== undefined || body.length === 0) {
+    return createPillarHeader(id, title, status)
+  }
+  return createElement(
+    'details',
+    { 'data-testid': `pillar-header-${id}`, className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+      ...pillarTitleRow(id, title, undefined, hint),
+    ),
+    createElement('div', { style: { display: 'grid', gap: '0.8rem', marginTop: '0.45rem' } }, ...body),
   )
 }
 

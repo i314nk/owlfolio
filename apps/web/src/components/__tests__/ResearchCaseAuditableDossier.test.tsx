@@ -1190,6 +1190,33 @@ describe('pillar frame (S8)', () => {
     expect(html).toContain('not computable (gross profit not tagged')
   })
 
+  // E3 (owner call): ONE card per pillar — the header IS the collapsible summary, ornamented with a
+  // column glyph on both sides, and the verdict hint scans closed.
+  it('E3: each pillar is a single collapsible whose summary carries the ornamented title + verdict hint', () => {
+    const html = render(baseCase({ intrinsic_value_per_share: 264.08, buy_price_per_share: 184.86 } as never), QUOTE)
+    // Every pillar header exists; the ones WITH content render as <details> summaries (an empty
+    // pillar — e.g. a minimal legacy case — falls back to the plain header, honestly not expandable).
+    for (const id of ['front-gate', 'pillar-1', 'pillar-2', 'pillar-3', 'pillar-4']) {
+      expect(html.indexOf(`data-testid="pillar-header-${id}"`)).toBeGreaterThan(-1)
+    }
+    for (const id of ['pillar-2', 'pillar-4']) {
+      const i = html.indexOf(`data-testid="pillar-header-${id}"`)
+      expect(html.slice(i - 80, i)).toContain('<details')
+    }
+    // Column ornaments flank every pillar title (both sides).
+    expect((html.match(/data-testid="pillar-ornament"/g) ?? []).length).toBeGreaterThanOrEqual(12)
+    // The P4 hint carries the computed IV + buy threshold (the ladder scans closed).
+    expect(html).toContain('data-testid="pillar-hint-pillar-4"')
+    expect(html).toContain('IV $264.08 · BUY &lt; $184.86')
+    // P2's merged content still reads moats-first inside the single card (the tests card needs
+    // moat_tests data — covered by the S8 order pin; here the moats card alone suffices).
+    const p2 = html.indexOf('data-testid="pillar-header-pillar-2"')
+    const moats = html.indexOf('data-testid="moats-identified-card"')
+    const p3 = html.indexOf('data-testid="pillar-header-pillar-3"')
+    expect(moats).toBeGreaterThan(p2)
+    expect(moats).toBeLessThan(p3)
+  })
+
   it('a moat-gate-short-circuited case marks Pillars 3–4 "not evaluated — failed at the moat filter"', () => {
     const html = render({
       ...baseCase(),
