@@ -6,14 +6,14 @@ import { isCitationGrounded, type GroundingDeps } from './sourceGrounding'
 import { buffettMungerDeepDiveLanes } from './strategyResearchPipeline'
 
 // ---------------------------------------------------------------------------
-// E1 (owner call, 2026-07-12): the INVERSION PASS — the Munger lattice's own adversarial input.
+// E1 (owner call, 2026-07-12): the INVERSION PASS — the run's one adversarial surface.
 // This REPLACES the two-call red team (adversarial finder + answer-or-downgrade response pass): one
 // focused grounded call, pre-synthesis, whose ONLY mandate is to argue the case AGAINST itself
-// (Munger: "invert, always invert") and to state the consensus view (the lattice's social-proof
-// artifact). Its cite-checked output feeds the Munger lattice directly and is injected into the
+// (Munger: "invert, always invert") and to state the consensus view (Munger's social-proof
+// check). Its cite-checked output persists on the analysis payload and is injected into the
 // synthesis prompt so the verdict must weigh the strongest case against — but there is NO
-// answer-or-downgrade obligation machinery; the lattice records the inversion, the human audits it.
-// Failure DEGRADES to `inversion_incomplete` (the run continues; the lattice entry says so).
+// answer-or-downgrade obligation machinery; the dossier renders the inversion, the human audits it.
+// Failure DEGRADES to `inversion_incomplete` (the run continues; the dossier card says so).
 // ---------------------------------------------------------------------------
 
 const StrongestObjectionSchema = z.object({
@@ -25,7 +25,7 @@ const StrongestObjectionSchema = z.object({
 
 // Social proof: the inversion agent is the consensus-knowing call, so the thesis-vs-consensus check
 // rides it (zero extra provider spend). Cite-checked like the objection; an ungrounded consensus
-// read carries no lattice weight. Optional at the schema level; the prompt demands it.
+// read renders as unverified. Optional at the schema level; the prompt demands it.
 const ConsensusCheckSchema = z.object({
   // What the market/street consensus on this name actually is.
   consensus_view: z.string().min(1),
@@ -48,7 +48,7 @@ export const InversionAgentSchema = z.object({
 
 export type InversionAnalysis = z.infer<typeof InversionAgentSchema>
 
-/** The inversion output the harness persists + hands to the lattice and the synthesis prompt. */
+/** The inversion output the harness persists + hands to the synthesis prompt. */
 export type InversionOutput = {
   status: 'complete'
   strongest_case_against: string
@@ -63,7 +63,7 @@ export type InversionOutput = {
   }
   /** source_ids cited by the objection that were NOT in the verified corpus (recorded, never hidden). */
   uncited_objection_refs?: string[]
-  /** The cite-checked thesis-vs-consensus read (the Munger-lattice social-proof artifact). */
+  /** The cite-checked thesis-vs-consensus read (Munger's social-proof check). */
   consensus_check?: {
     consensus_view: string
     thesis_vs_consensus: 'consensus' | 'variant'
@@ -136,7 +136,7 @@ function buildInversionPrompt(args: RunInversionPassArgs): string {
     + `objection must be GROUNDED — strongest_objection.citations and proposed_sources must reference the verified `
     + `corpus. Available corpus source_ids: ${corpus}. Cite from these and return them in proposed_sources with real URLs. `
     // Live find (COST, kimi 2026-07-12): the model cited QUOTED FILING PROSE ("Risk Factors, Item 1A:
-    // '...'") in citations — every one failed the cite-check and the lattice honestly marked inversion
+    // '...'") in citations — every one failed the cite-check and the run honestly marked inversion
     // unavailable. Steer exactly like the valuation stage: a citation IS a source_id, never prose.
     + `CITATION FORMAT (this fails silently if you get it wrong): each entry in strongest_objection.citations `
     + `and consensus_check.citations MUST be one of the corpus source_ids above VERBATIM (e.g. `
@@ -154,7 +154,7 @@ function buildInversionPrompt(args: RunInversionPassArgs): string {
  * Cite-check the strongest objection against the verified corpus: keep only citations present in the
  * verified hash set (source_id or content_hash). An objection whose citations are ALL unverified is a
  * fabricated objection — we still record the case-against narrative but null out the objection's
- * unverifiable refs so the lattice never presents a fabricated claim as grounded.
+ * unverifiable refs so the dossier never presents a fabricated claim as grounded.
  */
 function citeCheckObjection(
   objection: InversionAnalysis['strongest_objection'],
@@ -171,7 +171,7 @@ function citeCheckObjection(
 
 /**
  * Run the inversion pass. Wrapped in {@link runGroundedAgentWithRetry} + try/catch so a
- * timeout/failure DEGRADES to `inversion_incomplete` (the run continues; the lattice entry says so)
+ * timeout/failure DEGRADES to `inversion_incomplete` (the run continues; the dossier card says so)
  * rather than aborting. The output is grounded + cite-checked exactly like the other lanes.
  */
 export async function runInversionPass(
@@ -224,7 +224,7 @@ export async function runInversionPass(
     }
   } catch (error) {
     // Degrade, never abort: an inversion failure must not discard a completed deep dive. Synthesis
-    // proceeds and the lattice records that the case was NOT argued against itself.
+    // proceeds and the payload records that the case was NOT argued against itself.
     return {
       status: 'inversion_incomplete',
       reason: error instanceof Error ? error.message : String(error),
@@ -233,8 +233,8 @@ export async function runInversionPass(
 }
 
 /**
- * The persisted inversion layer for the analysis payload (the lattice's evidence). No obligation
- * machinery: the inversion IS the record — synthesis sees the objection in its prompt; the lattice
+ * The persisted inversion layer for the analysis payload. No obligation
+ * machinery: the inversion IS the record — synthesis sees the objection in its prompt; the dossier
  * marks inversion `applied` when a cite-checked objection exists, `unavailable` otherwise. An
  * incomplete pass appends ONE honesty open-question (visibility, not enforcement).
  */

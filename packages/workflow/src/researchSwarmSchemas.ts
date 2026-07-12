@@ -486,7 +486,7 @@ export const CIRCLE_COMPETENCE_PROMPT =
   + `KEY MOVING PARTS that determine its success or failure — the variables the outcome actually turns on. `
   + `BOTH answers are equally valid Buffett outputs when demonstrated: setting aside a business you cannot `
   + `explain is correct, and judging a genuinely explainable business in-circle is EQUALLY correct — do `
-  + `not treat \"outside\" as the safe answer. `
+  + `not treat "outside" as the safe answer. `
   + `You must DEMONSTRATE the mental model, not assert it: cite (from primary filings) the specific MECHANISMS `
   + `of how this business makes money (understanding_drivers — each with concrete TEXT AND a citation: the `
   + `source_id of a VERIFIED primary source you fetched) AND the KEY MOVING PARTS (key_moving_parts — the `
@@ -501,7 +501,7 @@ export const CIRCLE_COMPETENCE_PROMPT =
   + `system, a payments network) and the filings back every clause; 'not_understood' = the economics are `
   + `DOMINATED by things you cannot explain from the filings (a structured-finance book, a pipeline of binary `
   + `drug bets you cannot handicap, opaque related-party webs); 'uncertain' = you genuinely cannot make the `
-  + `call from the filings — it is NOT a safe middle ground for \"the business is complicated\". NOTE: cashflow `
+  + `call from the filings — it is NOT a safe middle ground for "the business is complicated". NOTE: cashflow `
   + `DURABILITY is NOT this gate's question — durable cash is what a MOAT produces, and Pillar 2 judges it. `
   + `A well-understood cyclical business passes THIS gate; whether its cash is durable is the moat pillar's `
   + `verdict. If you cannot GROUND BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT `

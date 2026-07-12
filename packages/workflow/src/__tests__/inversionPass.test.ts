@@ -4,7 +4,7 @@ import type { GroundFn } from '../researchSwarm'
 
 // E1 (owner call, 2026-07-12): the INVERSION PASS replaces the two-call red team. One focused
 // grounded call argues the case AGAINST itself (Munger) + states the consensus view; cite-checked;
-// NO answer-or-downgrade obligation machinery — the lattice records it, the human audits it.
+// NO answer-or-downgrade obligation machinery — the payload records it, the human audits it.
 
 function inversionProvider(payload: unknown) {
   return {

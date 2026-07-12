@@ -473,11 +473,11 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     createPillarSection('pillar-4', 'Pillar 4 — Value the business', p3p4Status, p4Hint, [
       createValuationPanel(researchCase, marketQuote, savings),
     ]),
-    // ── SYNTHESIS & DECISION — the reasoning (lattice, lanes, forecasts) leads; the DECISION lands at
+    // ── SYNTHESIS & DECISION — the reasoning (case against, lanes, forecasts) leads; the DECISION lands at
     //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
     //    the actionable plans (admit / position plan / sizing / sell). ──
     createPillarHeader('synthesis', 'Synthesis & decision', undefined),
-    createMungerLatticePanel(researchCase),
+    createCaseAgainstPanel(researchCase),
     createSpecialistLanesGrid(researchCase),
     createForecastsPanel(researchCase),
     makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
@@ -913,68 +913,45 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
   return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
 }
 
-// S7 (Phase 3 pillars): the Munger mental-model lattice — deterministic harness assembly. An entry
-// is APPLIED only when its artifact exists and survived its cite-check; unavailable entries say why.
-// The "thesis IS the consensus" social-proof caution opens the panel and renders loud.
-function createMungerLatticePanel(researchCase: AppResearchCase) {
-  const lattice = researchCase.munger_lattice
-  // E1: the inversion detail (the case argued against itself) lives HERE — the lattice is the home of
-  // the adversarial surface. Two-era: legacy red_team payloads project onto the same `inversion` field.
+// G (owner call, 2026-07-12): the Munger LATTICE is retired — the inversion pass stands alone as the
+// synthesis's adversarial surface. Two-era: legacy red_team payloads project onto the same `inversion`
+// field. A "thesis IS the consensus" read renders as a loud caution (Munger's social-proof check).
+function createCaseAgainstPanel(researchCase: AppResearchCase) {
   const inv = researchCase.inversion
-  if ((lattice?.entries === undefined || lattice.entries.length === 0) && inv === undefined) return null
-  const consensusCaution = (lattice?.entries ?? []).some((e) => e.model === 'social_proof' && e.status === 'applied' && /thesis IS the consensus/i.test(e.summary))
-  const labelFor = (model: string) => model === 'inversion'
-    ? 'Inversion'
-    : model === 'base_rates'
-      ? 'Base rates'
-      : model === 'incentive_analysis'
-        ? 'Incentive analysis'
-        : model === 'social_proof'
-          ? 'Social proof / consensus'
-          : model.replace(/_/g, ' ')
+  if (inv === undefined) return null
+  const cc = inv.consensus_check
+  const consensusCaution = cc?.grounded === true && cc.thesis_vs_consensus === 'consensus'
+  const incomplete = inv.status !== 'complete' && inv.status !== undefined && inv.status !== 'red_team_complete'
   const children: ReactNode[] = [
     createElement('p', { key: 'note', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
-      lattice?.note ?? 'Deterministic harness assembly — applied entries derive from cite-checked artifacts.'),
-    ...(lattice?.entries ?? []).map((entry, i) => createElement(
+      '"Invert, always invert" — one adversarial agent argues the case against itself; every objection is cite-checked.'),
+    incomplete
+      ? createElement('p', { key: 'incomplete', style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } },
+          `The case was NOT argued against itself${inv.reason !== undefined ? ` (${inv.reason})` : ''} — re-run before relying on the verdict.`)
+      : createElement(
+          'div',
+          { key: 'inversion-detail', 'data-testid': 'inversion-detail', style: { display: 'grid', gap: '0.3rem' } },
+          inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+            `Strongest objection${inv.strongest_objection.severity !== undefined ? ` (${inv.strongest_objection.severity})` : ''}: ${inv.strongest_objection.claim}`) : null,
+          inv.strongest_case_against !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+            `Case against: ${inv.strongest_case_against}`) : null,
+          inv.moat_decay_scenario !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+            `Moat decay: ${inv.moat_decay_scenario}`) : null,
+        ),
+    cc?.consensus_view !== undefined ? createElement(
       'p',
       {
-        key: `lattice-${i}`,
-        'data-testid': `munger-lattice-${entry.model}`,
-        style: {
-          color: entry.status === 'unavailable'
-            ? 'var(--owl-color-gold-bright)'
-            : /thesis IS the consensus/i.test(entry.summary)
-              ? 'var(--owl-color-risk-bright)'
-              : 'var(--owl-color-text)',
-          fontSize: 'var(--owl-text-sm)',
-          lineHeight: 1.5,
-          margin: 0,
-        },
+        key: 'consensus',
+        'data-testid': 'inversion-consensus',
+        style: { borderTop: '1px solid var(--owl-color-border)', color: consensusCaution ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0, paddingTop: '0.5rem' },
       },
-      createElement('strong', {}, `${labelFor(entry.model)} — ${entry.status === 'applied' ? 'APPLIED' : 'UNAVAILABLE'}: `),
-      entry.status === 'applied' ? entry.summary : `${entry.summary} (${entry.reason ?? 'no artifact'})`,
-    )),
-    // E1: the inversion detail — the strongest case against, in full, beneath the lattice entries.
-    inv !== undefined ? createElement(
-      'div',
-      { key: 'inversion-detail', 'data-testid': 'inversion-detail', style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.3rem', paddingTop: '0.5rem' } },
-      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } }, 'The case against (inversion detail)'),
-      inv.status !== 'complete' && inv.status !== undefined && inv.status !== 'red_team_complete'
-        ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } },
-            `The case was NOT argued against itself${inv.reason !== undefined ? ` (${inv.reason})` : ''} — re-run before relying on the verdict.`)
-        : createElement(
-            'div',
-            { style: { display: 'grid', gap: '0.3rem' } },
-            inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: 0 } },
-              `Strongest objection${inv.strongest_objection.severity !== undefined ? ` (${inv.strongest_objection.severity})` : ''}: ${inv.strongest_objection.claim}`) : null,
-            inv.strongest_case_against !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-              `Case against: ${inv.strongest_case_against}`) : null,
-            inv.moat_decay_scenario !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-              `Moat decay: ${inv.moat_decay_scenario}`) : null,
-          ),
+      createElement('strong', {}, `Consensus check${cc.grounded === true ? '' : ' (ungrounded — not verified)'}: `),
+      consensusCaution
+        ? `the thesis IS the consensus — ${cc.consensus_view}`
+        : `${cc.thesis_vs_consensus === 'variant' ? 'variant view. ' : ''}${cc.consensus_view}${cc.variant_justification !== undefined ? ` — ${cc.variant_justification}` : ''}`,
     ) : null,
   ]
-  return createCollapsibleSection('munger-lattice-card', 'Munger lattice — mental models applied', consensusCaution, children)
+  return createCollapsibleSection('case-against-card', 'The case against — inversion', consensusCaution || incomplete, children)
 }
 
 function createReReviewPanel(researchCase: AppResearchCase) {
@@ -2122,7 +2099,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const sourceDiscipline = researchCase.source_discipline
   const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
 
-  // E1: the red team is retired — the inversion lives on the Munger lattice panel (the objection
+  // E1: the red team is retired — the inversion lives on its own case-against panel (the objection
   // detail renders there); no standalone bear-case box in the valuation panel.
 
   const discountLabel = discountRateVal !== undefined ? pctLabel(discountRateVal) : DEFAULT_DISCOUNT_LABEL

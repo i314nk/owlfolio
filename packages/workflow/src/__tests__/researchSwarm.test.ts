@@ -2314,7 +2314,7 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
 // deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
 // ---------------------------------------------------------------------------
-describe('E1 — the inversion pass (replaces the red team; lattice-owned, no obligation machinery)', () => {
+describe('E1 — the inversion pass (replaces the red team; no obligation machinery)', () => {
   async function runInv(opts: Omit<Parameters<typeof configurableSwarmProvider>[0], 'laneCount'>, id: string) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, ...opts })
@@ -5297,11 +5297,12 @@ describe('S6 — early moat gate: zero Pillar 3–4 spend on a gate death; the o
 })
 
 // ---------------------------------------------------------------------------------------------------
-// S7 (Phase 3 pillars): the Munger lattice persists on the analysis payload — deterministic assembly
-// from the run's own artifacts (red team, base-rate burden, grounded comp structure, consensus check).
+// G (owner call, 2026-07-12): the Munger LATTICE is retired — the inversion pass stands alone as the
+// adversarial surface. The payload must NOT carry munger_lattice; the cite-checked consensus_check
+// (Munger's social-proof read) persists on the inversion layer itself.
 // ---------------------------------------------------------------------------------------------------
-describe('S7 — munger_lattice persisted from the run artifacts', () => {
-  it('records all four entries; incentives APPLIED from the grounded comp; social proof from the consensus check', async () => {
+describe('G — the lattice is retired; the inversion layer carries the consensus check', () => {
+  it('emits no munger_lattice key; the consensus check persists grounded on the inversion layer', async () => {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
@@ -5317,13 +5318,13 @@ describe('S7 — munger_lattice persisted from the run artifacts', () => {
         },
       },
     })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-s7-lattice-'))
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-g-nolattice-'))
     await runStrategyResearchSwarm(
       store, provider as never,
       {
-        research_case_id: 'rc_s7', company_id: 'c', ticker: 'LAT',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 's7_k',
-        model_id: 'mock', decision_id: 'decision_s7', source_ledger_path: sourceLedgerPath,
+        research_case_id: 'rc_g_nolat', company_id: 'c', ticker: 'LAT',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'g_nolat_k',
+        model_id: 'mock', decision_id: 'decision_g_nolat', source_ledger_path: sourceLedgerPath,
       },
       {
         ground: allVerifiedGround, laneConcurrency: 4,
@@ -5332,52 +5333,17 @@ describe('S7 — munger_lattice persisted from the run artifacts', () => {
     )
     const events = await store.list()
     const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    const lattice = (analysis?.payload as Record<string, unknown>)['munger_lattice'] as {
-      entries?: Array<{ model: string; status: string; summary: string }>
-    } | undefined
-    expect(lattice?.entries?.map((e) => e.model)).toEqual(['inversion', 'base_rates', 'incentive_analysis', 'social_proof'])
-    const byModel = Object.fromEntries((lattice?.entries ?? []).map((e) => [e.model, e]))
-    expect(byModel['inversion']?.status).toBe('applied')
-    expect(byModel['incentive_analysis']?.status).toBe('applied') // grounded DEF 14A comp (S5 fake)
-    expect(byModel['social_proof']?.status).toBe('applied')
-    expect(byModel['social_proof']?.summary).toMatch(/variant/i)
-    // The consensus check also persists on the inversion layer (cite-checked).
-    const inversionLayer = (analysis?.payload as Record<string, unknown>)['inversion'] as { consensus_check?: { grounded?: boolean } } | undefined
+    const payload = analysis?.payload as Record<string, unknown>
+    expect('munger_lattice' in payload).toBe(false)
+    const inversionLayer = payload['inversion'] as { status?: string; consensus_check?: { grounded?: boolean; thesis_vs_consensus?: string } } | undefined
+    expect(inversionLayer?.status).toBe('complete')
     expect(inversionLayer?.consensus_check?.grounded).toBe(true)
-    // And projects.
+    expect(inversionLayer?.consensus_check?.thesis_vs_consensus).toBe('variant')
+    // The projection carries the inversion (with consensus) and no lattice.
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_s7') as Record<string, unknown> | undefined
-    expect((cp?.['munger_lattice'] as { entries?: unknown[] })?.entries).toHaveLength(4)
-  })
-
-  it('an omitted consensus check renders social proof UNAVAILABLE (no checkbox theater)', async () => {
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({
-      laneCount: buffettMungerDeepDiveLanes.length,
-      synthesis: { moat_class: 'wide', runway: 'proven', proposed_buy_below: 290,
-        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
-      synthesisResponse: { mode: 'answered_with_evidence', text: 'Rebutted.' },
-    })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-s7-nocc-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_s7_nocc', company_id: 'c', ticker: 'LAT',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 's7_nocc_k',
-        model_id: 'mock', decision_id: 'decision_s7_nocc', source_ledger_path: sourceLedgerPath,
-      },
-      {
-        ground: allVerifiedGround, laneConcurrency: 4,
-        resolvePrice: async () => ({ available: true as const, price_per_share: 250, currency: 'USD', as_of: 'x', source: 'fixture' }),
-      },
-    )
-    const analysis = (await store.list()).find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    const lattice = (analysis?.payload as Record<string, unknown>)['munger_lattice'] as {
-      entries?: Array<{ model: string; status: string; reason?: string }>
-    } | undefined
-    const social = lattice?.entries?.find((e) => e.model === 'social_proof')
-    expect(social?.status).toBe('unavailable')
-    expect(social?.reason).toMatch(/no consensus check/i)
+    const cp = projections.find((c) => c.research_case_id === 'rc_g_nolat') as Record<string, unknown> | undefined
+    expect(cp?.['munger_lattice']).toBeUndefined()
+    expect((cp?.['inversion'] as { consensus_check?: { grounded?: boolean } })?.consensus_check?.grounded).toBe(true)
   })
 })
 

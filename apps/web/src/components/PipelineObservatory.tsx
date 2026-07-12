@@ -596,7 +596,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
       sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
       createElement(StageFlowMap, { stages: stage_counts }),
       // Inversion step slot (UI-continuity Rule 2): the Munger inversion pass — the case argued against
-      // itself pre-synthesis. The objection renders on the case view's lattice; step id stays stable.
+      // itself pre-synthesis. The objection renders on the case view's case-against card; step id stays stable.
       createElement(
         'div',
         {

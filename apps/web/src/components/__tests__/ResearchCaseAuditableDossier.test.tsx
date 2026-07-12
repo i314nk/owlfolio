@@ -210,11 +210,31 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('Market-implied exit multiple')
   })
 
-  it('E1: the inversion detail (strongest objection) renders on the Munger lattice panel — no red-team vocabulary', () => {
+  it('G: the inversion detail renders on its own case-against card — no lattice, no red-team vocabulary', () => {
     const html = render(baseCase(), QUOTE)
+    expect(html).toContain('data-testid="case-against-card"')
     expect(html).toContain('data-testid="inversion-detail"')
     expect(html).toContain('Cloud margins compress as hyperscaler competition intensifies.')
     expect(html.toLowerCase()).not.toContain('red-team')
+    expect(html.toLowerCase()).not.toContain('munger lattice')
+  })
+
+  it('G: a grounded thesis-IS-the-consensus read renders as a loud caution on the case-against card', () => {
+    const base = baseCase()
+    const html = render({
+      ...base,
+      inversion: {
+        ...(base as unknown as { inversion: Record<string, unknown> }).inversion,
+        consensus_check: {
+          consensus_view: 'The street already prices durable double-digit growth.',
+          thesis_vs_consensus: 'consensus',
+          citations: ['src_lane_moat'],
+          grounded: true,
+        },
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="inversion-consensus"')
+    expect(html).toContain('the thesis IS the consensus')
   })
 
   it('shows in-buy-zone when the live price is at/below the model buy-below', () => {

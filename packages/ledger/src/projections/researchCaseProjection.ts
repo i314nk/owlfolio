@@ -238,7 +238,7 @@ export type ResearchCaseSourceDisciplineProjection = {
 }
 
 /**
- * E1: the INVERSION pass (Munger lattice) — the case argued against itself. TWO-ERA: new events emit
+ * E1/G: the INVERSION pass — the case argued against itself (standalone since the lattice retired). TWO-ERA: new events emit
  * `inversion`; legacy events carry `red_team` (same family shape) and project onto the SAME field —
  * the legacy-only obligation fields (synthesis_response, objection_unaddressed, weakest_rubric_items)
  * are tolerated by ignore.
@@ -253,7 +253,7 @@ export type ResearchCaseInversionProjection = {
   shared_narrative_blindspots?: string[]
   strongest_objection?: { claim?: string; severity?: string; citations?: string[] }
   uncited_objection_refs?: string[]
-  /** The cite-checked thesis-vs-consensus read (the lattice's social-proof artifact). */
+  /** The cite-checked thesis-vs-consensus read (Munger's social-proof check). */
   consensus_check?: {
     consensus_view?: string
     thesis_vs_consensus?: string
@@ -880,14 +880,6 @@ export type ResearchCaseProjection = {
   /** Which trait fired the management veto ('integrity' | 'talent'), when the BUY clamp applied. */
   management_veto_applied?: string
   management_veto_reason?: string
-  /**
-   * S7: the Munger mental-model lattice — a deterministic harness assembly (applied entries derive
-   * from artifacts that survived cite-check; unavailable entries carry the reason). Absent on legacy.
-   */
-  munger_lattice?: {
-    entries?: { model: string; status: string; summary: string; evidence_ref?: string; reason?: string }[]
-    note?: string
-  }
   /** S6: the run ended at the EARLY moat gate — Pillars 3–4 were never evaluated (no numbers exist). */
   moat_gate_short_circuited?: boolean
   /** S6: the run continued PAST a failed moat gate under the user-authored override (labeled spend). */
@@ -2555,29 +2547,6 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (managementVetoReason !== undefined) researchCase.management_veto_reason = managementVetoReason
       if (getBoolean(event.payload, 'moat_gate_short_circuited') === true) researchCase.moat_gate_short_circuited = true
       if (getBoolean(event.payload, 'moat_gate_overridden') === true) researchCase.moat_gate_overridden = true
-      const rawLattice = event.payload['munger_lattice']
-      if (isRecord(rawLattice)) {
-        const lattice: NonNullable<ResearchCaseProjection['munger_lattice']> = {}
-        const rawEntries = rawLattice['entries']
-        if (Array.isArray(rawEntries)) {
-          const entries = rawEntries.filter(isRecord)
-            .map((e) => {
-              const evidence_ref = getString(e, 'evidence_ref')
-              const reason = getString(e, 'reason')
-              return {
-                model: getString(e, 'model'), status: getString(e, 'status'), summary: getString(e, 'summary'),
-                ...(evidence_ref !== undefined ? { evidence_ref } : {}),
-                ...(reason !== undefined ? { reason } : {}),
-              }
-            })
-            .filter((e): e is { model: string; status: string; summary: string; evidence_ref?: string; reason?: string } =>
-              e.model !== undefined && e.status !== undefined && e.summary !== undefined)
-          if (entries.length > 0) lattice.entries = entries
-        }
-        const note = getString(rawLattice, 'note')
-        if (note !== undefined) lattice.note = note
-        if (Object.keys(lattice).length > 0) researchCase.munger_lattice = lattice
-      }
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial

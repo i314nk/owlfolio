@@ -49,7 +49,6 @@ import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { computeMoatTests, type MoatTests } from './moatTests'
 import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
-import { buildMungerLattice, type MungerLattice } from './mungerLattice'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { fcfImpliedExitMultiple, fcfImpliedGrowth, fcfIntrinsicValuePerShare, resolveExitMultiple } from '@owlfolio/strategies/bookValuation'
 import { yearFcf } from './annualRatios'
@@ -2109,9 +2108,9 @@ export async function runResearchDeepDivePhase(
 
   // E1: the inversion digest injected into the synthesis prompt — the verdict must WEIGH the strongest
   // case against before deciding (Munger: invert, always invert). No answer-or-downgrade obligation
-  // machinery; the lattice records the inversion and the human audits it on the dossier.
+  // machinery; the payload records the inversion and the human audits it on the dossier.
   const redTeamPromptBlock = inversion.status === 'complete'
-    ? `\n\nINVERSION (Munger lattice — weigh this before your verdict): the case was argued AGAINST itself. `
+    ? `\n\nINVERSION (Munger: invert, always invert — weigh this before your verdict): the case was argued AGAINST itself. `
       + `STRONGEST OBJECTION (severity ${inversion.strongest_objection.severity}): "${inversion.strongest_objection.claim}" `
       + `[cited: ${inversion.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
       + `Case against: ${inversion.strongest_case_against} Moat-decay: ${inversion.moat_decay_scenario} Growth-credit attack: ${inversion.growth_credit_attack}. `
@@ -2406,7 +2405,7 @@ export async function runResearchDeepDivePhase(
         : `synthesis_grounding_unmet: assumed_growth_citation '${assumedGrowthCitation ?? '(absent)'}' did not verify `
           + 'against the corpus — the assumed-growth rationale is ungrounded. Routed to RESEARCH_MORE; re-run.'
 
-  // ---- E1: build the inversion layer (no obligation machinery — the lattice records it) ----
+  // ---- E1: build the inversion layer (no obligation machinery — the payload records it) ----
   const { layer: inversionLayer, openQuestion: inversionOpenQuestion } = buildInversionLayer({ inversion })
   // Phase 2 V5: the inversion stage's spend (one focused call — the red-team response pass is retired).
   ;(inversionLayer as Record<string, unknown>)['stage_cost'] = {
@@ -3601,40 +3600,6 @@ export async function runResearchDeepDivePhase(
   })
   const baseRateFlagsUnmet: BaseRateBurdenFlag[] = baseRateBurden.flags.filter((f) => f.status === 'unmet')
 
-  // ---- S7/E1: the Munger mental-model LATTICE — deterministic assembly, no model self-reports ----
-  // inversion ← the inversion pass; base rates ← the burden flags; incentive analysis ← the grounded
-  // S5 comp structure; social proof ← the inversion's cite-checked consensus_check. Each entry is
-  // 'applied' ONLY when its artifact exists and survived its cite-check (unavailable + reason otherwise).
-  const mungerLattice: MungerLattice = buildMungerLattice({
-    inversion: inversionLayer.status === 'complete' && inversionLayer.strongest_objection !== undefined
-      ? {
-          status: 'complete',
-          strongest_objection: {
-            claim: inversionLayer.strongest_objection.claim,
-            severity: (['low', 'medium', 'high'] as const).includes(inversionLayer.strongest_objection.severity as 'low' | 'medium' | 'high')
-              ? inversionLayer.strongest_objection.severity as 'low' | 'medium' | 'high'
-              : 'low',
-            citations: inversionLayer.strongest_objection.citations,
-          },
-          ...(inversionLayer.consensus_check !== undefined ? { consensus_check: inversionLayer.consensus_check } : {}),
-        }
-      : { status: 'inversion_incomplete', reason: inversionLayer.reason ?? 'the inversion pass did not complete' },
-    baseRateBurden: { flags: baseRateBurden.flags.map((f) => ({ claim: f.claim, status: f.status })) },
-    ...(managementJudgment.integrity !== undefined
-      ? {
-          managementJudgment: {
-            integrity: {
-              comp_structure: {
-                summary: managementJudgment.integrity.comp_structure.summary,
-                alignment: managementJudgment.integrity.comp_structure.alignment,
-                citation: managementJudgment.integrity.comp_structure.citation,
-              },
-              comp_grounded: managementJudgment.integrity.comp_grounded,
-            },
-          },
-        }
-      : {}),
-  })
   // Conservative downgrade hook: an unmet exceptional burden lowers the synthesis confidence and adds
   // an explicit caveat so the human sees the unmet structural burden (never silently passed).
   const baseRateCaveats = baseRateFlagsUnmet.map((f) =>
@@ -3694,8 +3659,6 @@ export async function runResearchDeepDivePhase(
       },
       ...(managementVetoTrait !== undefined ? { management_veto_applied: managementVetoTrait } : {}),
       ...(managementVetoReason !== undefined ? { management_veto_reason: managementVetoReason } : {}),
-      // S7 (Phase 3): the Munger lattice — deterministic; each entry applied-or-unavailable-with-reason.
-      munger_lattice: mungerLattice,
       // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,
@@ -3871,7 +3834,7 @@ export async function runResearchDeepDivePhase(
           }
         : {}),
       // E1: the inversion layer — the case argued against itself (cite-checked objection + the
-      // consensus/social-proof read). Feeds the Munger lattice; no answer-or-downgrade machinery.
+      // consensus/social-proof read). Persisted on the inversion layer; no answer-or-downgrade machinery.
       inversion: inversionLayer,
       // model-tiering-spec dual-model cross-check (moat + Shariah sector only). Present only when a
       // distinct cross-check model was configured for that dimension (off by default). Records the two
@@ -3967,7 +3930,7 @@ export async function runResearchDeepDivePhase(
 
   const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })
 
-  // E1: no answer-or-downgrade machinery — the inversion is recorded on the lattice; the decision
+  // E1: no answer-or-downgrade machinery — the inversion is recorded on the payload; the decision
   // reason carries no red-team annotation.
   const redTeamReasonNote = ''
 

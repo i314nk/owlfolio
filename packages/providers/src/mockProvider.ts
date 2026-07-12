@@ -386,7 +386,7 @@ function mockValuationReasoningForTicker(ticker: string) {
 
 // E1 — the Munger INVERSION pass (replaces the red team). The mock argues the case against itself with
 // a strongest objection cited to the GROUNDED corpus (the same source_ids the harness verifies), so the
-// cite-check passes and the demo/tests render a real cite-checked inversion on the lattice.
+// cite-check passes and the demo/tests render a real cite-checked inversion on the case-against card.
 function mockInversionForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
