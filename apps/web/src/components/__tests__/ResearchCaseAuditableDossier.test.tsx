@@ -210,6 +210,45 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('Market-implied exit multiple')
   })
 
+  // H (owner feedback, 2026-07-12): the "Synthesis & decision" section gets an ACTUAL synthesis card
+  // (the synthesis agent's reconciliation narrative + confidence + caveats), and the deep-dive lanes
+  // grid moves into Evidence & sources (it shows what the models actually returned — raw evidence).
+  it('H: renders the synthesis card with the reconciliation narrative, confidence, and caveats', () => {
+    const html = render({
+      ...baseCase(),
+      synthesis_summary: 'The four pillars agree on quality; price is the only dissent.',
+      confidence: 'medium',
+      caveats: ['Renewal-rate durability is the open question.'],
+    } as unknown as AppResearchCase, QUOTE)
+    const idx = html.indexOf('data-testid="synthesis-card"')
+    expect(idx).toBeGreaterThan(-1)
+    expect(html).toContain('The four pillars agree on quality; price is the only dissent.')
+    expect(html).toContain('Renewal-rate durability is the open question.')
+    // The card lands in the synthesis frame — after the synthesis header, before the decision box.
+    expect(idx).toBeGreaterThan(html.indexOf('Synthesis &amp; decision'))
+    expect(idx).toBeLessThan(html.indexOf('data-testid="decision-summary"'))
+  })
+
+  it('H: a legacy case without a synthesis narrative renders no synthesis card (no empty shell)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('data-testid="synthesis-card"')
+  })
+
+  it('H: the deep-dive lanes grid lives inside Evidence & sources, not the synthesis frame', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f1', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    const lanesIdx = html.indexOf('data-testid="specialist-lanes-section"')
+    expect(lanesIdx).toBeGreaterThan(-1)
+    // The lanes render AFTER the Evidence & sources summary label (inside its drop-down),
+    // and after the decision box (the synthesis frame no longer contains them).
+    expect(lanesIdx).toBeGreaterThan(html.indexOf('Evidence &amp; sources'))
+    expect(lanesIdx).toBeGreaterThan(html.indexOf('data-testid="decision-summary"'))
+  })
+
   it('G: the inversion detail renders on its own case-against card — no lattice, no red-team vocabulary', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).toContain('data-testid="case-against-card"')

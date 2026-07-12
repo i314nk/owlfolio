@@ -924,6 +924,11 @@ export type ResearchCaseProjection = {
   /** Phase 6 S8: the newest sell-decision OBSERVATION for a HELD name (advisory; never closes the holding). */
   sell_recommendation?: ResearchCaseSellRecommendationProjection
   synthesis_id?: string
+  /**
+   * H (2026-07-12): the synthesis agent's own reconciliation narrative (how the pillar findings were
+   * reconciled into the thesis) — from `deep_dive_synthesis_drafted.synthesis_summary`. Absent on legacy.
+   */
+  synthesis_summary?: string
   decision_id?: string
   investment_verdict?: string
   strategy_compliance?: string
@@ -2099,6 +2104,7 @@ function applyString(
     | 'finding_id'
     | 'specialist_lane'
     | 'synthesis_id'
+    | 'synthesis_summary'
     | 'decision_id'
     | 'investment_verdict'
     | 'strategy_compliance'
@@ -2446,6 +2452,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'deep_dive_id', getString(event.payload, 'deep_dive_id'))
       applyString(researchCase, 'synthesis_id', getString(event.payload, 'synthesis_id'))
+      applyString(researchCase, 'synthesis_summary', getString(event.payload, 'synthesis_summary'))
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       continue
@@ -2463,6 +2470,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'deep_dive_id', getString(event.payload, 'deep_dive_id'))
       applyString(researchCase, 'synthesis_id', getString(event.payload, 'synthesis_id'))
+      applyString(researchCase, 'synthesis_summary', getString(event.payload, 'synthesis_summary'))
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       continue

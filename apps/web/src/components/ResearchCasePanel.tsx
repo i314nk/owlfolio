@@ -473,12 +473,12 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     createPillarSection('pillar-4', 'Pillar 4 — Value the business', p3p4Status, p4Hint, [
       createValuationPanel(researchCase, marketQuote, savings),
     ]),
-    // ── SYNTHESIS & DECISION — the reasoning (case against, lanes, forecasts) leads; the DECISION lands at
+    // ── SYNTHESIS & DECISION — the reasoning (synthesis, case against, forecasts) leads; the DECISION lands at
     //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
     //    the actionable plans (admit / position plan / sizing / sell). ──
     createPillarHeader('synthesis', 'Synthesis & decision', undefined),
+    createSynthesisPanel(researchCase),
     createCaseAgainstPanel(researchCase),
-    createSpecialistLanesGrid(researchCase),
     createForecastsPanel(researchCase),
     makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
     makeCollapsible(createThesisBreakAuditCard(researchCase), false, mosHint),
@@ -911,6 +911,34 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
       : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
   }
   return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
+}
+
+// H (owner feedback, 2026-07-12): the ACTUAL synthesis card — the synthesis agent's own
+// reconciliation narrative (how the pillar findings combine into the thesis), with its confidence
+// and open caveats. Legacy cases without the projected narrative render no card (no empty shell).
+function createSynthesisPanel(researchCase: AppResearchCase) {
+  const summary = researchCase.synthesis_summary
+  if (summary === undefined || summary.trim().length === 0) return null
+  const caveats = researchCase.caveats ?? []
+  const children: ReactNode[] = [
+    createElement('p', { key: 'narrative', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } }, summary),
+    researchCase.confidence === undefined ? null : createElement(
+      'p',
+      { key: 'confidence', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } },
+      `Synthesis confidence: ${researchCase.confidence}`,
+    ),
+    caveats.length === 0 ? null : createElement(
+      'div',
+      { key: 'caveats', style: { display: 'grid', gap: '0.25rem' } },
+      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } }, 'Open caveats'),
+      ...caveats.map((c, i) => createElement(
+        'p',
+        { key: `caveat-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        `• ${c}`,
+      )),
+    ),
+  ]
+  return createCollapsibleSection('synthesis-card', 'Synthesis — the pillars reconciled', true, children)
 }
 
 // G (owner call, 2026-07-12): the Munger LATTICE is retired — the inversion pass stands alone as the
@@ -2947,8 +2975,9 @@ function createEvidenceAndAuditDetails(researchCase: AppResearchCase, options: {
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.85rem', marginTop: '1rem' } },
-      // Sources (each filing collapses to its title). The gate checklist (empty/legacy) and the deep-dive lane
-      // findings (already shown in the top-level Deep-dive lanes box) were removed to declutter this drop-down.
+      // H (owner feedback, 2026-07-12): the deep-dive lane findings live HERE — they are what the
+      // models actually returned (raw evidence), not synthesis reasoning. Sources follow.
+      createSpecialistLanesGrid(researchCase),
       options.alwaysVisibleSources ? null : createEvidenceAndSourcesPanel(researchCase),
       createLedgerTimelinePanel(researchCase),
       createQuickScreenCollapsible(researchCase),
