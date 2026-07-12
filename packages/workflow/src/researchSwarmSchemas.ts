@@ -431,9 +431,17 @@ export const AGENT_TIMEOUT_MS = resolveAgentTimeoutMs(process.env['OWLFOLIO_AGEN
 export const MOAT_PILLAR_PROMPT =
   ` As the MOAT lane you ALSO produce the durable-moat judgment for this case — as a GROUNDED CITED THESIS, `
   + `the SAME discipline as the circle-of-competence gate: argue it, do not assert it. `
-  + `Emit moat_drivers: the SPECIFIC durable competitive advantages of THIS business — pricing power, switching `
-  + `costs, network effects, brand, cost/scale advantage, regulatory/IP barriers — EACH with concrete TEXT (the `
-  + `advantage) AND a citation (the source_id of a VERIFIED primary source backing it). Then set `
+  + `A MOAT IS PROTECTION, NOT A STRENGTH (owner calibration): a moat is what PREVENTS a competent, `
+  + `well-funded competitor from taking this business's market share or replicating its model — it is what `
+  + `keeps the business PROTECTED. Apply the REPLICATION TEST to every driver before you emit it: "what `
+  + `specifically STOPS a rival with capital from copying this?" If the honest answer is "nothing — they `
+  + `would just have to execute well," it is NOT a moat. Operational excellence, a good product, growth, `
+  + `market share, a strong brand REPUTATION without pricing power, or scale a rival could also build are `
+  + `STRENGTHS, not moats — do NOT emit them as drivers. `
+  + `Emit moat_drivers: the SPECIFIC structural barriers of THIS business — durable pricing power, real `
+  + `switching costs, network effects, brand-commanded price premiums, structural cost/scale advantages a `
+  + `rival cannot match, regulatory/IP barriers — EACH with concrete TEXT (the advantage AND why it cannot `
+  + `be replicated) AND a citation (the source_id of a VERIFIED primary source backing it). Then set `
   + `proposed_moat_class ('narrow' | 'moderate' | 'wide' | 'monopoly') — your grounded judgment of the moat width — `
   + `and moat_reasoning (your narrative). The quant (ROIC durability + margin stability) will be computed by the `
   + `harness from the EDGAR filings to CORROBORATE your thesis; do NOT score it yourself. `

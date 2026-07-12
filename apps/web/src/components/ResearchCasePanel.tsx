@@ -1118,6 +1118,17 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
         ? 'The model demonstrated — with both clauses citing verified filings — that it can explain how this business makes money AND the key moving parts its outcome turns on. The deep dive proceeded. (Whether the cash is DURABLE is Pillar 2\u2019s verdict: moats are what give companies durable cash.)'
         : 'The model could not demonstrate (from cited filings) that it understands how this business makes money. Ungrounded understanding is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
     ),
+    // Owner call (2026-07-12): the cited evidence collapses — P1 is the tallest pillar and the
+    // judgment + explainer above already carry the verdict; the two-question detail expands on demand.
+    createElement(
+    'details',
+    { 'data-testid': 'circle-evidence', className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } },
+        `The two questions, cited (${drivers.length + breakers.length} claims)`),
+    ),
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'How it makes money (cited)'),
     drivers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
@@ -1132,6 +1143,7 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
     inCompetence || circle.reason === undefined
       ? null
       : createElement('p', { style: { color: '#fca5a5', fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0' } }, circle.reason),
+    ),
   )
 }
 

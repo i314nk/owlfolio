@@ -1799,17 +1799,17 @@ export type InlineXbrlShareRecovery = {
   fiscal_year: number
 }
 
-export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: number): InlineXbrlShareRecovery | undefined {
-  // Every inline fact tag for the diluted-shares concept, with its context ref, scale, and text value.
+export function recoverDilutedSharesHistoryFromInlineXbrl(html: string): InlineXbrlShareRecovery[] {
   const factRe = /<ix:nonfraction\b[^>]*>/gi
-  const candidates = new Map<string, number>() // `${contextRef}` → value (deduped; the EPS note repeats the income-statement fact)
+  // fiscal-year label → contextRef → value (deduped per context; the EPS note repeats the fact).
+  const byYear = new Map<number, Map<string, number>>()
+  const conflictedYears = new Set<number>()
   for (const m of html.matchAll(factRe)) {
     const tag = m[0]
     if (!INLINE_SHARE_CONCEPT.test(tag)) continue
     const ctxMatch = /contextref="([^"]+)"/i.exec(tag)
     if (ctxMatch === null) continue
     const contextRef = ctxMatch[1]!
-    // The context must be a full-year duration for the requested fiscal year with the Class-A member.
     const ctxBody = new RegExp(`<xbrli:context id="${contextRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</xbrli:context>`, 'i').exec(html)?.[1]
     if (ctxBody === undefined) continue
     if (!/StatementClassOfStockAxis/i.test(ctxBody) || !CLASS_A_MEMBER.test(ctxBody)) continue
@@ -1820,10 +1820,9 @@ export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: num
     if (!(days >= 300 && days <= 400)) continue
     const endYear = Number(end.slice(0, 4))
     const endMonth = Number(end.slice(5, 7))
-    // The fiscal-year label of an annual period: calendar/late-year ends carry the end year; an
-    // early-calendar end (Jan–Jun) labels the PRIOR year's fiscal year on some filers — accept both.
-    if (endYear !== fiscalYear && !(endMonth <= 6 && endYear === fiscalYear + 1)) continue
-    // The value: tag text up to the closing '<', de-formatted; em-dash/empty facts are skipped.
+    // The fiscal-year LABEL of an annual period: calendar/late-year ends carry the end year; an
+    // early-calendar end (Jan–Jun) belongs to the PRIOR label on the filers that use it.
+    const fiscalYear = endMonth <= 6 ? endYear - 1 : endYear
     const valueStart = (m.index ?? 0) + tag.length
     const valueEnd = html.indexOf('<', valueStart)
     if (valueEnd < 0) continue
@@ -1834,14 +1833,25 @@ export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: num
     if (!Number.isFinite(numeric) || !Number.isFinite(scale)) continue
     const sharesM = (numeric * Math.pow(10, scale)) / 1_000_000
     if (!(sharesM >= 1 && sharesM <= 100_000)) continue
-    const existing = candidates.get(contextRef)
-    if (existing !== undefined && Math.abs(existing - sharesM) > 0.5) return undefined // conflicting repeats → fail closed
-    candidates.set(contextRef, sharesM)
+    const perYear = byYear.get(fiscalYear) ?? new Map<string, number>()
+    const existing = perYear.get(contextRef)
+    if (existing !== undefined && Math.abs(existing - sharesM) > 0.5) conflictedYears.add(fiscalYear) // conflicting repeats
+    perYear.set(contextRef, sharesM)
+    byYear.set(fiscalYear, perYear)
   }
-  // Exactly ONE distinct value across contexts (two contexts with the same FY + different counts is ambiguous).
-  const values = [...new Set([...candidates.values()].map((v) => Math.round(v * 10) / 10))]
-  if (values.length !== 1) return undefined
-  return { shares_m: values[0]!, fiscal_year: fiscalYear }
+  const out: InlineXbrlShareRecovery[] = []
+  for (const [fiscalYear, perYear] of byYear) {
+    if (conflictedYears.has(fiscalYear)) continue
+    // Exactly ONE distinct value across the year's contexts — two same-year contexts disagreeing is ambiguous.
+    const values = [...new Set([...perYear.values()].map((v) => Math.round(v * 10) / 10))]
+    if (values.length !== 1) continue
+    out.push({ shares_m: values[0]!, fiscal_year: fiscalYear })
+  }
+  return out.sort((a, b) => b.fiscal_year - a.fiscal_year)
+}
+
+export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: number): InlineXbrlShareRecovery | undefined {
+  return recoverDilutedSharesHistoryFromInlineXbrl(html).find((r) => r.fiscal_year === fiscalYear)
 }
 
 /** Fetch a raw EDGAR document (Archives HTML) with the same politeness/timeout conventions as fetchSecJson. */
@@ -1915,18 +1925,28 @@ export async function fetchCompanyFundamentals(
   const filings = buildFilings(subs, cik10)
 
   // OPTION C: a per-class filer with NO extractable share count (all share facts dimensioned) —
-  // recover the latest year's diluted count from the annual report's inline XBRL (fail-closed).
+  // recover the diluted counts from the annual reports' inline XBRL (fail-closed per year). Each
+  // 10-K carries ~3 fiscal years, so a stride-2 walk over older annual filings (≤3 docs total)
+  // yields a contiguous ~7-year span — enough for the retained-earnings test's anchor + 5. Older
+  // docs are only tried when the LATEST doc recovered something (a filer whose latest report has no
+  // per-class inline facts is not this shape — do not burn fetches on it).
   if (latest_annual.diluted_shares_m === undefined) {
-    const annualFiling = filings.find((x) => isAnnualForm(x.form))
-    if (annualFiling !== undefined) {
-      const doc = await fetchSecText(annualFiling.url, deps)
-      const recovered = doc !== undefined
-        ? recoverDilutedSharesFromInlineXbrl(doc, latest_annual.fiscal_year)
-        : undefined
-      if (recovered !== undefined) {
-        latest_annual.diluted_shares_m = recovered.shares_m
-        latest_annual.diluted_shares_source = 'inline_xbrl_class_a'
+    const annuals = filings.filter((x) => isAnnualForm(x.form))
+    for (const idx of [0, 2, 4]) {
+      const filing = annuals[idx]
+      if (filing === undefined) break
+      const missing = annual_series.some((a) => a.diluted_shares_m === undefined)
+      if (!missing) break
+      const doc = await fetchSecText(filing.url, deps)
+      const recovered = doc !== undefined ? recoverDilutedSharesHistoryFromInlineXbrl(doc) : []
+      for (const r of recovered) {
+        const row = annual_series.find((a) => a.fiscal_year === r.fiscal_year)
+        if (row !== undefined && row.diluted_shares_m === undefined) {
+          row.diluted_shares_m = r.shares_m
+          row.diluted_shares_source = 'inline_xbrl_class_a'
+        }
       }
+      if (idx === 0 && latest_annual.diluted_shares_m === undefined) break // not the per-class shape
     }
   }
 

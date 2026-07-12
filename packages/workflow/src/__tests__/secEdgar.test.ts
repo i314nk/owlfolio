@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { recoverDilutedSharesFromInlineXbrl, __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
+import { recoverDilutedSharesFromInlineXbrl, recoverDilutedSharesHistoryFromInlineXbrl, __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
 
 beforeEach(() => {
   // The ticker map is cached module-side; reset so fail-closed fetch-error tests are not masked
@@ -626,6 +626,64 @@ describe('annual_series spans concept transitions (per-year per-field resolution
       expect(recoverDilutedSharesFromInlineXbrl(INLINE_XBRL_FIXTURE, 2022)).toBeUndefined()
     })
 
+    it('recovers the FULL year history a doc carries (multi-year map)', () => {
+      const all = recoverDilutedSharesHistoryFromInlineXbrl(INLINE_XBRL_FIXTURE)
+      expect(all).toEqual([
+        { fiscal_year: 2025, shares_m: 1966 },
+        { fiscal_year: 2024, shares_m: 2029 },
+      ])
+    })
+
+    // The retained-earnings test needs ≥6 usable years (anchor + 5). One 10-K carries 3 fiscal years,
+    // so the recovery walks OLDER annual filings (stride 2 → contiguous coverage, ≤3 docs) and fills
+    // every still-missing series year — each filled row stamped with the provenance marker.
+    it('walks older annual reports to fill the share history (retained-earnings fuel)', async () => {
+      const OLDER_DOC = INLINE_XBRL_FIXTURE
+        .replaceAll('2024-10-01', '2022-10-01').replaceAll('2025-09-30', '2023-09-30')
+        .replaceAll('2023-10-01', '2021-10-01').replaceAll('2024-09-30', '2022-09-30')
+        .replaceAll('2025-07-01', '2023-07-01')
+        .replaceAll('>1,966<', '>2,141<').replaceAll('>2,029<', '>2,183<').replaceAll('>1,951<', '>2,100<')
+      const years: Record<number, number> = { 2020: 25, 2021: 28, 2022: 31, 2023: 34, 2024: 40, 2025: 44 }
+      const facts = {
+        entityName: 'ClassShareCo',
+        facts: {
+          'us-gaap': {
+            Revenues: annualFacts(Object.fromEntries(Object.entries(years).map(([y, v]) => [y, v * 3]))),
+            NetIncomeLoss: annualFacts(years),
+            NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 60 }),
+            PaymentsToAcquirePropertyPlantAndEquipment: annualFacts({ 2025: 10 }),
+          },
+        },
+      }
+      const subs = {
+        filings: {
+          recent: {
+            form: ['10-K', '10-K', '10-K'],
+            filingDate: ['2025-11-15', '2024-11-15', '2023-11-15'],
+            accessionNumber: ['0000000002-25-000001', '0000000002-24-000001', '0000000002-23-000001'],
+            primaryDocument: ['co-20250930.htm', 'co-20240930.htm', 'co-20230930.htm'],
+          },
+        },
+      }
+      const fetches: string[] = []
+      const fetchImpl: typeof fetch = (async (input: string | URL | Request) => {
+        const u = String(input)
+        if (u.includes('companyfacts')) return new Response(JSON.stringify(facts), { status: 200 })
+        if (u.includes('submissions')) return new Response(JSON.stringify(subs), { status: 200 })
+        if (u.endsWith('co-20250930.htm')) { fetches.push('2025'); return new Response(INLINE_XBRL_FIXTURE, { status: 200 }) }
+        if (u.endsWith('co-20230930.htm')) { fetches.push('2023'); return new Response(OLDER_DOC, { status: 200 }) }
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch
+      const f = await fetchCompanyFundamentals('0000000002', { fetchImpl })
+      expect(f).toBeDefined()
+      const shareYears = Object.fromEntries((f?.annual_series ?? []).filter((a) => a.diluted_shares_m !== undefined).map((a) => [a.fiscal_year, a.diluted_shares_m]))
+      // Doc 1 (latest) fills 2025+2024; the stride-2 walk fetches the 2023 doc → 2023+2022.
+      expect(shareYears).toEqual({ 2025: 1966, 2024: 2029, 2023: 2141, 2022: 2183 })
+      expect(fetches).toEqual(['2025', '2023'])
+      const fy2022 = f?.annual_series.find((a) => a.fiscal_year === 2022)
+      expect(fy2022?.diluted_shares_source).toBe('inline_xbrl_class_a')
+    })
+
     it('wires into fetchCompanyFundamentals: a factless-shares filer recovers the count from the annual report doc', async () => {
       const facts = {
         entityName: 'ClassShareCo',
@@ -660,9 +718,10 @@ describe('annual_series spans concept transitions (per-year per-field resolution
       expect(f).toBeDefined()
       expect(f?.latest_annual.diluted_shares_m).toBeCloseTo(1966, 0)
       expect(f?.latest_annual.diluted_shares_source).toBe('inline_xbrl_class_a')
-      // The companyfacts path never stamps the provenance marker.
+      // Every year the doc carries fills (multi-year), each stamped with the provenance marker.
       const fy2024 = f?.annual_series.find((a) => a.fiscal_year === 2024)
-      expect(fy2024?.diluted_shares_m).toBeUndefined()
+      expect(fy2024?.diluted_shares_m).toBeCloseTo(2029, 0)
+      expect(fy2024?.diluted_shares_source).toBe('inline_xbrl_class_a')
     })
   })
 

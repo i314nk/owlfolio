@@ -11,7 +11,7 @@ import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResea
 import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
-import { CIRCLE_COMPETENCE_PROMPT, UnderstandingDriverSchema, KeyMovingPartSchema } from '../researchSwarmSchemas'
+import { CIRCLE_COMPETENCE_PROMPT, MOAT_PILLAR_PROMPT, UnderstandingDriverSchema, KeyMovingPartSchema } from '../researchSwarmSchemas'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 // MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
@@ -4871,6 +4871,18 @@ describe('D3: the joint margin-of-safety judgment is RETIRED from the engine', (
     // The T0 grade + the thesis-break audit fields still carry.
     expect(payload['key_wrong_assumption']).toBeTruthy()
     expect(payload['thesis_break_triggers']).toBeTruthy()
+  })
+})
+
+// Owner calibration (2026-07-12): a moat is PROTECTION — the prompt must demand the replication test
+// (what stops a funded rival from copying this?) and must exclude strengths-as-moats.
+describe('moat-pillar prompt calibration — real moats, not strengths', () => {
+  it('demands the replication test and excludes operational excellence as a moat', () => {
+    expect(MOAT_PILLAR_PROMPT).toContain('A MOAT IS PROTECTION, NOT A STRENGTH')
+    expect(MOAT_PILLAR_PROMPT).toContain('REPLICATION TEST')
+    expect(MOAT_PILLAR_PROMPT).toContain('STOPS a rival')
+    expect(MOAT_PILLAR_PROMPT).toContain('STRENGTHS, not moats')
+    expect(MOAT_PILLAR_PROMPT).toContain('why it cannot ')
   })
 })
 
