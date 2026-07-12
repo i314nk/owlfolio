@@ -1281,7 +1281,7 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
     }
   }
 
-  it('renders the cited drivers, cited predictability-breakers, and the in-competence outcome', () => {
+  it('G/P1: renders the cited money-making mechanisms + key moving parts and the in-competence outcome', () => {
     const researchCase: AppResearchCase = {
       ...baseCircleCase(),
       circle_competence: {
@@ -1298,7 +1298,7 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
     expect(html).toContain('Business understood')
     expect(html).toContain('Recurring insurance float invested at scale')
     expect(html).toContain('Catastrophe-loss tail volatility')
-    expect(html).toContain('Comprehension gaps (cited — the deeper test)')
+    expect(html).toContain('Key moving parts — what determines success or failure (cited)')
     expect(html).toContain('Understandable cashflow engine demonstrated from filings.')
   })
 

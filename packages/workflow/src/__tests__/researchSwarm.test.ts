@@ -11,7 +11,7 @@ import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResea
 import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
-import { CIRCLE_COMPETENCE_PROMPT, UnderstandingDriverSchema, ComprehensionGapSchema } from '../researchSwarmSchemas'
+import { CIRCLE_COMPETENCE_PROMPT, UnderstandingDriverSchema, KeyMovingPartSchema } from '../researchSwarmSchemas'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 // MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
@@ -203,7 +203,7 @@ function fakeCirclePayload(src: (id: string) => unknown) {
       { driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' },
       { driver: 'Membership renewal economics grounded in the 10-K', citation: 'src_circle_driver' },
     ],
-    comprehension_gaps: [
+    key_moving_parts: [
       { breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' },
       { breaker: 'Margin compression from input-cost inflation', citation: 'src_circle_breaker' },
     ],
@@ -4617,7 +4617,7 @@ describe('circle-of-competence gate', () => {
         if (schemaName === 'BuffettMungerCircleCompetence') {
           return {
             understanding_drivers: [{ driver: opts.driverText ?? 'Recurring insurance float invested at scale', citation: opts.driverCite }],
-            comprehension_gaps: [{ breaker: opts.breakerText ?? 'Catastrophe-loss tail volatility', citation: opts.breakerCite }],
+            key_moving_parts: [{ breaker: opts.breakerText ?? 'Catastrophe-loss tail volatility', citation: opts.breakerCite }],
             competence_reasoning: opts.business_understanding === 'understood'
               ? 'Understandable cashflow engine grounded in the 10-K.'
               : 'I understand the business but its cashflows are not durably predictable.',
@@ -4785,9 +4785,9 @@ describe('circle-of-competence gate', () => {
     // The split schemas make driver/breaker text non-optional. Parsing a claim without text must fail.
     expect(UnderstandingDriverSchema.safeParse({ citation: 'src_x' }).success).toBe(false)
     expect(UnderstandingDriverSchema.safeParse({ driver: '', citation: 'src_x' }).success).toBe(false)
-    expect(ComprehensionGapSchema.safeParse({ citation: 'src_x' }).success).toBe(false)
+    expect(KeyMovingPartSchema.safeParse({ citation: 'src_x' }).success).toBe(false)
     expect(UnderstandingDriverSchema.safeParse({ driver: 'd', citation: 'src_x' }).success).toBe(true)
-    expect(ComprehensionGapSchema.safeParse({ breaker: 'b', citation: 'src_x' }).success).toBe(true)
+    expect(KeyMovingPartSchema.safeParse({ breaker: 'b', citation: 'src_x' }).success).toBe(true)
   })
 
   it('5. fail-closed: ungrounded citations (drivers OR breakers) → SET ASIDE (unchanged)', async () => {
@@ -4881,13 +4881,16 @@ describe('circle-gate prompt calibration (live find: Kimi K2 marked Visa "uncert
     // real-but-ordinary risks (interchange litigation). The rubric must state that required breakers
     // do not imply unpredictability and that 'uncertain' is not a safe harbor.
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('BOTH answers are equally valid')
-    expect(CIRCLE_COMPETENCE_PROMPT).toContain('do NOT by themselves imply')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('does NOT by itself imply')
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('CORE ECONOMIC ENGINE')
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('payments network')
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('NOT a safe middle ground')
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('do NOT manufacture confusion')
     // C1 (owner-locked): durability is EXPLICITLY not this gate's question — the moat pillar owns it.
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('durable cash is what a MOAT produces')
+    // G/P1 (owner spec): the two questions of the mental model.
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('HOW DOES THIS COMPANY MAKE MONEY')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('KEY MOVING PARTS')
   })
 })
 

@@ -1330,12 +1330,12 @@ export async function runResearchDeepDivePhase(
     const groundedDrivers = circle.analysis.understanding_drivers.filter(
       (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     )
-    const groundedBreakers = circle.analysis.comprehension_gaps.filter(
+    const groundedBreakers = circle.analysis.key_moving_parts.filter(
       (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
     )
     // C1: the gate keys off the business_understanding ENUM. A sample votes in-competence ONLY when the
     // model judged 'understood' AND both clauses meet the GROUNDED evidence floors (≥ min_drivers
-    // grounded understanding mechanisms AND ≥ min_breakers grounded comprehension gaps).
+    // grounded understanding mechanisms AND ≥ min_breakers grounded key moving parts).
     // 'not_understood' / 'uncertain' / a thin gather → fail-closed dissent. Cashflow durability is NOT
     // judged here — the moat pillar owns it (moats are what give companies durable cash).
     const predictability = circle.analysis.business_understanding
@@ -1354,8 +1354,8 @@ export async function runResearchDeepDivePhase(
             + `${groundedDrivers.length} grounded understanding mechanism(s) met the evidence floor of ${gateMinDrivers} — a thin or `
             + 'ungrounded gather is outside competence (fail-closed). Set aside.'
           : `circle_competence_unmet: ${samplePrefix}the model grounded the understanding mechanisms but only `
-            + `${groundedBreakers.length} grounded comprehension gap(s) met the evidence floor of ${gateMinBreakers} — `
-            + 'the deeper clause is held to the same rigor (fail-closed). Set aside.'
+            + `${groundedBreakers.length} grounded key moving part(s) met the evidence floor of ${gateMinBreakers} — `
+            + 'the second question is held to the same rigor (fail-closed). Set aside.'
     circleSamples.push({
       analysis: circle.analysis,
       verified_ids: circle.verified_ids,
@@ -1400,7 +1400,7 @@ export async function runResearchDeepDivePhase(
       citation: d.citation,
       grounded: (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     })),
-    comprehension_gaps: circle.analysis.comprehension_gaps.map((b) => ({
+    key_moving_parts: circle.analysis.key_moving_parts.map((b) => ({
       breaker: b.breaker ?? '',
       citation: b.citation,
       grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),

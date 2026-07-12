@@ -293,7 +293,7 @@ export type ResearchCaseCircleCompetenceProjection = {
   competence_reasoning?: string
   /** TWO-ERA: understanding mechanisms (new) or cashflow drivers (legacy) — the same claim shape. */
   drivers?: ResearchCaseCircleClaimProjection[]
-  /** TWO-ERA: comprehension gaps (new) or predictability breakers (legacy). */
+  /** MULTI-ERA: key moving parts (G/P1) ?? comprehension gaps ?? predictability breakers (legacy). */
   breakers?: ResearchCaseCircleClaimProjection[]
   /** Set when the gate failed closed (model outside-competence OR an ungrounded clause). */
   circle_competence_unmet?: boolean
@@ -1321,7 +1321,7 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
     })
     if (mapped.length > 0) projected.drivers = mapped
   }
-  const breakers = value['comprehension_gaps'] ?? value['predictability_breakers']
+  const breakers = value['key_moving_parts'] ?? value['comprehension_gaps'] ?? value['predictability_breakers']
   if (Array.isArray(breakers)) {
     const mapped = breakers.filter(isRecord).map((b): ResearchCaseCircleClaimProjection => {
       const c: ResearchCaseCircleClaimProjection = {}

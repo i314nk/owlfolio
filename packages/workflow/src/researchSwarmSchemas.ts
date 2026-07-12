@@ -300,11 +300,12 @@ export const UnderstandingDriverSchema = z.object({
   citation: z.string().min(1),
 })
 
-// A single cited COMPREHENSION GAP: a part of this business you CANNOT explain from the filings (opaque
-// segments, accounting you cannot trace, economics that depend on things the filings do not show). THE
-// DEEPER TEST — held to the SAME rigor as the drivers; the text is REQUIRED and the citation cite-verified.
-export const ComprehensionGapSchema = z.object({
-  // A specific part of THIS business that resists explanation from the filings. REQUIRED.
+// A single cited KEY MOVING PART (G/P1, owner spec): a variable that DETERMINES this business's
+// success or failure (the levers of the mental model — renewal rates, unit growth, input costs, a
+// regulatory dependence). THE SECOND QUESTION — held to the SAME rigor as the drivers; the text is
+// REQUIRED and the citation cite-verified.
+export const KeyMovingPartSchema = z.object({
+  // A specific variable that determines THIS business's success or failure. REQUIRED.
   breaker: z.string().min(1),
   // REQUIRED — same cite-verify rigor as the drivers; ungrounded → fail-closed.
   citation: z.string().min(1),
@@ -313,9 +314,9 @@ export const ComprehensionGapSchema = z.object({
 export const CircleCompetenceSchema = z.object({
   // HOW this business makes money — the cited mechanisms, each with REQUIRED text + a filing citation.
   understanding_drivers: z.array(UnderstandingDriverSchema).min(1),
-  // What you CANNOT explain from the filings, each with REQUIRED text + a cited source. THE DEEPER
-  // TEST — held to the SAME cite-verify rigor as the drivers; not ungrounded prose.
-  comprehension_gaps: z.array(ComprehensionGapSchema).min(1),
+  // The KEY MOVING PARTS — what determines success or failure — each with REQUIRED text + a cited
+  // source. The second question of the mental model; the SAME cite-verify rigor as the drivers.
+  key_moving_parts: z.array(KeyMovingPartSchema).min(1),
   // The model's narrative judgment.
   competence_reasoning: z.string().min(1),
   // C1: the question IS "do I understand this business?" — Pillar 1 is the circle. The gate proceeds
@@ -479,27 +480,28 @@ export const RISKS_RECENCY_NOTE =
 // CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
 // understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.
 export const CIRCLE_COMPETENCE_PROMPT =
-  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate — Pillar 1: UNDERSTAND THE BUSINESS. `
-  + `The question is exactly "do I understand how THIS business makes money, well enough to value it?". `
+  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate — Pillar 1: UNDERSTAND THE BUSINESS. Your job `
+  + `is to build a MENTAL MODEL of how this business works by answering TWO questions from primary filings: `
+  + `(1) HOW DOES THIS COMPANY MAKE MONEY — who pays, for what, why they keep paying; and (2) WHAT ARE THE `
+  + `KEY MOVING PARTS that determine its success or failure — the variables the outcome actually turns on. `
   + `BOTH answers are equally valid Buffett outputs when demonstrated: setting aside a business you cannot `
   + `explain is correct, and judging a genuinely explainable business in-circle is EQUALLY correct — do `
-  + `not treat "outside" as the safe answer. `
-  + `You must DEMONSTRATE understanding, not assert it: cite (from primary filings) the specific MECHANISMS `
-  + `of how this business makes money (understanding_drivers — who pays, for what, why they keep paying; each `
-  + `with concrete TEXT AND a citation: the source_id of a VERIFIED primary source you fetched) AND the parts `
-  + `of the business you CANNOT explain from the filings (comprehension_gaps — opaque segments, accounting you `
-  + `cannot trace, economics the filings do not show; each ALSO with concrete TEXT + a cited verified primary `
+  + `not treat \"outside\" as the safe answer. `
+  + `You must DEMONSTRATE the mental model, not assert it: cite (from primary filings) the specific MECHANISMS `
+  + `of how this business makes money (understanding_drivers — each with concrete TEXT AND a citation: the `
+  + `source_id of a VERIFIED primary source you fetched) AND the KEY MOVING PARTS (key_moving_parts — the `
+  + `variables that determine success or failure: renewal/retention rates, unit economics, input-cost or rate `
+  + `sensitivity, concentration, regulatory dependence; each ALSO with concrete TEXT + a cited verified primary `
   + `source; this clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose, and do NOT `
-  + `omit the text). IMPORTANT — the gaps you were required to list do NOT by themselves imply the business is `
-  + `not understood: EVERY real business has parts that resist a filings-only read (segment detail, legal `
-  + `reserves, actuarial assumptions). The judgment is whether the CORE ECONOMIC ENGINE is explainable in `
-  + `plain language from what you read, not whether gaps exist. CALIBRATION for business_understanding: `
-  + `'understood' = you can explain the engine in a paragraph a non-specialist would follow (a membership `
-  + `warehouse club, a beverage brand + bottling system, a payments network) and the filings back every clause; `
-  + `'not_understood' = the economics are DOMINATED by things you cannot explain from the filings (a `
-  + `structured-finance book, a pipeline of binary drug bets you cannot handicap, opaque related-party webs); `
-  + `'uncertain' = you genuinely cannot make the call from the filings — it is NOT a safe middle ground for `
-  + `"the business is complicated", and choosing it because gaps exist is a MISCALIBRATION. NOTE: cashflow `
+  + `omit the text). IMPORTANT — naming moving parts does NOT by itself imply the business is not understood: `
+  + `EVERY real business turns on identifiable variables; naming them IS the understanding. The judgment is `
+  + `whether you can explain the CORE ECONOMIC ENGINE and its levers in plain language from what you read. `
+  + `CALIBRATION for business_understanding: 'understood' = you can explain the engine and its moving parts in `
+  + `a paragraph a non-specialist would follow (a membership warehouse club, a beverage brand + bottling `
+  + `system, a payments network) and the filings back every clause; 'not_understood' = the economics are `
+  + `DOMINATED by things you cannot explain from the filings (a structured-finance book, a pipeline of binary `
+  + `drug bets you cannot handicap, opaque related-party webs); 'uncertain' = you genuinely cannot make the `
+  + `call from the filings — it is NOT a safe middle ground for \"the business is complicated\". NOTE: cashflow `
   + `DURABILITY is NOT this gate's question — durable cash is what a MOAT produces, and Pillar 2 judges it. `
   + `A well-understood cyclical business passes THIS gate; whether its cash is durable is the moat pillar's `
   + `verdict. If you cannot GROUND BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT `

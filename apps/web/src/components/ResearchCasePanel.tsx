@@ -1123,14 +1123,14 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.7rem' } },
       inCompetence
-        ? 'The model demonstrated — with both clauses citing verified filings — that it can explain how this business makes money. The deep dive proceeded. (Whether the cash is DURABLE is Pillar 2\u2019s verdict: moats are what give companies durable cash.)'
+        ? 'The model demonstrated — with both clauses citing verified filings — that it can explain how this business makes money AND the key moving parts its outcome turns on. The deep dive proceeded. (Whether the cash is DURABLE is Pillar 2\u2019s verdict: moats are what give companies durable cash.)'
         : 'The model could not demonstrate (from cited filings) that it understands how this business makes money. Ungrounded understanding is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
     ),
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'How it makes money (cited)'),
     drivers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...drivers.map((d) => claimRow(d.driver ?? '', d.citation, d.grounded))),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Comprehension gaps (cited — the deeper test)'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Key moving parts — what determines success or failure (cited)'),
     breakers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...breakers.map((b) => claimRow(b.breaker ?? '', b.citation, b.grounded))),

@@ -143,7 +143,7 @@ function mockCircleCompetenceForTicker(ticker: string) {
       { driver: `${companyLabel} recurring membership/subscription revenue grounded in the 10-K`, citation: primaryCite },
       { driver: `${companyLabel} installed-base renewal economics disclosed in the annual filing`, citation: primaryCite },
     ],
-    comprehension_gaps: [
+    key_moving_parts: [
       { breaker: `Cyclicality or customer-concentration risk that would make ${companyLabel}'s cashflows unpredictable`, citation: secondaryCite },
       { breaker: `Competitive pricing pressure compressing ${companyLabel}'s unit economics`, citation: secondaryCite },
     ],
