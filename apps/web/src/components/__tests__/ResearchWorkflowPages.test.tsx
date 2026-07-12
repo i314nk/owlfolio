@@ -986,6 +986,9 @@ describe('research and watchlist workflow pages', () => {
         moat_class: 'wide',
         moat_passes_gate: true,
         buy_price_per_share: 120,
+        // POLISH (owner-agreed, 2026-07-12): the admit-request control is ZONE-GATED — admission is
+        // on the table only when the price sits in a book zone (rule 7/8) or a recommendation exists.
+        in_buy_zone: true,
       },
       next_required_action: 'Consider the admit judgment.',
       updated_at: '2026-06-08T12:00:00.000Z',

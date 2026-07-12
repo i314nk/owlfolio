@@ -213,6 +213,76 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   // H (owner feedback, 2026-07-12): the "Synthesis & decision" section gets an ACTUAL synthesis card
   // (the synthesis agent's reconciliation narrative + confidence + caveats), and the deep-dive lanes
   // grid moves into Evidence & sources (it shows what the models actually returned — raw evidence).
+  // POLISH (owner-agreed, 2026-07-12): the hero keeps the scannable bullets + next action; the prose
+  // thesis moves to the synthesis card when one exists (legacy cases without a synthesis narrative
+  // keep the hero prose — nothing vanishes).
+  it('polish: the hero drops the prose thesis when the synthesis card carries the narrative', () => {
+    const html = render({
+      ...baseCase(),
+      synthesis_summary: 'The four pillars agree; price is the dissent.',
+    } as unknown as AppResearchCase, QUOTE)
+    // The narrative renders ONCE — on the synthesis card, not the hero.
+    const first = html.indexOf('The four pillars agree; price is the dissent.')
+    expect(first).toBeGreaterThan(html.indexOf('data-testid="synthesis-card"'))
+    // The HERO region (everything before the front-gate header) drops the prose; the legacy
+    // lane-fallback digests may still quote it deeper in the page.
+    const hero = html.slice(0, html.indexOf('data-testid="pillar-header-front-gate"'))
+    expect(hero).not.toContain('A wide-moat compounder reinvesting at high incremental returns.')
+    // The bullets survive on the hero.
+    expect(hero).toContain('Verdict:')
+  })
+
+  it('polish: a legacy case (no synthesis narrative) keeps the hero prose', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).toContain('A wide-moat compounder reinvesting at high incremental returns.')
+  })
+
+  // POLISH: the price ladder — load-up → buy → IV zones with the live-price marker. The book's whole
+  // discipline is where price sits relative to the zones; the ladder shows it at a glance.
+  it('polish: renders the price ladder when IV/buy/load-up and a live price all exist', () => {
+    const html = render(baseCase({
+      intrinsic_value_per_share: 360.33,
+      buy_price_per_share: 252.23,
+      load_up_below: 180.17,
+    } as never), QUOTE)
+    expect(html).toContain('data-testid="price-ladder"')
+    expect(html).toContain('data-testid="price-ladder-marker"')
+  })
+
+  it('polish: no price ladder on an unpriced case', () => {
+    const base = baseCase()
+    const html = render({
+      ...base,
+      valuation: { ...base.valuation, proposed_buy_below: undefined, buy_price_per_share: undefined, intrinsic_value_per_share: undefined, load_up_below: undefined },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).not.toContain('data-testid="price-ladder"')
+  })
+
+  // POLISH: pillar hints carry a tone — pass green, caution amber, fail red.
+  it('polish: the P2 PASSES-GATE hint renders in the pass tone; a CONDITIONAL front gate in the caution tone', () => {
+    const html = render(baseCase(), QUOTE)
+    const p2 = html.indexOf('data-testid="pillar-hint-pillar-2"')
+    expect(p2).toBeGreaterThan(-1)
+    expect(html.slice(p2, html.indexOf('</span>', p2))).toContain('#4ade80')
+    // baseCase is COMPLIANT → pass tone on the front gate too.
+    const fg = html.indexOf('data-testid="pillar-hint-front-gate"')
+    expect(fg).toBeGreaterThan(-1)
+    expect(html.slice(fg, html.indexOf('</span>', fg))).toContain('#4ade80')
+    // A CONDITIONAL front gate renders the caution tone.
+    const cond = render({ ...baseCase(), shariah_status: 'CONDITIONAL' } as unknown as AppResearchCase, QUOTE)
+    const cfg = cond.indexOf('data-testid="pillar-hint-front-gate"')
+    expect(cond.slice(cfg, cond.indexOf('</span>', cfg))).toContain('gold')
+  })
+
+  // POLISH: the admit-request placeholder is zone-gated — admission is on the table only when the
+  // price is in a book zone (or a recommendation already exists); an out-of-zone WATCH renders no card.
+  it('polish: no admit-request card out of the buy zone; the card returns in-zone', () => {
+    const out = render(baseCase(), QUOTE)
+    expect(out).not.toContain('Request admit judgment')
+    const inZone = render(baseCase({ in_buy_zone: true } as never), { ...QUOTE, price_per_share: 140 })
+    expect(inZone).toContain('Request admit judgment')
+  })
+
   // LIVE FIND (V): an unpriced dossier (fcf_basis computable but shares untagged) rendered an empty
   // Pillar 4 with NO explanation, while the payload carried the exact honest reason. The valuation
   // panel must surface valuation_caveats loud when the IV is absent, and degraded flags as fine print.

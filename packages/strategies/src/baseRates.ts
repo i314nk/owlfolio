@@ -73,9 +73,9 @@ export const BASE_RATES: BaseRates = Object.freeze({
     },
     {
       id: 'credited_g_4_5',
-      claim: 'Credited growth g in the 4-5% band',
-      base_rate_note: 'Reserved for exceptional cases by the valuation spec.',
-      burden: 'Proven runway + headroom evidence (per the v2 growth bands).',
+      claim: 'Cited growth of 4%+ — above the GDP-like base rate',
+      base_rate_note: 'Most large firms do not compound free cash flow above GDP for a decade.',
+      burden: 'Structural drivers — contractual revenue, named quantified levers — never narrative alone.',
       min_structural_evidence: 2,
     },
   ],

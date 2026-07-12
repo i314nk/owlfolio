@@ -316,8 +316,13 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
   // recommendation for a deep-dive-complete, gate-passing admission candidate (personal-local only),
   // or whenever a recommendation has already been recorded.
   const hasAdmitRecommendation = researchCase.admit_recommendation !== undefined
+  // POLISH (owner-agreed): the on-demand REQUEST control is zone-gated — admission is on the table
+  // only when the price sits in a book zone (rule 7/8). A recorded recommendation always renders.
+  const inABookZone = researchCase.valuation?.in_buy_zone === true
+    || (researchCase.valuation as { in_load_up_zone?: boolean } | undefined)?.in_load_up_zone === true
   const isAdmissionCandidate = isDeepDiveComplete(researchCase.stage)
     && researchCase.valuation?.moat_passes_gate === true
+    && inABookZone
   const showAdmitPanel = mode === 'personal-local' && (hasAdmitRecommendation || isAdmissionCandidate)
 
   // Sizing panel (Phase 5 S7): show the on-demand sizing request + the persisted recommendation once a
@@ -500,6 +505,17 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
 // E3 (owner call, 2026-07-12): the pillar title row — slightly bigger, with a column ornament on
 // BOTH sides of the title (the dossier reads as Buffett's colonnade). Shared by the plain header
 // (gated/synthesis) and the collapsible pillar-section summary.
+// POLISH: the collapsed pillar hints carry a tone — pass green, caution amber, fail red — so the
+// closed ladder reads as a verdict strip. Order matters (NON_COMPLIANT before COMPLIANT); figure-only
+// hints (P4's IV · BUY) stay muted.
+function hintTone(hint: string): string {
+  const h = hint.toUpperCase()
+  if (/FAILS|OUTSIDE|RED_FLAG|RED FLAG|POOR|NON_COMPLIANT|NON-COMPLIANT|NOT UNDERSTOOD|NARROWING/.test(h)) return 'var(--owl-color-risk-bright)'
+  if (/CONDITIONAL|ADEQUATE|UNCERTAIN|MODERATE/.test(h)) return 'var(--owl-color-gold-bright)'
+  if (/PASSES|IN COMPETENCE|CLEAN|EXCELLENT|COMPLIANT|WIDE|MONOPOLY/.test(h)) return '#4ade80'
+  return 'var(--owl-color-muted)'
+}
+
 function pillarTitleRow(id: string, title: string, status: string | undefined, hint?: string) {
   const ornament = (key: string) => createElement(
     'span',
@@ -517,19 +533,19 @@ function pillarTitleRow(id: string, title: string, status: string | undefined, h
     status !== undefined
       ? createElement('span', { key: 'status', 'data-testid': `pillar-status-${id}`, style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, status)
       : hint !== undefined
-        ? createElement('span', { key: 'hint', 'data-testid': `pillar-hint-${id}`, style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', marginLeft: 'auto' } }, hint)
+        ? createElement('span', { key: 'hint', 'data-testid': `pillar-hint-${id}`, style: { color: hintTone(hint), fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', marginLeft: 'auto' } }, hint)
         : null,
   ]
 }
 
-function createPillarHeader(id: string, title: string, status: string | undefined) {
+function createPillarHeader(id: string, title: string, status: string | undefined, hint?: string) {
   return createElement(
     'div',
     {
       'data-testid': `pillar-header-${id}`,
       style: { alignItems: 'center', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.3rem' },
     },
-    ...pillarTitleRow(id, title, status),
+    ...pillarTitleRow(id, title, status, hint),
   )
 }
 
@@ -547,7 +563,7 @@ function createPillarSection(
 ) {
   const body = children.filter((c) => c !== null && c !== undefined)
   if (status !== undefined || body.length === 0) {
-    return createPillarHeader(id, title, status)
+    return createPillarHeader(id, title, status, hint)
   }
   return createElement(
     'details',
@@ -641,7 +657,7 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
     ),
     provenanceLabel === undefined
       ? createElement('p', { style: muted }, 'Moat taxonomy not recorded — this case predates the moat-pillar judgment display.')
-      : createElement('p', { style: muted }, `Moat: ${provenanceLabel}`),
+      : createElement('p', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } }, `Provenance: ${provenanceLabel}`),
     // Keep the compact types line for scanning; the proof sections carry the substance.
     (moatJudgment?.resolved_moat_types ?? []).length > 0
       ? createElement('p', { 'data-testid': 'moat-types', style: muted },
@@ -873,7 +889,7 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
   }
   for (const [i, o] of (mj.integrity?.communication_observations ?? []).entries()) {
     children.push(createElement('p', { key: `obs-${i}`, style: muted },
-      `Communication: ${o.observation} ${o.grounded === true ? '(cited)' : '(uncited)'}`))
+      `${o.observation} ${o.grounded === true ? '(cited)' : '(uncited)'}`))
   }
   children.push(subhead('talent-head', `2. Talent — ${(mj.resolved_talent ?? 'undetermined').toUpperCase()}`, tierTone(mj.resolved_talent)))
   if (mj.t0_contradicts_talent === true) {
@@ -881,7 +897,7 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
   }
   for (const [i, d] of (mj.talent?.talent_drivers ?? []).entries()) {
     children.push(createElement('p', { key: `drv-${i}`, style: muted },
-      `Talent driver: ${d.evidence} ${d.grounded === true ? '(cited)' : '(uncited)'}`))
+      `${d.evidence} ${d.grounded === true ? '(cited)' : '(uncited)'}`))
   }
   // The T0 strip + the retained-earnings test — self-describing computable unions, rendered honestly.
   const t0 = mj.talent_t0 as { roic?: Record<string, unknown>; payout?: Record<string, unknown>; debt?: Record<string, unknown> } | undefined
@@ -1730,14 +1746,19 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const shariah = researchCase.shariah_status
 
-  // The WHOLE thesis leads the verdict summary as prose (the standalone Thesis box was removed — this is now
-  // its only home), followed by the scannable judgment bullets below.
-  const fullThesis = firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
-  const thesis = fullThesis ?? (verdict === undefined ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
+  // POLISH (owner-agreed, 2026-07-12): when the SYNTHESIS card carries the reconciliation narrative,
+  // the hero keeps only the scannable bullets + next action (one home for the prose). Legacy cases
+  // without a synthesis narrative keep the hero prose — nothing vanishes.
+  const synthesisCarriesNarrative = typeof (researchCase as { synthesis_summary?: string }).synthesis_summary === 'string'
+    && ((researchCase as { synthesis_summary?: string }).synthesis_summary ?? '').trim().length > 0
+  const fullThesis = synthesisCarriesNarrative
+    ? undefined
+    : firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
+  const thesis = fullThesis ?? (verdict === undefined && !synthesisCarriesNarrative ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
 
   const valuationValue = [
     valuationStatus === undefined ? undefined : valuationStatus.toLowerCase(),
-    buyBelow === undefined ? undefined : `model buy-below $${buyBelow.toFixed(2)}`,
+    buyBelow === undefined ? undefined : `buy below $${buyBelow.toFixed(2)} (computed)`,
   ].filter((p): p is string => p !== undefined).join(' · ')
 
   const points: Array<[string, string]> = []
@@ -1779,6 +1800,51 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
  * (cited valuation_reasoning, market-implied growth, the implied multiples, the bear case) lives
  * in the valuation panel beneath. Native owl-*; no band/gap axis.
  */
+// POLISH (owner-agreed, 2026-07-12): the price ladder. One linear bar, three thresholds (rule-8
+// load-up, rule-7 buy, intrinsic value), the live price as a marker. Zone colors: deep green below
+// load-up, green to buy, sand to IV, muted beyond. Scale: 0 → max(price, IV) with 8% headroom.
+function createPriceLadder(researchCase: AppResearchCase, livePrice: number | undefined) {
+  const v = researchCase.valuation as { intrinsic_value_per_share?: number; load_up_below?: number } | undefined
+  const iv = v?.intrinsic_value_per_share
+  const load = v?.load_up_below
+  const buy = researchCase.valuation?.buy_price_per_share ?? researchCase.valuation?.proposed_buy_below
+  if (iv === undefined || load === undefined || buy === undefined || livePrice === undefined) return null
+  if (!(iv > 0) || !(load > 0) || !(buy > load) || !(iv > buy) || !(livePrice > 0)) return null
+  const top = Math.max(livePrice, iv) * 1.08
+  const pct = (x: number) => `${((x / top) * 100).toFixed(2)}%`
+  const seg = (from: number, to: number, color: string, key: string) => createElement('div', {
+    key,
+    style: { background: color, height: '100%', left: pct(from), position: 'absolute' as const, top: 0, width: pct(to - from) },
+  })
+  const tick = (x: number, label: string, key: string) => createElement('div', {
+    key,
+    style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', left: pct(x), position: 'absolute' as const, top: '100%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
+  }, label)
+  const inZone = livePrice <= buy
+  return createElement(
+    'div',
+    { 'data-testid': 'price-ladder', style: { display: 'grid', gap: '0.2rem', margin: '0.3rem 0 1.4rem' } },
+    createElement(
+      'div',
+      { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '999px', height: '0.85rem', overflow: 'visible', position: 'relative' as const } },
+      seg(0, load, 'rgba(34, 197, 94, 0.55)', 'seg-load'),
+      seg(load, buy, 'rgba(34, 197, 94, 0.28)', 'seg-buy'),
+      seg(buy, iv, 'rgba(214, 178, 94, 0.25)', 'seg-fair'),
+      // The live-price marker.
+      createElement('div', {
+        'data-testid': 'price-ladder-marker',
+        style: { background: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', borderRadius: '1px', bottom: '-0.3rem', left: pct(livePrice), position: 'absolute' as const, top: '-0.3rem', transform: 'translateX(-50%)', width: '3px' },
+      }),
+      createElement('div', {
+        style: { color: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, left: pct(livePrice), position: 'absolute' as const, bottom: 'calc(100% + 0.35rem)', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
+      }, `price $${livePrice.toFixed(2)}`),
+      tick(load, `load up $${load.toFixed(2)}`, 'tick-load'),
+      tick(buy, `buy $${buy.toFixed(2)}`, 'tick-buy'),
+      tick(iv, `IV $${iv.toFixed(2)}`, 'tick-iv'),
+    ),
+  )
+}
+
 function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
   const valuation = researchCase.valuation
   if (valuation === undefined) return null
@@ -1917,6 +1983,10 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         '',
       ),
     ),
+    // POLISH (owner-agreed): the PRICE LADDER — the book's zones as one horizontal bar (load-up →
+    // buy → IV) with the live-price marker. Where price sits relative to the zones IS the discipline;
+    // the ladder shows it at a glance. Rendered only when every threshold and a live price exist.
+    createPriceLadder(researchCase, livePrice),
     livePrice !== undefined && buyBelow !== undefined ? createElement(
       'p',
       { style: { color: inBuyZone ? '#bbf7d0' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
