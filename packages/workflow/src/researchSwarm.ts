@@ -1328,33 +1328,34 @@ export async function runResearchDeepDivePhase(
     }
     // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An
     // empty claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
-    const groundedDrivers = circle.analysis.cashflow_drivers.filter(
+    const groundedDrivers = circle.analysis.understanding_drivers.filter(
       (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     )
-    const groundedBreakers = circle.analysis.predictability_breakers.filter(
+    const groundedBreakers = circle.analysis.comprehension_gaps.filter(
       (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
     )
-    // Bug B: the gate keys off the cashflow_predictability ENUM. A sample votes in-competence ONLY when
-    // the model judged 'durably_predictable' AND both clauses meet the GROUNDED evidence floors
-    // (≥ min_drivers grounded, non-empty cashflow drivers AND ≥ min_breakers grounded, non-empty
-    // predictability breakers). 'not_predictable' / 'uncertain' / a thin gather → fail-closed dissent.
-    const predictability = circle.analysis.cashflow_predictability
+    // C1: the gate keys off the business_understanding ENUM. A sample votes in-competence ONLY when the
+    // model judged 'understood' AND both clauses meet the GROUNDED evidence floors (≥ min_drivers
+    // grounded understanding mechanisms AND ≥ min_breakers grounded comprehension gaps).
+    // 'not_understood' / 'uncertain' / a thin gather → fail-closed dissent. Cashflow durability is NOT
+    // judged here — the moat pillar owns it (moats are what give companies durable cash).
+    const predictability = circle.analysis.business_understanding
     const driversGrounded = groundedDrivers.length >= gateMinDrivers
     const breakersGrounded = groundedBreakers.length >= gateMinBreakers
-    const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
+    const inCompetence = predictability === 'understood' && driversGrounded && breakersGrounded
     const samplePrefix = gateKSamples > 1 ? `sample ${sampleIndex + 1}/${gateKSamples} dissented — ` : ''
     const unmetReason = inCompetence
       ? undefined
-      : predictability !== 'durably_predictable'
-        ? `circle_competence_unmet: ${samplePrefix}the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
-          + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
-          + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
+      : predictability !== 'understood'
+        ? `circle_competence_unmet: ${samplePrefix}the model judged this business ${predictability === 'not_understood' ? 'NOT understood' : 'of UNCERTAIN comprehensibility'} `
+          + '— it could not explain the core economic engine from the filings. A valid, common, correct '
+          + 'Buffett output. Set aside.'
         : !driversGrounded
-          ? `circle_competence_unmet: ${samplePrefix}the model judged the cashflows durably predictable but only `
-            + `${groundedDrivers.length} grounded cashflow driver(s) met the evidence floor of ${gateMinDrivers} — a thin or `
+          ? `circle_competence_unmet: ${samplePrefix}the model judged the business understood but only `
+            + `${groundedDrivers.length} grounded understanding mechanism(s) met the evidence floor of ${gateMinDrivers} — a thin or `
             + 'ungrounded gather is outside competence (fail-closed). Set aside.'
-          : `circle_competence_unmet: ${samplePrefix}the model grounded the cashflow drivers but only `
-            + `${groundedBreakers.length} grounded predictability breaker(s) met the evidence floor of ${gateMinBreakers} — `
+          : `circle_competence_unmet: ${samplePrefix}the model grounded the understanding mechanisms but only `
+            + `${groundedBreakers.length} grounded comprehension gap(s) met the evidence floor of ${gateMinBreakers} — `
             + 'the deeper clause is held to the same rigor (fail-closed). Set aside.'
     circleSamples.push({
       analysis: circle.analysis,
@@ -1390,15 +1391,17 @@ export async function runResearchDeepDivePhase(
   // proceed/set-aside signal; cashflow_predictability + model_claimed_predictability carry the enum.
   const freshCircleJudgmentPayload = {
     in_competence: inCompetence,
-    cashflow_predictability: predictability,
-    model_claimed_predictability: predictability,
+    // C1: the judgment is UNDERSTANDING (Pillar 1 IS the circle); legacy events carry the retired
+    // cashflow_predictability keys and project two-era onto the same slots.
+    business_understanding: predictability,
+    model_claimed_understanding: predictability,
     competence_reasoning: circle.analysis.competence_reasoning,
-    cashflow_drivers: circle.analysis.cashflow_drivers.map((d) => ({
+    understanding_drivers: circle.analysis.understanding_drivers.map((d) => ({
       driver: d.driver ?? '',
       citation: d.citation,
       grounded: (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     })),
-    predictability_breakers: circle.analysis.predictability_breakers.map((b) => ({
+    comprehension_gaps: circle.analysis.comprehension_gaps.map((b) => ({
       breaker: b.breaker ?? '',
       citation: b.citation,
       grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
@@ -1409,7 +1412,7 @@ export async function runResearchDeepDivePhase(
     gate_samples: circleSamples.map((s, i) => ({
       sample: i + 1,
       in_competence: s.inCompetence,
-      model_claimed_predictability: s.predictability,
+      model_claimed_understanding: s.predictability,
       grounded_drivers: s.groundedDrivers.length,
       grounded_breakers: s.groundedBreakers.length,
     })),

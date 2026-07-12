@@ -1079,18 +1079,17 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
   const circle = researchCase.circle_competence
   if (circle === undefined) return null
 
-  // Bug B: prefer the predictability ENUM; legacy-tolerant — old events carry only the in_competence boolean
-  // (map true → durably_predictable-equivalent). The gate proceeds only on durably_predictable + grounded.
-  const predictability = circle.cashflow_predictability
-    ?? (circle.in_competence === true ? 'durably_predictable' : undefined)
-  const inCompetence = circle.in_competence === true && predictability === 'durably_predictable'
+  // C1: the judgment slot is TWO-ERA — 'understood' (new) or 'durably_predictable' (legacy) proceed;
+  // the display speaks UNDERSTANDING (Pillar 1 IS the circle; durable cash is the moat pillar's verdict).
+  const judgment = circle.judgment ?? (circle.in_competence === true ? 'understood' : undefined)
+  const inCompetence = circle.in_competence === true && (judgment === 'understood' || judgment === 'durably_predictable')
   const accent = inCompetence ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-risk)'
   const heading = inCompetence
-    ? 'Cashflows durably predictable — in competence'
-    : predictability === 'not_predictable'
-      ? 'Outside competence — set aside (cashflows not durably predictable)'
-      : predictability === 'uncertain'
-        ? 'Outside competence — set aside (cashflow predictability uncertain)'
+    ? 'Business understood — in competence'
+    : judgment === 'not_understood' || judgment === 'not_predictable'
+      ? 'Outside competence — set aside (the business could not be explained from the filings)'
+      : judgment === 'uncertain'
+        ? 'Outside competence — set aside (understanding uncertain)'
         : 'Outside competence — set aside'
 
   // Compact citation markers (Priority 5): each claim's cite collapses to a superscript marker — full id
@@ -1104,8 +1103,8 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       citation === undefined ? null : createCitationMarker(citation, grounded, ++citeIndex),
     )
 
-  const drivers = circle.cashflow_drivers ?? []
-  const breakers = circle.predictability_breakers ?? []
+  const drivers = circle.drivers ?? []
+  const breakers = circle.breakers ?? []
 
   return createElement(
     'section',
@@ -1115,14 +1114,14 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.7rem' } },
       inCompetence
-        ? 'The model demonstrated it understands this business well enough to assess its cashflow predictability — both clauses cite verified filings. The deep dive proceeded.'
-        : 'The model could not demonstrate (from cited filings) that it understands this business well enough to assess its cashflow predictability. Ungrounded competence is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
+        ? 'The model demonstrated — with both clauses citing verified filings — that it can explain how this business makes money. The deep dive proceeded. (Whether the cash is DURABLE is Pillar 2\u2019s verdict: moats are what give companies durable cash.)'
+        : 'The model could not demonstrate (from cited filings) that it understands how this business makes money. Ungrounded understanding is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
     ),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Cashflow drivers (cited)'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'How it makes money (cited)'),
     drivers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...drivers.map((d) => claimRow(d.driver ?? '', d.citation, d.grounded))),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Predictability breakers (cited — the deeper test)'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Comprehension gaps (cited — the deeper test)'),
     breakers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...breakers.map((b) => claimRow(b.breaker ?? '', b.citation, b.grounded))),

@@ -316,37 +316,40 @@ export const MANAGEMENT_PILLAR_PROMPT =
 // A single cited cashflow DRIVER: the driver TEXT (REQUIRED — Bug A: text was previously optional, so an
 // empty claim cleared the bar on its citation alone) + the source_id (or content_hash) of a VERIFIED
 // primary source. The harness cite-verifies the citation AND requires non-empty text to count it grounded.
-export const CashflowDriverSchema = z.object({
-  // A specific driver of THIS business's cashflows that makes them DURABLE/predictable. REQUIRED.
+// C1 (owner-locked 2026-07-12): the circle is PURE UNDERSTANDING — Pillar 1 IS the circle of competence.
+// Cashflow durability/predictability is REMOVED from this gate entirely: durable cash is what a MOAT
+// produces, and Pillar 2 (the moat tests + direction + grounded thesis) already judges it.
+export const UnderstandingDriverSchema = z.object({
+  // A specific, concrete mechanism of HOW this business makes money (who pays, for what, why they keep
+  // paying). REQUIRED text — the demonstration of understanding, not an assertion of it.
   driver: z.string().min(1),
   // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the claim (a real
   // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → fail-closed.
   citation: z.string().min(1),
 })
 
-// A single cited PREDICTABILITY BREAKER: what would make those cashflows UNPREDICTABLE. THE DEEPER TEST —
-// held to the SAME rigor as the drivers; the breaker TEXT is REQUIRED (Bug A) and the citation cite-verified.
-export const PredictabilityBreakerSchema = z.object({
-  // A specific thing that would make THIS business's cashflows UNPREDICTABLE. REQUIRED.
+// A single cited COMPREHENSION GAP: a part of this business you CANNOT explain from the filings (opaque
+// segments, accounting you cannot trace, economics that depend on things the filings do not show). THE
+// DEEPER TEST — held to the SAME rigor as the drivers; the text is REQUIRED and the citation cite-verified.
+export const ComprehensionGapSchema = z.object({
+  // A specific part of THIS business that resists explanation from the filings. REQUIRED.
   breaker: z.string().min(1),
   // REQUIRED — same cite-verify rigor as the drivers; ungrounded → fail-closed.
   citation: z.string().min(1),
 })
 
 export const CircleCompetenceSchema = z.object({
-  // The specific drivers of THIS business's cashflows, each with REQUIRED text + a filing citation.
-  cashflow_drivers: z.array(CashflowDriverSchema).min(1),
-  // What would make those cashflows UNPREDICTABLE, each with REQUIRED text + a cited filing source. THE
-  // DEEPER TEST — held to the SAME cite-verify rigor as the drivers; not ungrounded prose.
-  predictability_breakers: z.array(PredictabilityBreakerSchema).min(1),
+  // HOW this business makes money — the cited mechanisms, each with REQUIRED text + a filing citation.
+  understanding_drivers: z.array(UnderstandingDriverSchema).min(1),
+  // What you CANNOT explain from the filings, each with REQUIRED text + a cited source. THE DEEPER
+  // TEST — held to the SAME cite-verify rigor as the drivers; not ungrounded prose.
+  comprehension_gaps: z.array(ComprehensionGapSchema).min(1),
   // The model's narrative judgment.
   competence_reasoning: z.string().min(1),
-  // Bug B fix: the question is NOT "do I understand this business" — it is "are THIS business's cashflows
-  // DURABLY PREDICTABLE enough to value with confidence?". A well-understood but cyclical/commodity-driven
-  // business is `not_predictable` → OUTSIDE the circle (set aside), a valid+common+correct Buffett answer.
-  // The gate proceeds ONLY when this is `durably_predictable` AND both clauses ground (non-empty text +
-  // verified citation); `not_predictable` OR `uncertain` OR ungrounded → set aside.
-  cashflow_predictability: z.enum(['durably_predictable', 'not_predictable', 'uncertain']),
+  // C1: the question IS "do I understand this business?" — Pillar 1 is the circle. The gate proceeds
+  // ONLY when this is `understood` AND both clauses ground (non-empty text + verified citation);
+  // `not_understood` OR `uncertain` OR ungrounded → set aside (a correct Buffett output).
+  business_understanding: z.enum(['understood', 'not_understood', 'uncertain']),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -523,32 +526,32 @@ export const RISKS_RECENCY_NOTE =
 // CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
 // understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.
 export const CIRCLE_COMPETENCE_PROMPT =
-  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate. The question is NOT "do I understand this `
-  + `business?" — it is "are THIS business's cashflows DURABLY PREDICTABLE enough to value with confidence?". `
-  + `These are DIFFERENT: understanding the business is NOT the same as competence to value it. `
-  + `BOTH answers are equally valid Buffett outputs when demonstrated: setting a genuinely unpredictable `
-  + `business aside is correct, and judging a genuinely durable business in-circle is EQUALLY correct — do `
+  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate — Pillar 1: UNDERSTAND THE BUSINESS. `
+  + `The question is exactly "do I understand how THIS business makes money, well enough to value it?". `
+  + `BOTH answers are equally valid Buffett outputs when demonstrated: setting aside a business you cannot `
+  + `explain is correct, and judging a genuinely explainable business in-circle is EQUALLY correct — do `
   + `not treat "outside" as the safe answer. `
-  + `You must DEMONSTRATE your judgment, not assert it: cite (from primary filings) the specific DRIVERS that `
-  + `make this business's cashflows DURABLE/predictable (cashflow_drivers — each with concrete TEXT describing `
-  + `the driver AND a citation: the source_id of a VERIFIED primary source you fetched) AND what would make `
-  + `those cashflows UNPREDICTABLE (predictability_breakers — each ALSO with concrete TEXT + a cited verified `
-  + `primary source; this clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose, and `
-  + `do NOT omit the text). IMPORTANT — the breakers you were required to list do NOT by themselves imply `
-  + `unpredictability: EVERY durable business has real, citable breakers (litigation, competition, regulation, `
-  + `technology shifts). The judgment is whether the DRIVERS dominate THROUGH A FULL ECONOMIC CYCLE, not `
-  + `whether breakers exist. CALIBRATION for cashflow_predictability: 'durably_predictable' = the core `
-  + `revenue is recurring/contractual/network/consumer-staple in nature and owner earnings would stay `
-  + `recognizably stable across a decade INCLUDING recessions (think a dominant beverage brand, a `
-  + `warehouse-club membership model, a payments network, a toll-road-like franchise) — ordinary cyclical `
-  + `wiggle and headline risks do NOT disqualify it; 'not_predictable' = earnings are DOMINATED by forces `
-  + `you cannot forecast — commodity prices, credit/issuance cycles, binary product or legal outcomes `
-  + `(think a memory-chip maker whose earnings swing with a commodity price cycle); 'uncertain' = you `
-  + `genuinely CANNOT make the through-cycle judgment from the filings — it is NOT a safe middle ground `
-  + `for "the business has risks", and choosing it because breakers exist is a MISCALIBRATION. If you `
-  + `cannot GROUND BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT rationalize `
-  + `predictability you cannot demonstrate — and equally, do NOT manufacture doubt you cannot ground. `
-  + `Gather your own primary sources and return them in proposed_sources with real URLs; `
+  + `You must DEMONSTRATE understanding, not assert it: cite (from primary filings) the specific MECHANISMS `
+  + `of how this business makes money (understanding_drivers — who pays, for what, why they keep paying; each `
+  + `with concrete TEXT AND a citation: the source_id of a VERIFIED primary source you fetched) AND the parts `
+  + `of the business you CANNOT explain from the filings (comprehension_gaps — opaque segments, accounting you `
+  + `cannot trace, economics the filings do not show; each ALSO with concrete TEXT + a cited verified primary `
+  + `source; this clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose, and do NOT `
+  + `omit the text). IMPORTANT — the gaps you were required to list do NOT by themselves imply the business is `
+  + `not understood: EVERY real business has parts that resist a filings-only read (segment detail, legal `
+  + `reserves, actuarial assumptions). The judgment is whether the CORE ECONOMIC ENGINE is explainable in `
+  + `plain language from what you read, not whether gaps exist. CALIBRATION for business_understanding: `
+  + `'understood' = you can explain the engine in a paragraph a non-specialist would follow (a membership `
+  + `warehouse club, a beverage brand + bottling system, a payments network) and the filings back every clause; `
+  + `'not_understood' = the economics are DOMINATED by things you cannot explain from the filings (a `
+  + `structured-finance book, a pipeline of binary drug bets you cannot handicap, opaque related-party webs); `
+  + `'uncertain' = you genuinely cannot make the call from the filings — it is NOT a safe middle ground for `
+  + `"the business is complicated", and choosing it because gaps exist is a MISCALIBRATION. NOTE: cashflow `
+  + `DURABILITY is NOT this gate's question — durable cash is what a MOAT produces, and Pillar 2 judges it. `
+  + `A well-understood cyclical business passes THIS gate; whether its cash is durable is the moat pillar's `
+  + `verdict. If you cannot GROUND BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT `
+  + `rationalize understanding you cannot demonstrate — and equally, do NOT manufacture confusion you cannot `
+  + `ground. Gather your own primary sources and return them in proposed_sources with real URLs; `
   + `cite real grounded source_ids in every citation field. Also give competence_reasoning (your narrative).`
 
 // Lanes that receive the primary-filing data injection (they consume hard financials). The MOAT lane is

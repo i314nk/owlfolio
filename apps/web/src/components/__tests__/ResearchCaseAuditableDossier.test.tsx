@@ -405,10 +405,10 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ...baseCase(),
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
+        judgment: 'understood',
         competence_reasoning: 'Understandable cashflow engine.',
-        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
-        predictability_breakers: [{ breaker: 'Cat-loss tail', citation: 'sec_edgar_10k_def', grounded: true }],
+        drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+        breakers: [{ breaker: 'Cat-loss tail', citation: 'sec_edgar_10k_def', grounded: true }],
       },
     } as unknown as AppResearchCase, QUOTE)
     // Compact marker present; the verbose inline form is gone from the reading line.
@@ -427,8 +427,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ...baseCase(),
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
-        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+        judgment: 'understood',
+        drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
       },
     } as unknown as AppResearchCase, QUOTE)
     // The marker is an anchor to the matching source entry, keyboard-focusable, with an accessible name.
@@ -444,8 +444,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ...baseCase(),
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
-        cashflow_drivers: [{ driver: 'Unverified driver', citation: 'sec_edgar_10k_xyz', grounded: false }],
+        judgment: 'understood',
+        drivers: [{ driver: 'Unverified driver', citation: 'sec_edgar_10k_xyz', grounded: false }],
       },
     } as unknown as AppResearchCase, QUOTE)
     expect(html).toContain('aria-label="Source: sec_edgar_10k_xyz — did not verify; jump to evidence"')
@@ -464,8 +464,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ],
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
-        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+        judgment: 'understood',
+        drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
       },
     } as unknown as AppResearchCase, QUOTE)
     // Marker href and evidence id agree (sanitized consistently) so the in-page jump resolves.
@@ -825,11 +825,11 @@ function setAsideCase(): AppResearchCase {
     updated_at: '2026-06-09T12:00:00.000Z',
     circle_competence: {
       in_competence: false,
-      cashflow_predictability: 'not_predictable',
+      judgment: 'not_understood',
       competence_reasoning: 'The cashflows depend on commodity prices the filings do not let us forecast.',
       reason: 'circle_competence_unmet: the model judged this business’s cashflows NOT durably predictable.',
-      cashflow_drivers: [{ driver: 'Spot commodity spread', citation: 'sec_edgar_10k_sas', grounded: true }],
-      predictability_breakers: [{ breaker: 'Cyclical demand swings', citation: 'sec_edgar_10k_sas2', grounded: true }],
+      drivers: [{ driver: 'Spot commodity spread', citation: 'sec_edgar_10k_sas', grounded: true }],
+      breakers: [{ breaker: 'Cyclical demand swings', citation: 'sec_edgar_10k_sas2', grounded: true }],
     },
     valuation: { circle_competence_unmet: true, outside_circle: true },
     gate_checklist: [],
@@ -890,7 +890,7 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
   it('does NOT treat a full deep-dive run (circle passed, has findings) as set aside', () => {
     const html = render({
       ...baseCase(),
-      circle_competence: { in_competence: true, cashflow_predictability: 'durably_predictable' },
+      circle_competence: { in_competence: true, judgment: 'understood' },
       specialist_findings: [
         { finding_id: 'f1', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
       ],

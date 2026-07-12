@@ -1286,41 +1286,41 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
       ...baseCircleCase(),
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
-        model_claimed_predictability: 'durably_predictable',
+        judgment: 'understood',
+        model_claimed_judgment: 'understood',
         competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
-        cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
+        drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
     expect(html).toContain('data-testid="circle-competence"')
-    expect(html).toContain('Cashflows durably predictable')
+    expect(html).toContain('Business understood')
     expect(html).toContain('Recurring insurance float invested at scale')
     expect(html).toContain('Catastrophe-loss tail volatility')
-    expect(html).toContain('Predictability breakers (cited — the deeper test)')
+    expect(html).toContain('Comprehension gaps (cited — the deeper test)')
     expect(html).toContain('Understandable cashflow engine demonstrated from filings.')
   })
 
-  it('renders set-aside with the not-durably-predictable message for an understood-but-cyclical case (the MU case)', () => {
+  it('C1: renders set-aside with the not-understood message (durability is the moat pillar\u2019s job now)', () => {
     const researchCase: AppResearchCase = {
       ...baseCircleCase(),
       investment_verdict: 'PASS',
       valuation: { circle_competence_unmet: true, outside_circle: true },
       circle_competence: {
         in_competence: false,
-        cashflow_predictability: 'not_predictable',
-        model_claimed_predictability: 'not_predictable',
-        competence_reasoning: 'I understand the business but reject durable predictability — cyclical commodity cashflows.',
+        judgment: 'not_understood',
+        model_claimed_judgment: 'not_understood',
+        competence_reasoning: 'The core economic engine could not be explained from the filings.',
         circle_competence_unmet: true,
-        reason: 'circle_competence_unmet: the model judged the cashflows not durably predictable — set aside.',
-        cashflow_drivers: [{ driver: 'DRAM/NAND pricing cycle', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Commodity memory price collapses', citation: 'src_circle_breaker', grounded: true }],
+        reason: 'circle_competence_unmet: the model judged this business NOT understood — set aside.',
+        drivers: [{ driver: 'DRAM/NAND pricing cycle', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Commodity memory price collapses', citation: 'src_circle_breaker', grounded: true }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('Outside competence — set aside (cashflows not durably predictable)')
-    expect(html).toContain('the model judged the cashflows not durably predictable')
+    expect(html).toContain('Outside competence — set aside (the business could not be explained from the filings)')
+    expect(html).toContain('the model judged this business NOT understood')
   })
 
   it('renders the legacy boolean event (in_competence:false, no enum) as set-aside', () => {
@@ -1334,8 +1334,8 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
         competence_reasoning: 'Legacy boolean case.',
         circle_competence_unmet: true,
         reason: 'circle_competence_unmet: the predictability_breakers citations did NOT verify — set aside.',
-        cashflow_drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Breaker claim', citation: 'src_unverified', grounded: false }],
+        drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Breaker claim', citation: 'src_unverified', grounded: false }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))

@@ -281,18 +281,20 @@ export type ResearchCaseCircleCompetenceProjection = {
    */
   in_competence?: boolean
   /**
-   * The model's predictability VERDICT (Bug B): 'durably_predictable' is the ONLY value that proceeds; a
-   * well-understood but cyclical/commodity business is 'not_predictable' → set aside. Absent on legacy
-   * events (which carried only the in_competence boolean).
+   * C1 (owner-locked 2026-07-12): the circle judgment is UNDERSTANDING — 'understood' is the only value
+   * that proceeds. TWO-ERA slot: legacy events project their retired cashflow_predictability enum
+   * ('durably_predictable' | 'not_predictable' | 'uncertain') onto this same field, read-only.
    */
-  cashflow_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
-  /** The model's raw predictability claim (the enum, before the harness's grounding fail-closed). */
-  model_claimed_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
-  /** LEGACY: the model's raw boolean claim on old events (before the enum). Read for back-compat only. */
+  judgment?: string
+  /** The model's raw claim (either era's enum, before the harness's grounding fail-closed). */
+  model_claimed_judgment?: string
+  /** LEGACY: the model's raw boolean claim on old events (before any enum). Read for back-compat only. */
   model_claimed_in_competence?: boolean
   competence_reasoning?: string
-  cashflow_drivers?: ResearchCaseCircleClaimProjection[]
-  predictability_breakers?: ResearchCaseCircleClaimProjection[]
+  /** TWO-ERA: understanding mechanisms (new) or cashflow drivers (legacy) — the same claim shape. */
+  drivers?: ResearchCaseCircleClaimProjection[]
+  /** TWO-ERA: comprehension gaps (new) or predictability breakers (legacy). */
+  breakers?: ResearchCaseCircleClaimProjection[]
   /** Set when the gate failed closed (model outside-competence OR an ungrounded clause). */
   circle_competence_unmet?: boolean
   reason?: string
@@ -1294,20 +1296,19 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
   const value = payload['circle_competence']
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseCircleCompetenceProjection = {}
-  const isPredictabilityEnum = (v: unknown): v is 'durably_predictable' | 'not_predictable' | 'uncertain' =>
-    v === 'durably_predictable' || v === 'not_predictable' || v === 'uncertain'
-  // Bug B: project the predictability enum. Legacy-tolerant — old events carry only the in_competence
-  // boolean; keep reading it (and map a legacy true → durably_predictable-equivalent for display below).
+  // C1 two-era: the judgment slot reads business_understanding (new) ?? cashflow_predictability (legacy).
   if (typeof value['in_competence'] === 'boolean') projected.in_competence = value['in_competence']
-  if (isPredictabilityEnum(value['cashflow_predictability'])) projected.cashflow_predictability = value['cashflow_predictability']
-  if (isPredictabilityEnum(value['model_claimed_predictability'])) projected.model_claimed_predictability = value['model_claimed_predictability']
+  const judgment = getString(value, 'business_understanding') ?? getString(value, 'cashflow_predictability')
+  if (judgment !== undefined) projected.judgment = judgment
+  const claimed = getString(value, 'model_claimed_understanding') ?? getString(value, 'model_claimed_predictability')
+  if (claimed !== undefined) projected.model_claimed_judgment = claimed
   if (typeof value['model_claimed_in_competence'] === 'boolean') projected.model_claimed_in_competence = value['model_claimed_in_competence']
   const competence_reasoning = getString(value, 'competence_reasoning')
   if (competence_reasoning !== undefined) projected.competence_reasoning = competence_reasoning
   const reason = getString(value, 'reason')
   if (reason !== undefined) projected.reason = reason
   if (typeof value['circle_competence_unmet'] === 'boolean') projected.circle_competence_unmet = value['circle_competence_unmet']
-  const drivers = value['cashflow_drivers']
+  const drivers = value['understanding_drivers'] ?? value['cashflow_drivers']
   if (Array.isArray(drivers)) {
     const mapped = drivers.filter(isRecord).map((d): ResearchCaseCircleClaimProjection => {
       const c: ResearchCaseCircleClaimProjection = {}
@@ -1318,9 +1319,9 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
       if (typeof d['grounded'] === 'boolean') c.grounded = d['grounded']
       return c
     })
-    if (mapped.length > 0) projected.cashflow_drivers = mapped
+    if (mapped.length > 0) projected.drivers = mapped
   }
-  const breakers = value['predictability_breakers']
+  const breakers = value['comprehension_gaps'] ?? value['predictability_breakers']
   if (Array.isArray(breakers)) {
     const mapped = breakers.filter(isRecord).map((b): ResearchCaseCircleClaimProjection => {
       const c: ResearchCaseCircleClaimProjection = {}
@@ -1331,7 +1332,7 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
       if (typeof b['grounded'] === 'boolean') c.grounded = b['grounded']
       return c
     })
-    if (mapped.length > 0) projected.predictability_breakers = mapped
+    if (mapped.length > 0) projected.breakers = mapped
   }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
