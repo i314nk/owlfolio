@@ -17,3 +17,22 @@ describe('buildValuationReasoningPrompt carries the F.2 discount-ownership guard
     expect(prompt).toMatch(/do NOT[^.]*(discount rate|WACC|cost of capital|required return)/i)
   })
 })
+
+// Owner rule (2026-07-12): the exit multiple is anchored to NAMED COMPARABLES, never an unnamed
+// industry average — median of the named set, conservative, exclusions explained.
+describe('exit-multiple prompt calibration — named comparables', () => {
+  it('demands named comps, median-conservative, and rejects a bare basis note via the retry-forcer', () => {
+    const prompt = buildValuationReasoningPrompt({
+      research_case_id: 'test-case-exit',
+      ticker: 'TST',
+      model_id: 'test-model',
+      laneDigest: [],
+      corpusSourceIds: ['src_1'],
+      preVerifiedSourceIds: ['src_1'],
+    } as never)
+    expect(prompt).toContain('ANCHORED TO NAMED COMPARABLES')
+    expect(prompt).toContain('MEDIAN of the named set')
+    expect(prompt).toContain('EXCLUDE structurally different names')
+    expect(prompt).not.toContain('compliant savings rate plus a fixed equity')
+  })
+})

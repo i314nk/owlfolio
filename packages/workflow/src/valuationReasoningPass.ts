@@ -132,22 +132,30 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
     + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
     + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
-    + `  - industry_exit_multiple: the INDUSTRY-TYPICAL price-to-free-cash-flow multiple this business `
-    + `would plausibly sell for in ~10 years ({multiple, basis_note, citation?}). Name the industry norm in `
-    + `basis_note; include citation ONLY if the figure comes from a corpus-verifiable source (an honest `
-    + `uncited judgment is labeled model-asserted — better than a fake citation, which FAILS the cite-check). `
-    + `The harness clamps to a sane band and computes the terminal value deterministically.\n`
+    + `  - industry_exit_multiple: the price-to-free-cash-flow multiple a rational buyer would pay for `
+    + `this business in ~10 years ({multiple, basis_note, citation?}) — ANCHORED TO NAMED COMPARABLES, not `
+    + `an unnamed industry average (owner rule): (1) NAME the 2-4 CLOSEST comparable companies and the `
+    + `P/FCF each trades at (or has historically traded at); (2) EXCLUDE structurally different names and `
+    + `say why (a closed-loop lender is not a network; a different unit-economics model is not a comp); `
+    + `(3) set the multiple from the MEDIAN of the named set, tilted CONSERVATIVE — median not mean (one `
+    + `hot comp must not drag it up), and priced for the EXIT-STATE business (year-10 is more mature than `
+    + `today, so sit at or below where the comps trade now, never extrapolate today's premium). basis_note `
+    + `MUST carry the named comps + their multiples + the exclusion reasoning — a bare number or an `
+    + `unnamed "industry average" is an incomplete answer. Include citation ONLY if a figure comes from a `
+    + `corpus-verifiable source (an honest uncited judgment is labeled model-asserted — better than a fake `
+    + `citation, which FAILS the cite-check). The harness clamps to a sane band and computes the terminal `
+    + `value deterministically.\n`
     + `GROUNDING (non-negotiable): the harness deterministically cite-checks assumed_growth_citation `
     + `against the grounded corpus and FAILS CLOSED when it is absent or does not verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
     + `DISCOUNT OWNERSHIP (the harness owns the discount, not you): the harness discounts free cash flow `
-    + `deterministically at a single config-driven uniform rate (the compliant savings rate plus a fixed equity `
-    + `premium) — the SAME for every business. Do NOT specify, assume, or assert your own discount rate, cost of `
+    + `deterministically at the single config-driven REQUIRED RETURN (the book's 15% default unless the user `
+    + `changed the Setting) — the SAME for every business. Do NOT specify, assume, or assert your own discount rate, cost of `
     + `capital, WACC, or required return, and do NOT present a textbook DCF or an intrinsic-value range computed `
     + `off a self-chosen rate; that math is the harness's job. Reason about VALUE only: `
     + `the durability of growth, and a qualitative cheap / fair / expensive read versus today's price.\n`
     + `EXAMPLE (shape only): {"valuation_reasoning":{"assumed_growth":0.06,`
     + `"assumed_growth_rationale":"mid-single-digit, grounded in segment capex","assumed_growth_citation":"sec_edgar_10k_<cik>_fy<year>",`
-    + `"industry_exit_multiple":{"multiple":16,"basis_note":"US warehouse-club retail has traded 15-18x FCF"}}}.`
+    + `"industry_exit_multiple":{"multiple":16,"basis_note":"comps: BJ's ~14x, Walmart ~18x, Target ~12x P/FCF; Sam's Club not separable (inside WMT); median ~14-16x, set 16x for the stronger membership economics"}}}.`
   )
 }
 
@@ -176,8 +184,12 @@ export async function runValuationReasoningPass(
     // degrades to the harness's conservative fallback multiple (12×), never a hard throw.
     {
       name: 'valuation_reasoning.industry_exit_multiple',
-      present: (a) => a.valuation_reasoning?.industry_exit_multiple !== undefined,
-      hint: 'the industry-typical P/FCF exit multiple {multiple, basis_note, citation?} — cite only a corpus-verifiable source, else omit the citation',
+      // Owner rule (2026-07-12): a bare multiple or an unnamed "industry average" is an incomplete
+      // answer — the basis_note must carry the named-comps arithmetic (≥40 chars is the cheap floor;
+      // the prompt demands names + figures + exclusions).
+      present: (a) => a.valuation_reasoning?.industry_exit_multiple !== undefined
+        && (a.valuation_reasoning.industry_exit_multiple.basis_note ?? '').trim().length >= 40,
+      hint: 'the exit P/FCF multiple {multiple, basis_note, citation?} — basis_note MUST name the 2-4 closest comparables with their P/FCF figures and the exclusion reasoning (median of the named set, conservative)',
     },
     {
       name: 'valuation_reasoning.assumed_growth_citation',

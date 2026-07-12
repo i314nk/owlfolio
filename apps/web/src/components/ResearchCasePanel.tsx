@@ -2267,6 +2267,15 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         `the model assumes ${pctPts(assumedGrowth)} near-term growth`,
         reasoning.assumed_growth_rationale !== undefined ? ` — ${reasoning.assumed_growth_rationale}` : '',
       ) : null,
+      // Owner rule (2026-07-12): the exit multiple is comps-anchored — render the multiple, its
+      // provenance label, and the basis note (the named comps + figures) so the arithmetic is auditable.
+      valuation.exit_multiple_used !== undefined ? createElement(
+        'p',
+        { 'data-testid': 'exit-multiple-basis', style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Exit multiple: '),
+        `${valuation.exit_multiple_used}× year-10 FCF (${valuation.exit_multiple_source === 'model_grounded' ? 'cited, verified' : valuation.exit_multiple_source === 'model_asserted' ? 'model-asserted, not verified' : valuation.exit_multiple_source === 'model_clamped' ? 'clamped to the book band' : 'conservative fallback'})`,
+        valuation.exit_multiple_basis_note !== undefined ? ` — ${valuation.exit_multiple_basis_note}` : '',
+      ) : null,
       reasoning.discount_rationale !== undefined ? createElement(
         'p',
         { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },

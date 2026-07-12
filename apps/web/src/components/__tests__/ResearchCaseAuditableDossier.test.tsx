@@ -297,6 +297,19 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   // LIVE FIND (V): an unpriced dossier (fcf_basis computable but shares untagged) rendered an empty
   // Pillar 4 with NO explanation, while the payload carried the exact honest reason. The valuation
   // panel must surface valuation_caveats loud when the IV is absent, and degraded flags as fine print.
+  // Owner rule (2026-07-12): the exit multiple is comps-anchored — the reasoning block renders the
+  // multiple, its provenance label, and the basis note (named comps + figures) for audit.
+  it('renders the exit multiple with provenance and the comps basis note', () => {
+    const html = render(baseCase({
+      exit_multiple_used: 18,
+      exit_multiple_source: 'model_asserted',
+      exit_multiple_basis_note: 'comps: Mastercard ~28x, Fiserv ~15x; Amex excluded (closed-loop lender); median tilted conservative.',
+    } as never), QUOTE)
+    expect(html).toContain('data-testid="exit-multiple-basis"')
+    expect(html).toContain('18× year-10 FCF (model-asserted, not verified)')
+    expect(html).toContain('Mastercard ~28x')
+  })
+
   it('V-fix: an unpriced case renders the honest valuation caveat + degraded flags on Pillar 4', () => {
     const base = baseCase()
     const html = render({
