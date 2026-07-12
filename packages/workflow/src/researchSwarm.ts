@@ -3790,6 +3790,10 @@ export async function runResearchDeepDivePhase(
               exit_multiple_used: exitResolution.multiple,
               exit_multiple_source: exitResolution.source,
               ...(exitProposed?.basis_note !== undefined ? { exit_multiple_basis_note: exitProposed.basis_note } : {}),
+              // Auditability: the model's STRUCTURED comps + the median the harness checked against —
+              // the ledger proves the self-consistency check ran (a silent pass is not auditable).
+              ...(exitProposed?.comps !== undefined && exitProposed.comps.length > 0 ? { exit_multiple_comps: exitProposed.comps } : {}),
+              ...(exitCompsMedian !== undefined ? { exit_multiple_comps_median: exitCompsMedian } : {}),
             }
           : {}),
         // Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; never gates).

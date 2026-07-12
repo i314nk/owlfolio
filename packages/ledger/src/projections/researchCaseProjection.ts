@@ -464,6 +464,9 @@ export type ResearchCaseValuationProjection = {
   exit_multiple_used?: number
   exit_multiple_source?: string
   exit_multiple_basis_note?: string
+  /** The model's structured comps + the median the harness self-consistency-checked against. */
+  exit_multiple_comps?: { name?: string; p_fcf?: number }[]
+  exit_multiple_comps_median?: number
   /**
    * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — current price ÷ forward
    * owner earnings (OE/share grown to the explicit horizon at the MODEL's assumed growth along the same
@@ -1980,6 +1983,18 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (in_load_up_zone !== undefined) projected.in_load_up_zone = in_load_up_zone
   const valuation_basis = getString(value, 'valuation_basis')
   if (valuation_basis !== undefined) projected.valuation_basis = valuation_basis
+  const exit_multiple_comps_median = getNumber(value, 'exit_multiple_comps_median')
+  if (exit_multiple_comps_median !== undefined) projected.exit_multiple_comps_median = exit_multiple_comps_median
+  const rawComps = value['exit_multiple_comps']
+  if (Array.isArray(rawComps)) {
+    const comps: { name?: string; p_fcf?: number }[] = []
+    for (const c of rawComps.filter(isRecord)) {
+      const name = getString(c, 'name')
+      const p_fcf = getNumber(c, 'p_fcf')
+      comps.push({ ...(name !== undefined ? { name } : {}), ...(p_fcf !== undefined ? { p_fcf } : {}) })
+    }
+    if (comps.length > 0) projected.exit_multiple_comps = comps
+  }
   const exit_multiple_used = getNumber(value, 'exit_multiple_used')
   if (exit_multiple_used !== undefined) projected.exit_multiple_used = exit_multiple_used
   const exit_multiple_source = getString(value, 'exit_multiple_source')
