@@ -32,6 +32,10 @@ export type PortfolioHolding = AppHolding & {
   loadUpBelow?: number
   /** The registrant's name from the linked case (EDGAR companyfacts); absent on legacy cases. */
   entityName?: string
+  /** The latest non-superseded case for the ticker — the display/link target (audit pointer stays). */
+  displayResearchCaseId?: string
+  latestAnalysisVerdict?: string
+  latestAnalysisAt?: string
   /**
    * The harness-marshaled re-underwrite findings (business itemId -> finding), a PURE read of the HELD name's
    * research-case projection resolved by the loader. Passed to the review confirm/override forms so each
@@ -215,9 +219,10 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
     ? ((holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share) * 100
     : undefined
   const needsAttention = holding.pending_review_id !== undefined || alerts.some((alert) => alert.severity === 'urgent')
-  const tickerEl = holding.research_case_id !== undefined
+  const displayCaseId = holding.displayResearchCaseId ?? holding.research_case_id
+  const tickerEl = displayCaseId !== undefined
     ? createElement('a', {
-        href: `/research/${holding.research_case_id}`,
+        href: `/research/${displayCaseId}`,
         className: 'owl-focusable',
         style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
       }, ticker)
@@ -256,13 +261,20 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       ...(chip === undefined
         ? []
         : [createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, chip.reference)]),
-      ...(holding.research_case_id === undefined
+      // The latest analysis's verdict — decision-relevant on a HELD name (a fresh PASS is a signal).
+      ...(holding.latestAnalysisVerdict !== undefined && holding.buyBelowPricePerShare === undefined
+        ? [createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, `LATEST ANALYSIS: ${holding.latestAnalysisVerdict} — no buy thresholds produced. Open the full analysis for the reason.`)]
+        : []),
+      ...(holding.latestAnalysisAt !== undefined
+        ? [createElement('p', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, `From the analysis of ${holding.latestAnalysisAt.slice(0, 10)}`)]
+        : []),
+      ...(displayCaseId === undefined
         ? []
         : [createElement(
             'div',
             { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-            createElement(OwlButtonLink, { href: `/research/${holding.research_case_id}`, variant: 'primary' }, 'Open the full analysis'),
-            createElement(ReReviewButton, { caseId: holding.research_case_id }),
+            createElement(OwlButtonLink, { href: `/research/${displayCaseId}`, variant: 'primary' }, 'Open the full analysis'),
+            createElement(ReReviewButton, { caseId: displayCaseId }),
           )]),
       // The thesis anchor + the user's own review record — the figures a sell advisory hangs on.
       createElement(

@@ -191,6 +191,9 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
   const v = item.verdict
   const buyBelow = v?.proposed_buy_below ?? v?.buy_price_per_share
   const dist = v?.distance_to_buy_pct
+  // The board displays (and links to) the LATEST non-superseded analysis for the ticker; the item's
+  // own research_case_id stays as the frozen audit pointer.
+  const displayCaseId = item.display_research_case_id ?? item.research_case_id
 
   // COMPACT ROW (owner-locked 2026-07-14): the summary is the zone board line — ticker + company name
   // (the ticker LINKS to the dossier), the buy threshold, the live price + distance, and the state
@@ -207,7 +210,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     'summary',
     { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem' } },
     createElement('a', {
-      href: `/research/${item.research_case_id}`,
+      href: `/research/${displayCaseId}`,
       className: 'owl-focusable',
       style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
     }, ticker),
@@ -242,6 +245,14 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
         ...(buyBelow === undefined ? {} : { buy: buyBelow }),
         ...(v?.market_price_per_share === undefined ? {} : { livePrice: v.market_price_per_share }),
       }),
+      // Provenance: WHICH analysis these figures come from — and, when the latest run produced no
+      // thresholds, say so instead of silently keeping old numbers.
+      v === undefined && item.latest_analysis_verdict !== undefined
+        ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, `LATEST ANALYSIS: ${item.latest_analysis_verdict} — no buy thresholds produced. Open the full analysis for the reason.`)
+        : null,
+      item.latest_analysis_at !== undefined
+        ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, `From the analysis of ${item.latest_analysis_at.slice(0, 10)}`)
+        : null,
       // Staleness is decision-relevant on a waiting board — surface it only when it bites.
       v?.is_stale === true
         ? createElement('p', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, 'STALE — last run >12 months ago; re-run before acting on these thresholds.')
@@ -249,8 +260,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-        createElement(OwlButtonLink, { href: `/research/${item.research_case_id}`, variant: 'primary' }, 'Open the full analysis'),
-        createElement(ReReviewButton, { caseId: item.research_case_id }),
+        createElement(OwlButtonLink, { href: `/research/${displayCaseId}`, variant: 'primary' }, 'Open the full analysis'),
+        createElement(ReReviewButton, { caseId: displayCaseId }),
       ),
       // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
       createWatchlistAlerts(alerts),

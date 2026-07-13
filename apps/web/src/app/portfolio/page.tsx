@@ -53,13 +53,13 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
     )
 
     const enrichedHoldings = holdings.map((holding) => {
-      // Prefer the holding's own linked research case; fall back to the latest
-      // non-superseded case for the same ticker when that case has no valuation.
+      // OWNER-LOCKED (2026-07-14): the row DISPLAYS from the latest non-superseded case for the
+      // ticker — thresholds are provider observations, and a superseding re-run must show up here.
+      // The holding's own research_case_id stays as the frozen audit pointer; a latest case with no
+      // valuation renders honestly (entry-vs-market chip, latest-verdict line) instead of silently
+      // keeping the superseded numbers.
       const linkedCase = researchCasesById.get(holding.research_case_id)
-      const linkedBuyBelow = linkedCase?.valuation?.buy_price_per_share
-      const valuationCase = linkedBuyBelow !== undefined && linkedCase !== undefined
-        ? linkedCase
-        : (holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)) ?? linkedCase
+      const valuationCase = (holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)) ?? linkedCase
       const buyBelow = valuationCase?.valuation?.buy_price_per_share
 
       const enriched: PortfolioHolding = { ...holding }
@@ -87,6 +87,11 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
       }
       const entityName = (valuationCase ?? linkedCase)?.entity_name
       if (entityName !== undefined) enriched.entityName = entityName
+      if (valuationCase !== undefined) {
+        enriched.displayResearchCaseId = valuationCase.research_case_id
+        if (valuationCase.investment_verdict !== undefined) enriched.latestAnalysisVerdict = valuationCase.investment_verdict
+        enriched.latestAnalysisAt = valuationCase.updated_at
+      }
       return enriched
     })
     return { holdings: enrichedHoldings, alerts }

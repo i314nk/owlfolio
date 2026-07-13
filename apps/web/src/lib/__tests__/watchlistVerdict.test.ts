@@ -31,6 +31,40 @@ function researchCase(id: string, updatedAt: string, buyPrice: number, state: st
 }
 
 describe('enrichWatchlistItemsWithVerdict', () => {
+  // OWNER-LOCKED (2026-07-14): the board displays from the LATEST non-superseded, non-archived case
+  // for the TICKER — a superseding re-run must show up without relinking; the item's own
+  // research_case_id stays as the frozen audit pointer.
+  it('displays from the latest non-superseded case for the ticker, not the admitted-on case', () => {
+    const items = [watchlistItem('w1', 'rc_old', 'VVV')]
+    const oldCase = { ...researchCase('rc_old', '2026-05-01T00:00:00.000Z', 100, 'WATCH'), ticker: 'VVV', superseded: true } as unknown as ResearchCaseProjection
+    const newCase = { ...researchCase('rc_new', '2026-06-01T00:00:00.000Z', 140, 'WATCH'), ticker: 'VVV' } as unknown as ResearchCaseProjection
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, [oldCase, newCase], new Date('2026-06-15T00:00:00.000Z'))
+    expect(enriched?.verdict?.buy_price_per_share).toBe(140)
+    expect(enriched?.display_research_case_id).toBe('rc_new')
+    // The audit pointer is untouched.
+    expect(enriched?.research_case_id).toBe('rc_old')
+  })
+
+  it('never displays from a superseded or archived case when a live one exists', () => {
+    const items = [watchlistItem('w1', 'rc_old', 'VVV')]
+    const archived = { ...researchCase('rc_arch', '2026-07-01T00:00:00.000Z', 999, 'WATCH'), ticker: 'VVV', archived: true } as unknown as ResearchCaseProjection
+    const live = { ...researchCase('rc_live', '2026-06-01T00:00:00.000Z', 140, 'WATCH'), ticker: 'VVV' } as unknown as ResearchCaseProjection
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, [archived, live], new Date('2026-07-02T00:00:00.000Z'))
+    expect(enriched?.verdict?.buy_price_per_share).toBe(140)
+    expect(enriched?.display_research_case_id).toBe('rc_live')
+  })
+
+  it('renders a thresholdless latest analysis honestly: no verdict, the latest verdict surfaced', () => {
+    const items = [watchlistItem('w1', 'rc_old', 'VVV')]
+    const oldPriced = { ...researchCase('rc_old', '2026-05-01T00:00:00.000Z', 100, 'WATCH'), ticker: 'VVV', superseded: true } as unknown as ResearchCaseProjection
+    const newPass = { research_case_id: 'rc_pass', ticker: 'VVV', updated_at: '2026-06-01T00:00:00.000Z', investment_verdict: 'PASS' } as unknown as ResearchCaseProjection
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, [oldPriced, newPass], new Date('2026-06-15T00:00:00.000Z'))
+    // The superseded thresholds must NOT survive as the display.
+    expect(enriched?.verdict).toBeUndefined()
+    expect(enriched?.latest_analysis_verdict).toBe('PASS')
+    expect(enriched?.display_research_case_id).toBe('rc_pass')
+  })
+
   it('joins the linked research case valuation/verdict state onto the watchlist item', () => {
     const items = [watchlistItem('w1', 'rc1')]
     const cases = [researchCase('rc1', '2026-05-01T00:00:00.000Z', 100, 'BUY-WINDOW')]

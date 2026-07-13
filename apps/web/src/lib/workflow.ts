@@ -140,6 +140,13 @@ export type AppWatchlistItem = WatchlistProjection & {
    * distance-to-buy-price, and a staleness indicator. Absent when the linked case has no valuation yet.
    */
   verdict?: AppWatchlistVerdict
+  /** OWNER-LOCKED (2026-07-14): the board DISPLAYS from the latest non-superseded case for the
+   * ticker — this is that case's id (the dossier link target). The item's own research_case_id
+   * remains the frozen audit pointer (what the user confirmed on). */
+  display_research_case_id?: string
+  /** The latest analysis's verdict + date — rendered honestly when that run produced no thresholds. */
+  latest_analysis_verdict?: string
+  latest_analysis_at?: string
 }
 
 /**
@@ -195,12 +202,30 @@ export function enrichWatchlistItemsWithVerdict(
   snapshots: Map<string, { price_per_share: number; as_of: string }> = new Map(),
 ): AppWatchlistItem[] {
   const caseById = new Map(cases.map((c) => [c.research_case_id, c]))
+  // OWNER-LOCKED (2026-07-14): zone thresholds are provider OBSERVATIONS, the same class as the
+  // refreshing price — so the board displays from the LATEST non-superseded, non-archived case for
+  // the ticker, not the (possibly superseded) case the item was admitted on. The admitted-on case id
+  // stays on the item as the frozen audit pointer; the confirmed/locked buy-below history is in the
+  // ledger. A latest case with NO valuation renders honestly (no thresholds, verdict surfaced) rather
+  // than silently keeping the old numbers.
+  const latestByTicker = new Map<string, ResearchCaseProjection>()
+  for (const c of cases) {
+    if (c.ticker === undefined || c.superseded || c.archived) continue
+    const best = latestByTicker.get(c.ticker)
+    if (best === undefined || c.updated_at > best.updated_at) latestByTicker.set(c.ticker, c)
+  }
   return items.map((item) => {
-    const linked = caseById.get(item.research_case_id)
+    const linked = (item.ticker === undefined ? undefined : latestByTicker.get(item.ticker))
+      ?? caseById.get(item.research_case_id)
+    const displayFields = {
+      ...(linked?.research_case_id === undefined ? {} : { display_research_case_id: linked.research_case_id }),
+      ...(linked?.investment_verdict === undefined ? {} : { latest_analysis_verdict: linked.investment_verdict }),
+      ...(linked?.updated_at === undefined ? {} : { latest_analysis_at: linked.updated_at }),
+    }
     const valuation = linked?.valuation
     const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share
     if (valuation === undefined || buyBelow === undefined) {
-      return item
+      return { ...item, ...displayFields }
     }
     // RELIGHTENED DECISION (R1): carry the MODEL's verdict framing — valuation_status, the model-proposed
     // buy-below, the arithmetic in-buy-zone, and the flag-only sanity-check. The retired verdict_state.state
@@ -244,7 +269,7 @@ export function enrichWatchlistItemsWithVerdict(
       const ageMonths = (now.getTime() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24 * 30.4375)
       verdict.is_stale = ageMonths > WATCHLIST_STALE_AFTER_MONTHS
     }
-    return { ...item, verdict }
+    return { ...item, ...displayFields, verdict }
   })
 }
 
