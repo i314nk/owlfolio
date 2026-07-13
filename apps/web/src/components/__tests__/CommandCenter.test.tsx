@@ -62,8 +62,6 @@ describe('AppNavigation', () => {
     expect(html).toContain('Portfolio')
     // SCALE-DOWN S2: the Accounting nav entry is removed.
     expect(html).not.toContain('Accounting')
-    expect(html).toContain('href="/purification"')
-    expect(html).toContain('Purification')
     expect(html).toContain('href="/audit"')
     expect(html).toContain('Audit')
     expect(html).toContain('href="/audit?focus=1"')
@@ -232,7 +230,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Open research cockpit')
       expect(html).toContain('href="/settings/providers"')
       expect(html).toContain('Operating ledger is empty')
-      expect(html).toContain('No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
+      expect(html).toContain('No research, watchlist, or holding activity has been recorded yet.')
     } finally {
       store.close()
     }
@@ -376,7 +374,6 @@ describe('CommandCenter', () => {
     expect(html).toContain('href="/settings/providers"')
     expect(html).toContain('MSFT is 2 days overdue')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
-    expect(html).toContain('href="/purification"')
     expect(pendingIndex).toBeGreaterThan(-1)
     expect(providerIndex).toBeGreaterThan(pendingIndex)
     expect(reviewIndex).toBeGreaterThan(providerIndex)

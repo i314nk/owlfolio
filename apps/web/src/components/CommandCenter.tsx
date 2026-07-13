@@ -541,7 +541,7 @@ function createActivityLine(activity: AppCommandCenter['recent_activity'][number
   const summary = summarizeActivity(activity.label)
 
   if (summary.isZeroState) {
-    return createEmptyActivity('Operating ledger is empty', 'No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
+    return createEmptyActivity('Operating ledger is empty', 'No research, watchlist, or holding activity has been recorded yet.')
   }
 
   return createElement(

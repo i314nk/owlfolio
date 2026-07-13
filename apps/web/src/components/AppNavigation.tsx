@@ -25,12 +25,6 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'Books & compliance',
-    items: [
-      { href: '/purification', label: 'Purification' },
-    ],
-  },
-  {
     title: 'Operations & evidence',
     items: [
       { href: '/discovery', label: 'Discovery' },

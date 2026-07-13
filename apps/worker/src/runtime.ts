@@ -6,15 +6,6 @@ import { type EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
-import {
-  projectAaoifiDividendPurificationCalculations,
-  type AaoifiDividendPurificationCalculation,
-} from '@owlfolio/ledger/projections/purificationProjection'
-import {
-  projectQuarterlyPurificationStatement,
-  projectExitPurificationFinalizations,
-} from '@owlfolio/ledger/projections/purificationStatement'
-import { projectZakatStatement, type ZakatBaseMethod } from '@owlfolio/ledger/projections/zakatModule'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectForecasts, projectForecastCalibration } from '@owlfolio/ledger/projections/forecastCalibrationProjection'
@@ -133,18 +124,6 @@ export type RunScheduledTasksOptions = WorkerClock & {
   }
   /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
   shariahRatioSource?: ShariahRatioSource
-  /**
-   * User-authored zakat methodology setting (lifecycle-spec-v3 Module 8). When provided, the quarterly
-   * purification task also emits a read-only zakat statement observation at the ḥawl date. Methodology is a
-   * SETTING the user authors — never an agent judgment. No auto-payment.
-   */
-  zakat?: {
-    hawl_date: string
-    currency?: string
-    base_method?: ZakatBaseMethod
-    net_current_assets?: number
-    rate?: number
-  }
 }
 
 export type RunScheduledTasksResult = {
@@ -196,7 +175,6 @@ const HOLDING_REVIEW_TIMEOUT_MS = 120_000
 const HOLDING_REVIEW_MAX_COST_USD = 0.25
 const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
-const PURIFICATION_PAYMENT_APPROVAL_GATE = 'purification_payment_requires_user_confirmation'
 const SELL_REVIEW_APPROVAL_GATE = 'sell_review_requires_user_authoring'
 const WATCHLIST_REMOVAL_APPROVAL_GATE = 'watchlist_removal_requires_user_confirmation'
 
@@ -208,18 +186,7 @@ function currentDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function previousQuarterEndDate(now: string): string {
-  const date = new Date(now)
-  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
-  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 0)).toISOString().slice(0, 10)
-}
 
-/** First day of the quarter that the given quarter-END date belongs to (for the purification statement). */
-function quarterStartDateForEnd(quarterEnd: string): string {
-  const date = new Date(`${quarterEnd}T00:00:00.000Z`)
-  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
-  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 1)).toISOString().slice(0, 10)
-}
 
 
 function resolveProjectRootFromCwd(cwd: string): string {
@@ -628,19 +595,6 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       task_kind: 'portfolio_valuation_refresh',
       cadence: priceRefreshCron.cadence,
       enabled: cfg.price_refresh.enabled && priceRefreshCron.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
-      scheduled_task_id: 'task_purification_projection_quarterly',
-      task_kind: 'purification_projection',
-      cadence: purificationCron.cadence,
-      enabled: cfg.purification.enabled && purificationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -1987,141 +1941,9 @@ async function runPortfolioValuationRefreshTask(
   }
 }
 
-function purificationObligationId(calculation: AaoifiDividendPurificationCalculation): string {
-  return `purify_${calculation.calculation_id}`
-}
-
-function purificationObligationEventId(calculation: AaoifiDividendPurificationCalculation): string {
-  return `evt_purification_obligation_recorded_${purificationObligationId(calculation)}`
-}
-
-async function runPurificationProjectionTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: TaskHandlerOptions,
-): Promise<TaskResult> {
-  const events = await store.list()
-  const calculatedAt = options.now?.() ?? nowIso()
-  const asOf = options.as_of ?? previousQuarterEndDate(calculatedAt)
-  const projection = projectAaoifiDividendPurificationCalculations(events, { as_of: asOf, calculated_at: calculatedAt })
-  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
-  const observations: string[] = []
-  let appended = 0
-
-  for (const calculation of projection.calculations) {
-    const idempotencyKey = `purification-obligation:${calculation.calculation_id}`
-    if (existingKeys.has(idempotencyKey)) {
-      observations.push(`${calculation.holding_id} purification calculation ${calculation.calculation_id} already projected; no duplicate obligation appended`)
-      continue
-    }
-
-    const obligationId = purificationObligationId(calculation)
-    await store.append({
-      event_id: purificationObligationEventId(calculation),
-      event_type: 'purification_obligation_recorded',
-      aggregate_type: 'purification_entry',
-      aggregate_id: obligationId,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      correlation_id: options.scheduled_task_run_id,
-      idempotency_key: idempotencyKey,
-      actor_type: 'worker',
-      actor_id: WORKER_ACTOR_ID,
-      payload: {
-        obligation_id: obligationId,
-        calculation_id: calculation.calculation_id,
-        holding_id: calculation.holding_id,
-        ...(calculation.company_id === undefined ? {} : { company_id: calculation.company_id }),
-        ...(calculation.ticker === undefined ? {} : { ticker: calculation.ticker }),
-        ...(calculation.company_name === undefined ? {} : { company_name: calculation.company_name }),
-        amount: calculation.purification_amount,
-        purification_amount: calculation.purification_amount,
-        currency: calculation.currency,
-        period_start: calculation.period_start,
-        period_end: calculation.period_end,
-        policy_basis: calculation.policy_basis,
-        policy_version: calculation.policy_version,
-        ...(calculation.standard_reference === undefined ? {} : { standard_reference: calculation.standard_reference }),
-        calculation_method: calculation.calculation_method,
-        reason: 'AAOIFI dividend non-compliant income purification estimate; payment requires explicit user confirmation.',
-        shariah_evaluation_id: calculation.shariah_evaluation_id,
-        dividend_event_id: calculation.dividend_event_id,
-        dividend_id: calculation.dividend_id,
-        dividend_income_amount: calculation.dividend_income_amount,
-        non_compliant_income_ratio: calculation.non_compliant_income_ratio,
-        impurity_rate: calculation.purification_ratio,
-        purification_ratio: calculation.purification_ratio,
-        holding_period_basis: calculation.holding_period_basis,
-        source_filing_period_start: calculation.source_filing_period_start,
-        source_filing_period_end: calculation.source_filing_period_end,
-        ...(calculation.source_filing_type === undefined ? {} : { source_filing_type: calculation.source_filing_type }),
-        ...(calculation.source_filing_date === undefined ? {} : { source_filing_date: calculation.source_filing_date }),
-        ...(calculation.evidence_summary === undefined ? {} : { evidence_summary: calculation.evidence_summary }),
-        policy_source_ids: calculation.policy_source_ids,
-        source_ids: calculation.source_ids,
-        caveats: calculation.caveats,
-        calculated_at: calculation.calculated_at,
-        next_calculation_at: calculation.next_calculation_at,
-        requires_user_confirmation: calculation.requires_user_confirmation,
-        requires_scholar_review: calculation.requires_scholar_review,
-      },
-      source_ids: calculation.source_ids,
-      created_at: calculatedAt,
-      schema_version: 1,
-    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
-    existingKeys.add(idempotencyKey)
-    appended += 1
-    observations.push(`${calculation.ticker ?? calculation.holding_id} purification obligation ${obligationId} projected from dividend ${calculation.dividend_id}; payment requires user confirmation`)
-  }
-
-  for (const pending of projection.pending) {
-    observations.push(`${pending.holding_id ?? pending.dividend_id ?? pending.dividend_event_id ?? 'dividend'} purification calculation pending evidence: ${pending.missing_evidence.join(', ')}`)
-  }
-
-  // Quarterly purification statement (Module 9 rule 4): read-only — accrued this period, per holding,
-  // cumulative unpaid. Re-list events so freshly-appended obligations this tick are included.
-  const eventsWithAccruals = await store.list()
-  const statementPeriodStart = quarterStartDateForEnd(asOf)
-  const statement = projectQuarterlyPurificationStatement(eventsWithAccruals, {
-    period_start: statementPeriodStart,
-    period_end: asOf,
-  })
-  for (const [currency, summary] of Object.entries(statement.summary_by_currency)) {
-    observations.push(
-      `purification statement ${statementPeriodStart}..${asOf} (${currency}): accrued this period ${summary.accrued_this_period.toFixed(2)}, cumulative unpaid ${summary.cumulative_unpaid.toFixed(2)} across ${statement.per_holding.filter((line) => line.currency === currency).length} holding(s); human authors any disbursement`,
-    )
-  }
-
-  // Exit finalization (Module 9 rule 5): lock final cumulative purification on closed holdings.
-  const finalizations = projectExitPurificationFinalizations(eventsWithAccruals)
-  for (const finalization of finalizations) {
-    observations.push(
-      `${finalization.ticker ?? finalization.holding_id} exit purification finalized (closed ${finalization.closed_at}): accrued ${finalization.final_purification_accrued.toFixed(2)} ${finalization.currency}, remaining ${finalization.final_purification_remaining.toFixed(2)}; locked into post-mortem, human authors any disbursement`,
-    )
-  }
-
-  // Zakat statement (Module 8): read-only at the ḥawl date, only when a user-authored methodology setting
-  // is provided. 2.5% (default) on a user-set base; the human authors the actual zakat payment.
-  if (options.zakat !== undefined) {
-    const zakatCurrency = options.zakat.currency ?? 'USD'
-    const zakatStatement = projectZakatStatement(eventsWithAccruals, {
-      hawl_date: options.zakat.hawl_date,
-      currency: zakatCurrency,
-      ...(options.zakat.base_method === undefined ? {} : { base_method: options.zakat.base_method }),
-      ...(options.zakat.net_current_assets === undefined ? {} : { net_current_assets: options.zakat.net_current_assets }),
-      ...(options.zakat.rate === undefined ? {} : { rate: options.zakat.rate }),
-    })
-    observations.push(
-      `zakat statement (ḥawl ${zakatStatement.hawl_date}, ${zakatStatement.base_method}): base ${zakatStatement.zakatable_base.toFixed(2)} ${zakatCurrency} x ${(zakatStatement.rate * 100).toFixed(2)}% = ${zakatStatement.zakat_due.toFixed(2)} due; user-authored methodology, human authors the payment`,
-    )
-  }
-
-  return {
-    result_summary: `purification_projection dry-run: calculated ${appended} estimated purification obligation(s), ${projection.pending.length} pending dividend(s) need evidence, ${finalizations.length} exit finalization(s); quarterly statement + ${options.zakat === undefined ? 'no ' : ''}zakat statement; no payment or resolution marked`,
-    observations,
-    approval_gates: appended > 0 || projection.pending.length > 0 ? [PURIFICATION_PAYMENT_APPROVAL_GATE] : [],
-    human_approval_required: appended > 0 || projection.pending.length > 0,
-    events_appended: appended,
-  }
-}
+// SCALE-DOWN S3 (owner-locked 2026-07-13): the purification obligation/payment ledger is REMOVED —
+// the dossier's grounded Shariah screening (gate + AAOIFI + the purification RATE) is the surviving
+// guidance. Legacy purification/zakat events stay readable in the audit timeline.
 
 // ---------------------------------------------------------------------------
 // Cadence-engine passes (Task 3.2b): falsifier_check (quarterly / 10-Q) + re_underwrite (annual / 10-K).
@@ -2399,10 +2221,6 @@ async function runTaskHandler(
     return runPortfolioValuationRefreshTask(store, options)
   }
 
-  if (task.task_kind === 'purification_projection') {
-    return runPurificationProjectionTask(store, options)
-  }
-
   if (task.task_kind === 'forecast_resolution') {
     return runForecastResolutionTask(store, options)
   }
@@ -2453,38 +2271,12 @@ function retrySkipReason(task: ScheduledTaskProjection, now: string): string | u
   return undefined
 }
 
-function latestQuarterlyCadenceDueAt(now: string, taskDefinedAt: string): string | undefined {
-  const nowDate = new Date(now)
-  const definedDate = new Date(taskDefinedAt)
-  if (!Number.isFinite(nowDate.getTime()) || !Number.isFinite(definedDate.getTime())) {
-    return undefined
-  }
-
-  const currentQuarterMonth = Math.floor(nowDate.getUTCMonth() / 3) * 3
-  const currentQuarterRun = new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth, 1, 6))
-  const candidate = nowDate.getTime() >= currentQuarterRun.getTime()
-    ? currentQuarterRun
-    : new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth - 3, 1, 6))
-
-  if (candidate.getTime() < definedDate.getTime()) {
-    return undefined
-  }
-
-  return candidate.toISOString()
-}
 
 function cadenceSkipReason(task: ScheduledTaskProjection, now: string, explicitlyRequested: boolean): string | undefined {
   if (explicitlyRequested) {
     return undefined
   }
 
-  if (task.task_kind === 'purification_projection' && task.cadence === '0 6 1 */3 *') {
-    const dueAt = latestQuarterlyCadenceDueAt(now, task.updated_at)
-    const lastCompletedAt = task.last_completed_at === undefined ? undefined : new Date(task.last_completed_at)
-    if (dueAt === undefined || (lastCompletedAt !== undefined && Number.isFinite(lastCompletedAt.getTime()) && lastCompletedAt.getTime() >= new Date(dueAt).getTime())) {
-      return `${task.scheduled_task_id} skipped: not due until quarterly cadence ${task.cadence}`
-    }
-  }
 
   return undefined
 }

@@ -319,7 +319,6 @@ describe('phase 3 design system primitives', () => {
       'apps/web/src/app/audit/page.tsx',
       'apps/web/src/app/portfolio/page.tsx',
       'apps/web/src/app/providers/page.tsx',
-      'apps/web/src/app/purification/page.tsx',
       'apps/web/src/app/research/[caseId]/page.tsx',
       'apps/web/src/app/settings/data-safety/page.tsx',
       'apps/web/src/app/research/new/ResearchIntakeForm.tsx',
