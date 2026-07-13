@@ -88,37 +88,25 @@ describe('oauthLoginExpiryView (acceptance test 5 — expired token)', () => {
 })
 
 describe('buildOnboardingGate (acceptance test 1)', () => {
-  it('reports the two gate items incomplete on a fresh install and names the first missing item', () => {
-    const gate = buildOnboardingGate({
-      has_frontier_llm_connected: false,
-      has_investable_capital: false,
-    })
-    expect(gate.is_complete).toBe(false)
-    // The gate is provider + capital only — market-data is no longer a required item (EDGAR direct).
-    expect(gate.items).toHaveLength(2)
-    expect(gate.items.map((item) => item.id)).toEqual(['frontier_llm', 'investable_capital'])
-    expect(gate.missing_items).toHaveLength(2)
-    // The blocking reason must NAME exactly which item is missing.
-    expect(gate.blocked_reason).toBeDefined()
-    expect(gate.blocked_reason).toContain(gate.missing_items[0]!.label)
+  // SCALE-DOWN S5: the gate is provider-connected ONLY (capital retired with the money layer).
+  it('the gate has ONE item — a connected frontier LLM; a fresh install names it as missing', () => {
+    const fresh = buildOnboardingGate({ has_frontier_llm_connected: false })
+    expect(fresh.is_complete).toBe(false)
+    expect(fresh.items).toHaveLength(1)
+    expect(fresh.missing_items[0]?.id).toBe('frontier_llm')
+    expect(fresh.blocked_reason).toContain('frontier LLM')
+    const done = buildOnboardingGate({ has_frontier_llm_connected: true })
+    expect(done.is_complete).toBe(true)
   })
+
 
   it('is complete once provider + capital are satisfied, with NO market-data key', () => {
     const gate = buildOnboardingGate({
       has_frontier_llm_connected: true,
-      has_investable_capital: true,
     })
     expect(gate.is_complete).toBe(true)
     expect(gate.missing_items).toHaveLength(0)
     expect(gate.blocked_reason).toBeUndefined()
   })
 
-  it('names the specific remaining item when only capital is missing', () => {
-    const gate = buildOnboardingGate({
-      has_frontier_llm_connected: true,
-      has_investable_capital: false,
-    })
-    expect(gate.is_complete).toBe(false)
-    expect(gate.blocked_reason).toContain('Investable capital')
-  })
 })

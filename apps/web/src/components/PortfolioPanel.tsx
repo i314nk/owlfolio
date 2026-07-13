@@ -1,8 +1,7 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
-import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
-import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
+import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
 import { ReReviewButton } from './ReReviewButton'
 import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
@@ -15,13 +14,6 @@ const HOLDING_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' 
   info: 'neutral',
 }
 
-export type PortfolioValuationRefreshSummary = {
-  last_price_check_at?: string
-  next_scheduled_check: string
-  data_source: string
-  confidence_caveat: string
-  holdings_missing_data: string[]
-}
 
 /**
  * A holding enriched with its linked research-case buy-below price (value at the
@@ -45,8 +37,6 @@ export type PortfolioHolding = AppHolding & {
 export type PortfolioPanelProps = {
   holdings: PortfolioHolding[]
   mode?: WorkflowMode
-  valuationRefresh?: PortfolioValuationRefreshSummary
-  investableCapital?: InvestableCapitalSnapshot
   /** Open agent observations + drafts per holding (tranche / concentration / Shariah grace / sell-review). */
   alerts?: MonitorAlert[]
 }
@@ -104,25 +94,20 @@ const decisionQuickLinkStyle = {
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-export function PortfolioPanel({ holdings, mode = 'personal-local', valuationRefresh, investableCapital, alerts = [] }: PortfolioPanelProps) {
-  const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
-  const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
-
+// SCALE-DOWN S5 (owner-locked 2026-07-13): the portfolio is the THESIS VIEW — held names as theses
+// (ticker, YOUR entry price as the anchor, the dossier link, check-ins, sell advisories). The money
+// layer (cost basis, values, weights, returns, capital, manual valuations) is removed; the entry
+// price survives as the one manual field so sell advisories and pullback reviews have their anchor.
+export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [] }: PortfolioPanelProps) {
   return createElement(
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: 'Portfolio cockpit',
+      kicker: 'Held theses',
       title: 'Portfolio',
-      description: mode === 'personal-local'
-        ? `Personal local ledger holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`
-        : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
+      description: `${holdings.length} held ${holdings.length === 1 ? 'thesis' : 'theses'} — tracked against new filings (check-ins) and the computed zones. Owlfolio records your entry price as the anchor; it keeps no books.`,
     }),
     createElement('hr', { className: 'owl-rule' }),
-    createPortfolioLedgerLine(holdings, totalCurrentValue),
-    ...(mode === 'personal-local' ? [createInvestableCapitalPanel(investableCapital)] : []),
-    createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),
-    ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
       : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alert.subject.holding_id === holding.holding_id)))),
@@ -187,73 +172,7 @@ function alertKindTag(alert: MonitorAlert): ReactNode[] {
   return [createElement(StatusBadge, { key: 'kind', tone: alert.kind === 'shariah_grace' || alert.kind === 'divest_required' ? 'warning' : 'neutral' }, label)]
 }
 
-function createPortfolioLedgerLine(holdings: AppHolding[], totalCurrentValue: number) {
-  const hasHoldings = holdings.length > 0
-  const hasValuation = holdings.some((holding) => holding.latest_market_value !== undefined)
-  const gated = holdings.filter((holding) => holding.shariah_gate_decision_id !== undefined)
-  const allowed = gated.filter((holding) => holding.shariah_gate_allowed === true).length
-  const compliancePct = gated.length === 0 ? 0 : Math.round((allowed / gated.length) * 100)
 
-  const stats: { figureClass: string; label: string; value: string }[] = [
-    {
-      figureClass: 'owl-ledger-figure-money',
-      label: 'Total value',
-      value: hasValuation ? formatMoney(totalCurrentValue, 'USD') : '—',
-    },
-    { figureClass: '', label: 'Open holdings', value: hasHoldings ? String(holdings.length) : '—' },
-    {
-      figureClass: gated.length > 0 && compliancePct === 100 ? 'owl-ledger-figure-emerald' : '',
-      label: 'Shariah-gated',
-      value: gated.length === 0 ? '—' : `${allowed}/${gated.length}`,
-    },
-  ]
-
-  return createElement(
-    'section',
-    { 'aria-label': 'Portfolio summary', className: 'owl-ledger-line' },
-    ...stats.map((stat) => createElement(
-      'article',
-      { className: 'owl-ledger-stat', key: stat.label },
-      createElement('p', { className: 'owl-ledger-label' }, stat.label),
-      createElement('p', { className: `owl-ledger-figure ${stat.figureClass}`.trim() }, stat.value),
-    )),
-    createElement(
-      'article',
-      { className: 'owl-ledger-stat', key: 'Shariah compliant', style: { alignItems: 'center', display: 'flex', gap: 'var(--owl-space-3)' } },
-      createElement(
-        'div',
-        { style: { display: 'grid', gap: '0.3rem' } },
-        createElement('p', { className: 'owl-ledger-label' }, 'Shariah compliant'),
-        createElement('p', { className: 'owl-ledger-figure owl-ledger-figure-emerald' }, gated.length === 0 ? '—' : `${compliancePct}%`),
-      ),
-      createElement(OwlRingGauge, {
-        value: compliancePct,
-        label: 'Compliant',
-        tone: gated.length === 0 ? 'amber' : compliancePct === 100 ? 'emerald' : 'amber',
-        size: 56,
-      }),
-    ),
-  )
-}
-
-function createScheduledValuationRefreshCard(summary: PortfolioValuationRefreshSummary) {
-  return createElement(
-    'section',
-    { 'aria-label': 'Scheduled valuation refresh', className: 'owl-section-card owl-workflow-card' },
-    createElement('p', { className: 'owl-section-accent' }, 'Valuation'),
-    createElement('h2', { className: 'owl-section-title' }, 'Scheduled valuation refresh'),
-    createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0.3rem' } }, 'Factual price checks can update valuation snapshots automatically; investment actions remain approval-gated.'),
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.2rem' } },
-      createDetail('Last price check', summary.last_price_check_at ?? 'No scheduled price check recorded'),
-      createDetail('Next scheduled check', summary.next_scheduled_check),
-      createDetail('Data source', summary.data_source),
-      createDetail('Confidence / caveat', summary.confidence_caveat),
-      createDetail('Holdings missing data', summary.holdings_missing_data.length === 0 ? 'None' : summary.holdings_missing_data.join(', ')),
-    ),
-  )
-}
 
 function createPortfolioEmptyState() {
   return createElement(
@@ -324,75 +243,22 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
   )
 }
 
-function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentValue: number, valuationRefresh: PortfolioValuationRefreshSummary | undefined) {
-  const missingData = valuationRefresh?.holdings_missing_data ?? holdings
-    .filter((holding) => holding.latest_price_checked_at === undefined)
-    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
-  const pendingReviews = holdings
-    .filter((holding) => holding.pending_review_id !== undefined)
-    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
-  const currentState = `${holdings.length} ${holdings.length === 1 ? 'open holding' : 'open holdings'} · ${formatMoney(totalCurrentValue, 'USD')} current value`
-  const userActionRequired = missingData.length > 0
-    ? `Resolve ${missingData.length} ${missingData.length === 1 ? 'holding' : 'holdings'} with missing valuation data: ${missingData.join(', ')}`
-    : pendingReviews.length > 0
-      ? `Review provider draft for ${pendingReviews.join(', ')}`
-      : 'No user action required — valuation automation is current'
 
-  return createElement(
-    'section',
-    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-section-card owl-workflow-card' },
-    createElement('p', { className: 'owl-section-accent' }, 'Operations'),
-    createElement('h2', { className: 'owl-section-title' }, 'Portfolio operations cockpit'),
-    createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0.3rem' } }, 'Automatically maintained valuation state stays above manual fallbacks; buys, sells, and thesis changes remain user-approved audit events.'),
-    createElement(
-      'div',
-      { className: 'owl-row-list' },
-      operationMetric('Current state', currentState),
-      operationMetric('Last automation check', valuationRefresh?.last_price_check_at ?? 'No scheduled price check recorded'),
-      operationMetric('User action required', userActionRequired),
-    ),
-  )
-}
-
-function operationMetric(label: string, value: string) {
-  return createElement(
-    'div',
-    { className: 'owl-row owl-row-top' },
-    createElement(
-      'div',
-      { className: 'owl-row-main' },
-      createElement('p', { className: 'owl-row-title' }, label),
-      createElement('p', { className: 'owl-row-helper' }, value),
-    ),
-  )
-}
 
 function createPositionEconomicsTable(holding: AppHolding) {
+  // The thesis strip: the entry-price anchor + the latest verifiable PRICE beside it (no values,
+  // no P&L books — the % move contextualizes check-ins and sell advisories).
+  const priceMove = holding.latest_price_per_share !== undefined && holding.cost_basis_per_share > 0
+    ? ((holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share) * 100
+    : undefined
   return createElement(
     'section',
     { className: 'owl-financial-table', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Position economics'),
-    createDetail('Shares', formatNumber(holding.shares)),
-    createDetail('Cost basis / share', formatMoney(holding.cost_basis_per_share, holding.currency)),
-    createDetail('Total cost basis', formatMoney(holding.total_cost_basis, holding.currency)),
-    createDetail('Current value', holding.latest_market_value === undefined ? 'No valuation snapshot recorded' : formatMoney(holding.latest_market_value, holding.currency)),
-    createDetail('Price source', priceSourceLabel(holding)),
-    ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Current price / share', formatMoney(holding.latest_price_per_share, holding.currency))]),
-    ...(holding.unrealized_gain_loss === undefined ? [] : [createDetail('Unrealized P&L', `${formatMoney(holding.unrealized_gain_loss, holding.currency)} (${formatPercent(holding.unrealized_gain_loss_percent ?? 0)})`)]),
-    ...(holding.portfolio_weight === undefined ? [] : [createDetail('Concentration', formatPercent(holding.portfolio_weight))]),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Thesis anchor'),
+    createDetail('Your entry price', formatMoney(holding.cost_basis_per_share, holding.currency)),
     createDetail('Opened', holding.opened_at),
-    ...(holding.latest_valuation_at === undefined ? [] : [createDetail('Valuation date', holding.latest_valuation_at)]),
-    createElement(
-      'details',
-      { style: { marginTop: '0.75rem' } },
-      createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Valuation provenance'),
-      ...(holding.latest_valuation_source === undefined ? [] : [createDetail('Valuation source', holding.latest_valuation_source)]),
-      ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Latest price check', holding.latest_price_checked_at)]),
-      ...(holding.latest_valuation_confidence === undefined ? [] : [createDetail('Valuation confidence', holding.latest_valuation_confidence)]),
-      ...(holding.latest_valuation_caveat === undefined ? [] : [createDetail('Valuation caveat', holding.latest_valuation_caveat)]),
-      ...(holding.latest_valuation_source_ids === undefined || holding.latest_valuation_source_ids.length === 0 ? [] : [createDetail('Valuation source IDs', holding.latest_valuation_source_ids.join(', '))]),
-      ...(holding.latest_valuation_missing_data === undefined || holding.latest_valuation_missing_data.length === 0 ? [] : [createDetail('Valuation missing data', holding.latest_valuation_missing_data.join(', '))]),
-    ),
+    ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Latest price', `${formatMoney(holding.latest_price_per_share, holding.currency)}${priceMove !== undefined ? ` (${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}% vs entry)` : ''}`)]),
+    ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Price checked', holding.latest_price_checked_at)]),
   )
 }
 
@@ -602,8 +468,7 @@ function createManualFallbackActions(holding: PortfolioHolding) {
       },
     },
     createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 900 } }, 'Manual fallback actions'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.65rem 0 0' } }, 'Use these only when scheduled valuation or provider review automation cannot supply a sourced draft. Submitted values still create auditable ledger events.'),
-    createValuationForm(holding),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.65rem 0 0' } }, 'Use these only when the provider review automation cannot supply a sourced draft. Submitted reviews still create auditable ledger events.'),
     ...(holding.pending_review_id === undefined ? [createReviewForm(holding)] : []),
   )
 }
@@ -641,129 +506,7 @@ function createReviewTextarea(label: string, name: string, defaultValue: string)
   )
 }
 
-function createInvestableCapitalPanel(investableCapital?: InvestableCapitalSnapshot) {
-  const currentLabel = investableCapital === undefined
-    ? 'Not set yet'
-    : formatMoney(investableCapital.amount, investableCapital.currency)
 
-  return createElement(
-    'section',
-    { id: 'investable-capital', 'aria-label': 'Investable capital', className: 'owl-section-card owl-workflow-card', style: { gap: '0.85rem' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Sizing'),
-    createElement('h2', { className: 'owl-section-title' }, 'Investable capital'),
-    createElement(
-      'p',
-      { className: 'owl-body', style: { margin: 0 } },
-      'Used to size positions; advisory only. You author the actual buys.',
-    ),
-    createElement(
-      'p',
-      { className: 'owl-body', style: { margin: 0 } },
-      createElement('strong', null, 'Current investable capital: '),
-      createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800 } }, currentLabel),
-    ),
-    createElement(
-      'form',
-      {
-        action: '/api/portfolio/investable-capital',
-        method: 'post',
-        style: { display: 'grid', gap: '0.75rem' },
-      },
-      createElement(
-        'label',
-        { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-        'Investable capital',
-        createElement('input', {
-          name: 'amount',
-          required: true,
-          step: '0.01',
-          min: '0',
-          type: 'number',
-          defaultValue: investableCapital?.amount.toString() ?? '',
-          style: inputStyle,
-        }),
-      ),
-      createElement('input', { name: 'currency', type: 'hidden', value: investableCapital?.currency ?? 'USD' }),
-      createElement(
-        'button',
-        {
-          type: 'submit',
-          style: {
-            background: 'var(--owl-color-gold)',
-            border: 0,
-            borderRadius: '0.75rem',
-            color: '#ffffff',
-            cursor: 'pointer',
-            fontWeight: 800,
-            padding: '0.75rem 1rem',
-          },
-        },
-        'Save investable capital',
-      ),
-    ),
-  )
-}
-
-function createValuationForm(holding: AppHolding) {
-  return createElement(
-    'form',
-    {
-      action: `/api/portfolio/${holding.holding_id}/valuation`,
-      method: 'post',
-      style: {
-        borderTop: '1px solid rgba(148, 163, 184, 0.16)',
-        display: 'grid',
-        gap: '0.75rem',
-        marginTop: '1rem',
-        paddingTop: '1rem',
-      },
-    },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Manual valuation checkpoint'),
-    createElement(
-      'label',
-      { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-      'Current price per share',
-      createElement('input', {
-        name: 'price_per_share',
-        required: true,
-        step: '0.01',
-        min: '0',
-        type: 'number',
-        defaultValue: holding.latest_price_per_share?.toString() ?? '',
-        style: inputStyle,
-      }),
-    ),
-    createElement(
-      'label',
-      { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-      'Valuation date',
-      createElement('input', {
-        name: 'valued_at',
-        required: true,
-        type: 'date',
-        defaultValue: normalizeDateForInput(holding.latest_valuation_at),
-        style: inputStyle,
-      }),
-    ),
-    createElement('input', { name: 'currency', type: 'hidden', value: holding.currency }),
-    createElement(
-      'button',
-      {
-        type: 'submit',
-        style: {
-          background: 'var(--owl-color-gold)',
-          border: 0,
-          borderRadius: '0.75rem',
-          color: '#ffffff',
-          cursor: 'pointer',
-          fontWeight: 800,
-          padding: '0.75rem 1rem',
-        },
-      },
-      'Record valuation snapshot',
-    ),
-  )
-}
 
 function createDetail(label: string, value: string) {
   return createElement(
@@ -818,20 +561,6 @@ function describeGateAllowance(allowed: boolean | undefined): string {
   return 'gate decision pending'
 }
 
-function priceSourceLabel(holding: AppHolding): string {
-  if (holding.latest_market_value === undefined) {
-    return '—'
-  }
-
-  const raw = holding.latest_valuation_source?.toLowerCase()
-  if (raw === 'yahoo') {
-    return 'Yahoo Finance'
-  }
-  if (raw === 'manual' || raw === undefined) {
-    return 'Manual'
-  }
-  return holding.latest_valuation_source ?? 'Manual'
-}
 
 type HoldingValuationChip = {
   kind: OwlValuationKind
@@ -908,13 +637,7 @@ function formatMoney(value: number, currency: string): string {
   }).format(value)
 }
 
-function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(value)
-}
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`
-}
 
 function normalizeDateForInput(value: string | undefined): string {
   if (value === undefined) {

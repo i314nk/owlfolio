@@ -186,7 +186,9 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('method="post"')
     expect(personalConfirmedHtml).toContain('Open holding from confirmed watchlist state')
     expect(personalConfirmedHtml).toContain('Record initial holding')
-    expect(personalConfirmedHtml).toContain('name="shares"')
+    // SCALE-DOWN S5: share counts retired — the entry price is the anchor.
+    expect(personalConfirmedHtml).not.toContain('name="shares"')
+    expect(personalConfirmedHtml).toContain('name="cost_basis_per_share"')
     expect(personalConfirmedHtml).toContain('name="cost_basis_per_share"')
     expect(personalConfirmedHtml).toContain('name="currency"')
     expect(personalConfirmedHtml).toContain('name="opened_at"')
@@ -570,8 +572,6 @@ describe('research and watchlist workflow pages', () => {
         latest_valuation_source: 'mock-local-price-feed',
         latest_price_checked_at: '2026-06-01T07:00:00.000Z',
         latest_valuation_confidence: 'mock',
-        latest_valuation_caveat: 'Deterministic local price source for scheduled workflow verification.',
-        latest_valuation_source_ids: ['mock-price:MSFT:2026-06-01'],
         latest_valuation_missing_data: [],
         unrealized_gain_loss: 284.7,
         unrealized_gain_loss_percent: 10.78,
@@ -587,76 +587,35 @@ describe('research and watchlist workflow pages', () => {
         updated_at: '2026-06-30T12:00:00.000Z',
       }],
       mode: 'personal-local',
-      valuationRefresh: {
-        last_price_check_at: '2026-06-01T07:00:00.000Z',
-        next_scheduled_check: 'Weekdays at 07:00',
-        data_source: 'mock-local-price-feed',
-        confidence_caveat: 'Mock/local confidence — deterministic prices for local workflow verification.',
-        holdings_missing_data: ['MISSING'],
-      },
     }))
 
     expect(html).toContain('Portfolio')
-    expect(html).toContain('Portfolio operations cockpit')
-    expect(html).toContain('Current state')
-    expect(html).toContain('1 open holding · $2,925.00 current value')
-    expect(html).toContain('Last automation check')
-    expect(html).toContain('User action required')
-    expect(html).toContain('Resolve 1 holding with missing valuation data: MISSING')
+    // SCALE-DOWN S5: the ops cockpit + money totals are retired — the THESIS VIEW renders.
+    expect(html).toContain('held thesis')
+    expect(html).toContain('Your entry price')
+    expect(html).toContain('$812.40')
+    expect(html).not.toContain('Portfolio operations cockpit')
+    expect(html).not.toContain('current value')
     expect(html).toContain('id="holding_msft_001"')
     expect(html).toContain('MSFT')
-    expect(html).toContain('Shares')
-    expect(html).toContain('3.25')
-    expect(html).toContain('Cost basis / share')
-    expect(html).toContain('$812.40')
-    expect(html).toContain('Total cost basis')
-    expect(html).toContain('$2,640.30')
     expect(html).toContain('class="owl-financial-table"')
-    expect(html).toContain('Position economics')
+    expect(html).toContain('Thesis anchor')
     expect(html).toContain('Confirmed portfolio state')
     expect(html).toContain('Opened')
     expect(html).toContain('2026-05-31')
-    expect(html).toContain('Current value')
-    expect(html).toContain('$2,925.00')
-    expect(html).toContain('Current price / share')
+    // SCALE-DOWN S5: the money labels are gone; the latest verifiable price renders vs entry.
+    expect(html).toContain('Latest price')
     expect(html).toContain('$900.00')
-    expect(html).toContain('Unrealized P&amp;L')
-    expect(html).toContain('$284.70')
-    expect(html).toContain('10.78%')
-    expect(html).toContain('Concentration')
-    expect(html).toContain('100.00%')
-    expect(html).toContain('Valuation source')
-    expect(html).toContain('mock-local-price-feed')
-    expect(html).toContain('Scheduled valuation refresh')
-    expect(html).toContain('Last price check')
+    expect(html).toContain('vs entry')
+    expect(html).not.toContain('Unrealized P&amp;L')
+    expect(html).toContain('Price checked')
     expect(html).toContain('2026-06-01T07:00:00.000Z')
-    expect(html).toContain('Next scheduled check')
-    expect(html).toContain('Weekdays at 07:00')
-    expect(html).toContain('Data source')
-    expect(html).toContain('Confidence / caveat')
-    expect(html).toContain('Mock/local confidence — deterministic prices for local workflow verification.')
-    expect(html).toContain('Holdings missing data')
-    expect(html).toContain('MISSING')
-    expect(html).toContain('Latest price check')
-    expect(html).toContain('Valuation confidence')
-    expect(html).toContain('mock')
-    expect(html).toContain('Valuation caveat')
-    expect(html).toContain('Deterministic local price source for scheduled workflow verification.')
-    expect(html).toContain('Valuation source IDs')
-    expect(html).toContain('mock-price:MSFT:2026-06-01')
     expect(html).toContain('Opened by actor')
     expect(html).toContain('user:user_local')
     expect(html).toContain('Last reviewed')
     expect(html).toContain('2026-06-30T12:00:00.000Z')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/valuation"')
     expect(html).toContain('Manual fallback actions')
     expect(html).toContain('<summary')
-    expect(html).toContain('Manual valuation checkpoint')
-    expect(html).toContain('name="price_per_share"')
-    expect(html).toContain('name="valued_at"')
-    expect(html).toContain('background:var(--owl-color-panel-elevated)')
-    expect(html).toContain('color:#f7f8ff')
-    expect(html).toContain('Record valuation snapshot')
     expect(html).toContain('Thesis health')
     expect(html).toContain('HEALTHY')
     expect(html).toContain('Action stance')

@@ -1,15 +1,14 @@
 import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
-import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
+import { PortfolioPanel, type PortfolioHolding } from '../../components/PortfolioPanel'
 import { RefreshPricesButton } from '../../components/RefreshPricesButton'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
-import { humanizeCron } from '../../lib/schedule'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
-import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
+import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
 import { resolveBusinessFindings } from '../../lib/checklistEvidence'
 
 export default async function PortfolioPage() {
@@ -18,8 +17,6 @@ export default async function PortfolioPage() {
     return <UnconfiguredNotice feature="Portfolio" />
   }
   const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)
-  const valuationRefresh = buildValuationRefreshSummary(holdings)
-  const investableCapital = await getInvestableCapital(state.config.ledger_path)
 
   return (
     <main className="owl-route-frame owl-route-frame-wide">
@@ -33,9 +30,7 @@ export default async function PortfolioPage() {
       <PortfolioPanel
         holdings={holdings}
         mode={state.config.mode}
-        valuationRefresh={valuationRefresh}
         alerts={alerts}
-        {...(investableCapital !== undefined ? { investableCapital } : {})}
       />
     </main>
   )
@@ -90,29 +85,4 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
   } finally {
     store.close()
   }
-}
-
-function buildValuationRefreshSummary(holdings: PortfolioHolding[]): PortfolioValuationRefreshSummary {
-  const priceChecks = holdings
-    .map((holding) => holding.latest_price_checked_at)
-    .filter((checkedAt): checkedAt is string => checkedAt !== undefined)
-    .sort()
-  const missing = holdings
-    .filter((holding) => holding.latest_price_checked_at === undefined)
-    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
-
-  const lastPriceCheckAt = priceChecks.at(-1)
-  const hasPriceCheck = lastPriceCheckAt !== undefined
-  const summary: PortfolioValuationRefreshSummary = {
-    next_scheduled_check: humanizeCron('0 7 * * 1-5'),
-    data_source: hasPriceCheck ? 'mock-local-price-feed' : 'awaiting-first-price-check',
-    confidence_caveat: hasPriceCheck
-      ? 'Mock/local confidence — deterministic prices for local workflow verification.'
-      : 'No price check has run yet — record a manual valuation snapshot or wait for the scheduled check.',
-    holdings_missing_data: missing,
-  }
-  if (lastPriceCheckAt !== undefined) {
-    summary.last_price_check_at = lastPriceCheckAt
-  }
-  return summary
 }

@@ -81,7 +81,9 @@ describe('buildProviderKeysPanelProps', () => {
       })
       expect(props.envFile.path).toBe(envPath)
       expect(props.envFile.is_git_ignored).toBe(true) // outside the repo
-      expect(props.onboardingGate.is_complete).toBe(false)
+      // SCALE-DOWN S5: the gate is provider-only; mock-provider is always ready → complete.
+      expect(props.onboardingGate.is_complete).toBe(true)
+      expect(props.onboardingGate.items).toHaveLength(1)
       // Three tier rows (T1/T2/T3).
       expect(props.roleConfig.tiers.length).toBe(3)
       expect(props.roleConfig.tiers.map((t) => t.tier)).toEqual(['T1', 'T2', 'T3'])

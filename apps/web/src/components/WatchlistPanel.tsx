@@ -395,7 +395,7 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
       style: { display: 'grid', gap: '0.75rem' },
     },
     createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Open holding from confirmed watchlist state'),
-    createLotInput('Shares', 'shares', 'number', '1', { step: '0.0001', min: '0.0001' }),
+    // SCALE-DOWN S5: share counts are retired (the money layer) — the entry PRICE is the anchor.
     createLotInput('Cost basis per share', 'cost_basis_per_share', 'number', '0', { step: '0.01', min: '0' }),
     createLotInput('Currency', 'currency', 'text', 'USD', { maxLength: 3 }),
     createLotInput('Opened date', 'opened_at', 'date', '', {}),

@@ -217,9 +217,6 @@ function renderOnboardingGate(gate: ProviderKeysGate) {
           createElement(StatusBadge, { tone: item.done ? 'success' : 'warning' }, item.done ? '✓ done' : 'missing'),
           createElement('span', { style: monoValueStyle }, item.label),
           // Investable capital is set on the Portfolio page (not here) — link to it when outstanding.
-          !item.done && item.id === 'investable_capital'
-            ? createElement('a', { className: 'owl-back-link owl-focusable', href: '/portfolio#investable-capital' }, 'Set on Portfolio →')
-            : null,
         ),
       ),
     ),
