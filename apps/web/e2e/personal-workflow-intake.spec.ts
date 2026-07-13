@@ -42,7 +42,8 @@ test('personal-local mode can create the first research case from the command ce
   await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research')
   await expect(primaryNav.getByRole('link', { name: /watchlist/i })).toHaveAttribute('href', '/watchlist')
   await expect(primaryNav.getByRole('link', { name: /portfolio/i })).toHaveAttribute('href', '/portfolio')
-  await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveAttribute('href', '/accounting/monthly')
+  // SCALE-DOWN S2: the Accounting page is retired — no nav entry.
+  await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveCount(0)
   await expect(primaryNav.getByRole('link', { name: 'Audit', exact: true })).toHaveAttribute('href', '/audit')
   await expect(primaryNav.getByRole('link', { name: /providers/i })).toHaveAttribute('href', '/settings/providers')
   await expect(primaryNav.getByRole('link', { name: /onboarding/i })).toHaveCount(0)
@@ -147,7 +148,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
 
   await page.goto('/watchlist')
-  await page.getByLabel('Shares').fill('3.25')
+  // SCALE-DOWN S5: share counts are retired — the entry price is the one manual field.
   await page.getByLabel('Cost basis per share').fill('812.40')
   await page.getByLabel('Opened date').fill('2026-05-31')
   await page.getByRole('button', { name: /record initial holding/i }).click()
@@ -161,25 +162,13 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/portfolio')
   await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
-  await expect(page.getByText('Shares: 3.25')).toBeVisible()
+  // SCALE-DOWN S5: the thesis view — the entry price is the anchor; no share/value books.
   await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
   await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
-  await expect(page.getByText('Cost basis / share: $812.40')).toBeVisible()
-  await expect(page.getByText('Total cost basis: $2,640.30', { exact: true })).toBeVisible()
+  await expect(page.getByText('Your entry price: $812.40')).toBeVisible()
   await expect(page.getByText('Opened: 2026-05-31')).toBeVisible()
 
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByLabel('Current price per share').fill('900')
-  await page.getByLabel('Valuation date').fill('2026-06-01')
-  await page.getByRole('button', { name: /record valuation snapshot/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Current value: $2,925.00', { exact: true })).toBeVisible()
-  await expect(page.getByText('Current price / share: $900.00')).toBeVisible()
-  await expect(page.getByText(/Unrealized P&L: \$284\.70 \(10\.78%\)/)).toBeVisible()
-  await expect(page.getByText('Concentration: 100.00%')).toBeVisible()
-  await expect(page.getByText('Valuation date: 2026-06-01')).toBeVisible()
-
+  // SCALE-DOWN S5: the manual valuation form + money books are retired — no valuation steps.
   await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByRole('button', { name: /run buffett-munger review/i }).click()
 
@@ -274,14 +263,11 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
 
-  await page.goto('/accounting/monthly')
-  await expect(page.getByRole('heading', { name: /monthly accounting report/i })).toBeVisible()
-  await expect(page.getByText('$2,925.00').first()).toBeVisible()
-  await expect(page.getByText('MSFT').first()).toBeVisible()
-
-  await page.goto('/purification')
-  await expect(page.getByRole('heading', { name: /purification ledger/i })).toBeVisible()
-  await expect(page.getByText(/No purification obligations have been recorded yet/i).or(page.getByText(/Unpaid obligations/i))).toBeVisible()
+  // SCALE-DOWN S2/S3: the accounting + purification pages are retired; /passive is informative.
+  await page.goto('/passive')
+  await expect(page.getByRole('heading', { name: 'Passive', exact: true })).toBeVisible()
+  await expect(page.getByText(/load up the truck|never sell the sleeve|own the market first/i).first()).toBeVisible()
+  await expect(page.getByText(/EDUCATIONAL CONTENT, NOT ADVICE/i)).toBeVisible()
 
   await page.goto('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
