@@ -163,6 +163,8 @@ export function computeSizingRecommendation(args: SizingAssessmentArgs): SizingA
       moat_class: candidate.moat_class,
       permanent_loss_level: candidate.permanent_loss_level,
       uncertainty_level: candidate.uncertainty_level,
+      // RULE 8 (owner-locked 2026-07-13): in the load-up zone the sizing BASE is the truck weight.
+      ...(args.in_load_up_zone === true ? { in_load_up_zone: true } : {}),
     },
     params,
   )
@@ -263,13 +265,15 @@ export function computeSizingRecommendation(args: SizingAssessmentArgs): SizingA
     )
   }
 
-  // B6 (book rule 8, ADVISORY — the human decides): a ≥50% discount to intrinsic value is the
-  // book's "load up the truck" moment — surface it beside the ladder, never silently escalate.
+  // RULE 8 (owner-locked 2026-07-13 — teeth, not just a caption): in the load-up zone the sizing
+  // base RISES to the truck weight (applied in the conviction call above); the caveat records that
+  // the bolder base is in effect. The downside caps (permanent-loss/cluster/hurdle) still bind —
+  // boldness never overrides the risk rails, and the human still authors the buy.
   if (args.in_load_up_zone === true) {
     caveats.push(
       'rule_8_load_up: the price sits at or below the LOAD-UP threshold (≥50% below intrinsic value). '
-      + 'The book: "once you find a margin of safety, load up the truck" — consider deploying the full '
-      + 'target weight rather than laddering in. Advisory; the deployment/cluster caps above still bind.',
+      + 'The book: "once you find a margin of safety, load up the truck" — the sizing base is raised '
+      + 'to the truck weight (the position cap) × conviction. The deployment/cluster caps still bind.',
     )
   }
 

@@ -41,35 +41,36 @@ describe('buildPositionPlan — pillar gates (D2)', () => {
   })
 })
 
-describe('buildPositionPlan — book zone ladder (D2)', () => {
-  it('anchors the tranche triggers to the book zones: rule 7 at buy, midway, rule 8 at load-up', () => {
+describe('buildPositionPlan — the two book zones (owner-locked 2026-07-13)', () => {
+  it('builds exactly two zone rows: rule 7 buy zone (base target) + rule 8 load-up (the truck)', () => {
     const plan = buildPositionPlan({
       moatClass: 'wide', buyPricePerShare: 200, investableCapital: 100_000,
       loadUpBelow: 100, pillars: PASSING_PILLARS,
     })
     expect(plan.investable).toBe(true)
-    expect(plan.tranches.map((t) => t.id)).toEqual(['T1', 'T2', 'T3'])
+    expect(plan.tranches.map((t) => t.id)).toEqual(['BUY_ZONE', 'LOAD_UP'])
     expect(plan.tranches[0]?.trigger_price_per_share).toBe(200)
     expect(plan.tranches[0]?.trigger_label).toMatch(/rule 7/i)
-    expect(plan.tranches[1]?.trigger_price_per_share).toBe(150) // midway between the zones
-    expect(plan.tranches[2]?.trigger_price_per_share).toBe(100)
-    expect(plan.tranches[2]?.trigger_label).toMatch(/rule 8/i)
-    expect(plan.tranches[2]?.trigger_label.toLowerCase()).toContain('load up the truck')
-    // Fractions still come from the strategy contract; T2/T3 stay thesis-gated.
-    expect(plan.tranches.map((t) => t.fraction)).toEqual([0.40, 0.30, 0.30])
-    expect(plan.tranches.map((t) => t.thesis_gate)).toEqual([false, true, true])
-    // The notes speak the book rules.
+    expect(plan.tranches[1]?.trigger_price_per_share).toBe(100)
+    expect(plan.tranches[1]?.trigger_label).toMatch(/rule 8/i)
+    expect(plan.tranches[1]?.trigger_label.toLowerCase()).toContain('load up the truck')
+    // RULE 8 TEETH: the load-up row's cumulative target EXCEEDS the buy-zone target (the truck base).
+    expect(plan.tranches[1]!.target_value).toBeGreaterThan(plan.tranches[0]!.target_value)
+    expect(plan.tranches[1]!.fraction).toBeGreaterThan(plan.tranches[0]!.fraction)
+    // Adding on the way down stays thesis-gated.
+    expect(plan.tranches.map((t) => t.thesis_gate)).toEqual([false, true])
+    // The notes speak the book rules + label the rails as OURS.
     const notes = plan.notes.join(' ')
     expect(notes).toMatch(/rule 7/i)
-    expect(notes).toMatch(/rule 8/i)
+    expect(notes).toMatch(/load up the truck/i)
+    expect(notes).toMatch(/risk rails/i)
   })
 
-  it('keeps the legacy pct-below-buy ladder when no zones/pillars are provided (old dossiers still size)', () => {
+  it('renders a single buy-zone row when no load-up threshold exists (legacy dossiers still size)', () => {
     const plan = buildPositionPlan({ moatClass: 'wide', buyPricePerShare: 300, investableCapital: 100_000 })
     expect(plan.investable).toBe(true)
-    expect(plan.tranches[0]?.trigger_label).toBe('at_buy_price')
-    expect(plan.tranches[1]?.trigger_label).toBe('10% below buy price')
-    expect(plan.tranches[2]?.trigger_price_per_share).toBe(240)
+    expect(plan.tranches.map((t) => t.id)).toEqual(['BUY_ZONE'])
+    expect(plan.tranches[0]?.trigger_price_per_share).toBe(300)
   })
 
   it('still refuses a below-gate moat class (backstop even without pillar inputs)', () => {

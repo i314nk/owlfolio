@@ -153,14 +153,14 @@ describe('StrategyOverview', () => {
     expect(html).toContain('does not yet present an admit-recommendation panel')
   })
 
-  it('renders the position-sizing target weights and entry tranches from the contract', () => {
+  it('renders the two book zones + the truck base (owner-locked: no weight table, no ladder)', () => {
     const html = render()
-    const targetMonopoly = `${buffettMungerStrategy.portfolio.target_weight_by_moat.monopoly * 100}%` // 10%
-    expect(targetMonopoly).toBe('10%')
-    expect(html).toContain('6%') // wide target weight
-    for (const tranche of buffettMungerStrategy.portfolio.entry_tranches) {
-      expect(html).toContain(tranche.id)
-    }
+    expect(buffettMungerStrategy.portfolio.target_weight_by_moat).toBeUndefined()
+    expect(buffettMungerStrategy.portfolio.entry_tranches).toBeUndefined()
+    expect(html).toContain('load up the truck')
+    expect(html).toContain('Buy zone (rule 7)')
+    expect(html).toContain('Load-up zone (rule 8)')
+    expect(html).toContain('risk rails')
   })
 
   it('renders the Phase-5 conviction-sizing discipline: no Kelly, the two caps, savings first-class, worst-case-first', () => {

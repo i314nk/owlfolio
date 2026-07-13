@@ -3,7 +3,8 @@
 // Position target = base_target_weight (~0.10) × conviction_factor, where conviction_factor ∈ (0,1]
 // is composed DETERMINISTICALLY from existing gate outputs. There is NO new agent score and NO
 // probability/odds/edge term — this is deliberately NOT Kelly. Conviction only scales the target DOWN;
-// nothing ever targets above base_target_weight.
+// nothing targets above the base — which is base_target_weight outside the load-up zone and
+// load_up_target_weight (rule 8, "the truck") inside it.
 //
 // Pure, deterministic, no I/O, no LLM. Composed by the Phase 5 S6 sizing assembler
 // (sizingAssessment.computeSizingRecommendation); S7 wires that into the live flow. Every constant is read
@@ -22,6 +23,12 @@ export type ConvictionInputs = {
   permanent_loss_level: RiskLevel
   /** From admit_recommendation.uncertainty.level. */
   uncertainty_level: RiskLevel
+  /**
+   * RULE 8 (owner-locked 2026-07-13): true when the live price sits in the LOAD-UP zone
+   * (≤ IV × 0.50) — the sizing BASE rises to load_up_target_weight ("the truck"); conviction
+   * still scales DOWN from it. The book: "Once you find a margin of safety, load up the truck."
+   */
+  in_load_up_zone?: boolean
   // Discount-depth inputs are accepted ONLY for the OFF-by-default optional factor (see below).
   buy_price_per_share?: number
   current_price?: number
@@ -134,7 +141,9 @@ export function computeConvictionFactor(
       : moat_factor * loss_uncertainty_factor * discount_depth_factor
 
   const factor = clamp01(product)
-  const target_weight = params.base_target_weight * factor
+  // Rule 8: the load-up zone is the ONLY place the base sizes UP — to the truck weight.
+  const sizingBase = inputs.in_load_up_zone === true ? params.load_up_target_weight : params.base_target_weight
+  const target_weight = sizingBase * factor
 
   const components: ConvictionComponents = {
     moat_factor,

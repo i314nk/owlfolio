@@ -364,21 +364,27 @@ export function evaluateTrancheTriggers(
   }
 
   const entry = holding.entry_buy_price
-  const tranches = strategy.portfolio.entry_tranches ?? []
-  if (!isFiniteNumber(entry) || entry <= 0 || !isFiniteNumber(opts.current_price) || opts.current_price <= 0 || tranches.length === 0) {
-    return { ...base, triggered_tranches: [], tranche_review_alert: false, trigger_prices: [], message: `${holding.ticker ?? holding.holding_id}: no entry price / tranches — no tranche evaluation` }
+  // OWNER-LOCKED (2026-07-13): the contract's entry ladder is RETIRED (the book gives zones, not
+  // tranches). The pullback thesis-review rungs are the WORKER'S OWN policy — deterministic drops
+  // below the recorded entry that warrant a re-check before averaging down. Ids stay 'T2'/'T3' so
+  // legacy holdings' filled_tranche_ids keep matching.
+  const tranches = [
+    { id: 'T2', pct: 0.10 },
+    { id: 'T3', pct: 0.20 },
+  ]
+  if (!isFiniteNumber(entry) || entry <= 0 || !isFiniteNumber(opts.current_price) || opts.current_price <= 0) {
+    return { ...base, triggered_tranches: [], tranche_review_alert: false, trigger_prices: [], message: `${holding.ticker ?? holding.holding_id}: no entry price — no pullback evaluation` }
   }
 
   const filled = new Set(holding.filled_tranche_ids ?? [])
   const triggerPrices = tranches.map((tranche) => {
-    const triggerPrice = tranche.trigger === 'pct_below_buy_price' ? entry * (1 - tranche.pct) : entry
+    const triggerPrice = entry * (1 - tranche.pct)
     return { id: tranche.id, trigger_price: Number(triggerPrice.toFixed(4)) }
   })
 
   // Tranche-review alerts fire on the discount tranches (T2/T3). T1 @ buy is the initial entry, not a
   // pullback-review trigger, so it is excluded from the "averaging-down" review alert.
   const triggered = tranches
-    .filter((tranche) => tranche.trigger === 'pct_below_buy_price')
     .filter((tranche) => !filled.has(tranche.id))
     .filter((tranche) => opts.current_price <= entry * (1 - tranche.pct))
     .map((tranche) => tranche.id)

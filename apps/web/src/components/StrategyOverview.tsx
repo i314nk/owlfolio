@@ -52,9 +52,8 @@ const EX_IV = fcfIntrinsicValuePerShare({
 })!.intrinsic_value_per_share
 const EX_BUY = EX_IV * (1 - VALUATION_PARAMS.required_margin_of_safety)
 const EX_LOAD = EX_IV * (1 - VALUATION_PARAMS.load_up_margin)
-const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
-const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
-const TRANCHES = strategy.portfolio.entry_tranches
+// OWNER-LOCKED (2026-07-13): the weight table + entry ladder are retired — the book gives two
+// ZONES and boldness from the margin; sizing = the conviction system (base / truck × conviction).
 const MAX_POSITION_WEIGHT = strategy.portfolio.max_position_weight
 const MAX_POSITIONS = strategy.portfolio.max_positions
 // Phase 5 conviction-sizing constants (rendered from the live sizing config / savings defaults).
@@ -285,13 +284,6 @@ function Table({ headings, rows }: { headings: string[]; rows: ReactNode[][] }):
       ),
     ),
   )
-}
-
-function trancheTriggerLabel(tranche: (typeof TRANCHES)[number]): string {
-  if (tranche.trigger === 'at_buy_price') {
-    return 'At buy price'
-  }
-  return `${pct(tranche.pct)} below buy price`
 }
 
 // ── Tranche ladders (position-sizing-spec §2–§4) — read from SIZING_PARAMS ────
@@ -604,40 +596,34 @@ export function StrategyOverview(): ReactNode {
       ),
     }),
 
-    // 7. Position sizing
+    // 7. Position sizing — OWNER-LOCKED (2026-07-13): the book gives two ZONES and boldness from
+    // the margin ("Rule 8: once you find a margin of safety, load up the truck"), not weight tables
+    // or entry ladders. Sizing = conviction (base / truck × factor); counts and caps are OUR rails.
     Section({
       eyebrow: 'Sizing',
-      title: 'Position sizing',
+      title: 'Position sizing — the margin is the signal',
       lead: createElement(
         'span',
         null,
-        'Diversified, conviction-tiered target weights scale with moat class (wide ',
-        createElement('span', { style: goldText }, pct(TARGET_WIDE)),
-        ' / monopoly ',
-        createElement('span', { style: goldText }, pct(TARGET_MONOPOLY)),
-        `, each ≤ the ${pct(MAX_POSITION_WEIGHT)} max, across ~${MAX_POSITIONS} names), and entry is laddered across three price tranches. `,
-        createElement('span', { style: goldText }, 'Sizing is capital-driven and advisory: it uses the investable capital you set, and you author the buys — the worker never trades.'),
-        ' The target weight is an entry cap — winners run, never force-trimmed. T2/T3 are thesis-gated: deploy only if the thesis still holds (tied to the thesis-review escalation), never mechanical averaging-down. ',
-        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `Example: on a $10,000 target position at the T1 buy price, T1 = $${Math.round(TRANCHES[0]?.fraction !== undefined ? 10000 * TRANCHES[0].fraction : 3333)} · T2 = $${Math.round(TRANCHES[1]?.fraction !== undefined ? 10000 * TRANCHES[1].fraction : 3333)} · T3 = $${Math.round(TRANCHES[2]?.fraction !== undefined ? 10000 * TRANCHES[2].fraction : 3334)}.`),
+        'The book prescribes no position counts, no target-weight tables, and no entry ladders. It gives two zones: buy when the margin of safety is at least ',
+        createElement('span', { style: goldText }, pct(VALUATION_PARAMS.required_margin_of_safety)),
+        ' (rule 7), and when the discount is deep — ',
+        createElement('span', { style: goldText }, pct(VALUATION_PARAMS.load_up_margin)),
+        ' or more — act boldly: ',
+        createElement('span', { style: goldText }, '"once you find a margin of safety, load up the truck" (rule 8)'),
+        `. In the buy zone the conviction target builds from the ${pct(SIZING_PARAMS.base_target_weight)} base; in the load-up zone the base RISES to the truck weight (${pct(SIZING_PARAMS.load_up_target_weight)} — the position cap). Conviction only ever scales DOWN from the base (no Kelly). `,
+        createElement('span', { style: goldText }, 'Sizing is capital-driven and advisory: you author the buys — the worker never trades.'),
+        ` The ${MAX_POSITIONS}-position limit, the ${pct(MAX_POSITION_WEIGHT)} per-name cap, and the cash buffer are OUR risk rails, not book rules. Adding on the way down is thesis-gated — a falling price is re-checked, never chased. Winners run, never force-trimmed.`,
       ),
       children: createElement(
         'div',
         { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.9rem' } },
         Table({
-          headings: ['Moat class', 'Target weight'],
+          headings: ['Zone', 'Trigger', 'Sizing base'],
           rows: [
-            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(TARGET_WIDE))],
-            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(TARGET_MONOPOLY))],
+            [createElement('span', { style: goldText }, 'Buy zone (rule 7)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}`), createElement('span', { style: monoFigure }, `${pct(SIZING_PARAMS.base_target_weight)} × conviction`)],
+            [createElement('span', { style: goldText }, 'Load-up zone (rule 8)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`), createElement('span', { style: monoFigure }, `${pct(SIZING_PARAMS.load_up_target_weight)} × conviction — the truck`)],
           ],
-        }),
-        Table({
-          headings: ['Tranche', 'Fraction', 'Trigger', 'Gate'],
-          rows: TRANCHES.map((t) => [
-            createElement('span', { style: goldText }, t.id),
-            createElement('span', { style: monoFigure }, pct(t.fraction)),
-            trancheTriggerLabel(t),
-            t.id === 'T1' ? 'Entry' : createElement('span', { style: goldText }, 'Thesis re-check'),
-          ]),
         }),
       ),
     }),

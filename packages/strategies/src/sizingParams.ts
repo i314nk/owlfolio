@@ -75,6 +75,14 @@ export type SizingParams = {
    * conviction_factor, where conviction_factor ∈ (0,1] only scales DOWN. Nothing targets above this.
    */
   base_target_weight: number
+  /**
+   * RULE 8 (owner-locked 2026-07-13, the book verbatim: "Once you find a margin of safety, load up
+   * the truck" / "act boldly"): in the LOAD-UP zone (price ≤ IV × 0.50) the sizing BASE rises to
+   * THIS weight — the position cap, "the truck". The only place anything sizes UP; conviction still
+   * scales DOWN from it (anti-Kelly preserved on the bolder base). The book gives no target weights
+   * or position counts — those are OUR risk rails; boldness comes from the margin.
+   */
+  load_up_target_weight: number
   /** Conviction moat sub-factor table (Phase 5 S1): a sizing down-weight by investable moat class. */
   conviction_moat_factor: ConvictionMoatFactor
   /** Conviction permanent-loss sub-factor table (Phase 5 S1). */
@@ -163,8 +171,9 @@ export type SizingParams = {
  *   default ladder:  normal (used until the temperature overlay lands)
  */
 export const SIZING_PARAMS: SizingParams = Object.freeze({
-  version: 'sizing-2026-06-conviction-2-no-moat-tier',
+  version: 'sizing-2026-07-rule8-truck-1',
   base_target_weight: 0.10,
+  load_up_target_weight: 0.15,
   conviction_moat_factor: { monopoly: 1.0, wide: 0.85 },
   conviction_permanent_loss_subfactor: { low: 1.0, medium: 0.7 },
   conviction_uncertainty_subfactor: { high: 0.9, default: 1.0 },

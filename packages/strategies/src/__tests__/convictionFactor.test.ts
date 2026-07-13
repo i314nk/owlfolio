@@ -236,7 +236,8 @@ describe('computeConvictionFactor — conviction_factor × base_target_weight', 
 
 describe('SIZING_PARAMS — conviction additions + version pin', () => {
   it('is pinned to the conviction config version', () => {
-    expect(SIZING_PARAMS.version).toBe('sizing-2026-06-conviction-2-no-moat-tier')
+    expect(SIZING_PARAMS.version).toBe('sizing-2026-07-rule8-truck-1')
+    expect(SIZING_PARAMS.load_up_target_weight).toBe(0.15)
   })
 
   it('carries base_target_weight 0.10 and per_name_cap 0.15', () => {
@@ -256,5 +257,26 @@ describe('SIZING_PARAMS — conviction additions + version pin', () => {
 
   it('no longer carries the deprecated moat-tiered target_weight_by_moat (retired in Phase 5 S6 O-9)', () => {
     expect('target_weight_by_moat' in SIZING_PARAMS).toBe(false)
+  })
+})
+
+// RULE 8 TEETH (owner-locked 2026-07-13, from the book verbatim: "Once you find a margin of safety,
+// load up the truck" / "act boldly"): in the LOAD-UP zone the sizing BASE rises to the truck weight
+// (the position cap) — the only place anything sizes UP. Conviction still scales DOWN from it.
+describe('rule 8 — the load-up zone raises the sizing base to the truck weight', () => {
+  it('in the load-up zone the base is load_up_target_weight; outside it the S1 base', () => {
+    const inZone = computeConvictionFactor({ moat_class: 'wide', permanent_loss_level: 'low', uncertainty_level: 'low', in_load_up_zone: true })
+    const outZone = computeConvictionFactor({ moat_class: 'wide', permanent_loss_level: 'low', uncertainty_level: 'low' })
+    expect(inZone.status).toBe('ok')
+    expect(outZone.status).toBe('ok')
+    if (inZone.status === 'ok' && outZone.status === 'ok') {
+      expect(inZone.target_weight).toBeGreaterThan(outZone.target_weight)
+      expect(inZone.target_weight).toBeCloseTo(SIZING_PARAMS.load_up_target_weight * (outZone.target_weight / SIZING_PARAMS.base_target_weight), 6)
+    }
+  })
+  it('conviction still scales DOWN from the truck base (anti-Kelly preserved)', () => {
+    const risky = computeConvictionFactor({ moat_class: 'wide', permanent_loss_level: 'medium', uncertainty_level: 'high', in_load_up_zone: true })
+    expect(risky.status).toBe('ok')
+    if (risky.status === 'ok') expect(risky.target_weight).toBeLessThan(SIZING_PARAMS.load_up_target_weight)
   })
 })

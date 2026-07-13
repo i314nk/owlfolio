@@ -221,39 +221,28 @@ Shariah is intentionally the **first** check at the quick-screen stage so a non-
 
 ---
 
-## 6. Position sizing — conviction-tiered × price-laddered
+## 6. Position sizing — the margin is the signal (owner-locked 2026-07-13)
 
-Position sizing is **capital-driven and advisory**, and it is now **wired**: when you set your investable capital on the Portfolio page and a research case clears the wide-moat gate with a buy-below price, the dossier shows a draft position plan (`buildPositionPlan` in `apps/web/src/lib/positionPlan.ts`, whose target weight is the S1 conviction factor × base weight). That display plan is the **conviction target only — not fully risk-checked**: the downside caps (permanent-loss, correlated-cluster, deployment hurdle) and the worst-case-first view are applied at **execution-time sizing** by the S6/S7 sizing assembler (`computeSizingRecommendation` in `@owlfolio/workflow/sizingAssessment`), computed on-demand and recorded as a `sizing_recommendation_recorded` observation. Both are advisory — **you author and sign the actual buys, and the worker never trades.**
+The book prescribes **no position counts, no target-weight tables, and no entry ladders**. Its
+sizing rule is the margin itself: buy when the margin of safety is ≥30 % (rule 7), and when the
+discount is deep, act boldly — *"Rule 8: Once you find a margin of safety, load up the truck."*
 
-### Diversified, conviction-tiered target full position weight
+| Zone | Trigger | Sizing base |
+|---|---|---|
+| Buy zone (rule 7) | price ≤ IV × 0.70 | `base_target_weight` (10 %) × conviction |
+| Load-up zone (rule 8) | price ≤ IV × 0.50 | `load_up_target_weight` (15 % — the position cap, "the truck") × conviction |
 
-| Moat class | Target full weight |
-|---|---|
-| `wide` | 6 % |
-| `monopoly` | 10 % |
+The load-up zone is the **only place anything sizes UP**; the conviction factor (anti-Kelly,
+`convictionFactor.ts`) still only scales DOWN from whichever base applies. retired per-moat-class (`target_weight_by_moat`) and the 40/30/30 entry ladder (`entry_tranches`) are gone
+from the contract; legacy holdings' pullback thesis-review rungs are the worker's own policy now.
 
-All values are at or below the `max_position_weight` of 15 %, and the portfolio targets ~20 names — the weights are deliberately diversified, not concentrated. `narrow` and `moderate` are not present because they are rejected before sizing is considered.
-
-The target weight is an **entry cap, not a rebalancing target**: it caps how much you deploy on the way in. Once a compounder is owned, **winners run** — the strategy never force-trims a position just because it has grown past its entry weight.
-
-Target dollar value is `target_weight × investable_capital`, so the plan scales with the capital you have actually set.
-
-### Price-laddered entry tranches
-
-| Tranche | Fraction of target weight | Trigger | Gate |
-|---|---|---|---|
-| T1 | 40 % | At the buy price | Entry |
-| T2 | 30 % | ~10 % below the buy price | Thesis re-check |
-| T3 | 30 % | ~20 % below the buy price | Thesis re-check |
-
-Fractions sum to 100 % of the target weight. **T2 and T3 are thesis-gated**: a lower price only justifies adding if the thesis still holds, so each lower tranche requires a fresh thesis re-check (tied to the thesis-review escalation) before deploying. This is explicitly **not** mechanical averaging-down — a broken thesis on the way down cancels the lower tranches rather than triggering an automatic add. The helper `targetWeightForMoatClass(strategy, moatClass)` returns the target weight for an investable moat class and throws for `narrow`/`moderate`.
-
-**Book-zone anchoring (D2, 2026-07):** when the case carries the rule-8 threshold, the displayed
-position plan anchors the ladder to the BOOK ZONES — T1 arms at the rule-7 buy price (IV × 0.70),
-the final tranche at the rule-8 load-up price (IV × 0.50), intermediate tranches spaced evenly
-between the two. The contract's percent-below-buy triggers above are the legacy-input fallback. The
-plan's checklist also names the four pillars: a case that failed the front gate, the circle, the
-moat gate, or the management veto renders the refusal in pillar order instead of a plan.
+**The rails are ours, not the book's** (labeled as such everywhere): `max_positions: 20` (a cap,
+not a target), `max_position_weight: 15 %`, and the 3 % cash buffer. Downside caps (permanent-loss,
+correlated-cluster, deployment hurdle) are applied at execution-time sizing
+(`computeSizingRecommendation`) and still bind in the load-up zone — boldness never overrides the
+risk rails. Adding on the way down is thesis-gated: a falling price is re-checked, never chased.
+The target weight is an entry cap — **winners run**, never force-trimmed. Both surfaces are
+advisory: **you author and sign the actual buys, and the worker never trades.**
 
 ---
 

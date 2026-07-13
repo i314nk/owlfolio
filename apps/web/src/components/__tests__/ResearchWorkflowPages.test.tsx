@@ -926,7 +926,7 @@ describe('research and watchlist workflow pages', () => {
     }
   }
 
-  it('renders the advisory position plan with T1 ungated and T2/T3 thesis-gated when capital + buy price + investable moat exist', () => {
+  it('renders the advisory position plan (the buy-zone row; load-up row only with a rule-8 threshold)', () => {
     const plan = buildPositionPlan({
       moatClass: 'wide',
       buyPricePerShare: 300,
@@ -942,12 +942,12 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Position plan · advisory')
     expect(html).toContain('Target weight')
     expect(html).toContain('Target value')
-    expect(html).toContain('T1')
-    expect(html).toContain('T2')
-    expect(html).toContain('T3')
-    // T2/T3 are thesis-gated; the badge must appear (exactly twice, not on T1).
+    // Owner-locked 2026-07-13: the two book zones replace the T1/T2/T3 ladder. Without a load-up
+    // threshold this legacy-input case renders the single buy-zone row, ungated.
+    expect(html).toContain('BUY_ZONE')
+    expect(html).not.toContain('>T2<')
     const badgeCount = html.split('thesis re-check').length - 1
-    expect(badgeCount).toBe(2)
+    expect(badgeCount).toBe(0)
     // Advisory notes mention the worker never trades and the entry cap.
     expect(html).toContain('the worker never trades')
     expect(html).toContain('entry cap')
