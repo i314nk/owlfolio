@@ -311,11 +311,8 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
         snippet: 'Treasury anchor is RETIRED',
         reason: 'valuationParams ANCHOR-SWAP-F2 comment names the Treasury anchor to say it is RETIRED (negation).',
       },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: 'Treasury anchor is retired',
-        reason: 'StrategyOverview F.2 prose states the interest-bearing Treasury anchor is retired (negation).',
-      },
+      // SCALE-DOWN S1: the StrategyOverview savings/Treasury prose left with the conviction-sizing
+      // section — no mention remains, so no allow entry.
     ],
   },
   {

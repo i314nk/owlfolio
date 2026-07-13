@@ -10,11 +10,9 @@ import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffet
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
-import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
 import { SellDecisionRequest } from './SellDecisionRequest'
-import { SizingRecommendationRequest } from './SizingRecommendationRequest'
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import { WatchlistPromotionForm } from './WatchlistPromotionForm'
@@ -44,8 +42,6 @@ export type ResearchCasePanelProps = {
    */
   configuredProviderId?: string
   marketQuote?: MarketQuote
-  positionPlan?: PositionPlan
-  promptForCapital?: boolean
   /**
    * The owner's compliant savings sleeve config (from app-config). Drives the discount-anchor VINTAGE line:
    * the savings rate is the discount's risk-free anchor, and `savings_rate_set_at` makes a stale/never-set
@@ -296,7 +292,7 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, positionPlan, promptForCapital = false, savings }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings }: ResearchCasePanelProps) {
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -325,12 +321,6 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     && inABookZone
   const showAdmitPanel = mode === 'personal-local' && (hasAdmitRecommendation || isAdmissionCandidate)
 
-  // Sizing panel (Phase 5 S7): show the on-demand sizing request + the persisted recommendation once a
-  // name is an admittable candidate that carries the admit recommendation (the downside floor + risk
-  // levels sizing reads), or whenever a sizing recommendation has already been recorded.
-  const hasSizingRecommendation = researchCase.sizing_recommendation !== undefined
-  const showSizingPanel = mode === 'personal-local'
-    && (hasSizingRecommendation || (isAdmissionCandidate && hasAdmitRecommendation))
 
   // Sell decision panel (Phase 6 S8b): show the on-demand sell-decision request + the persisted advisory
   // recommendation once a name is HELD, or whenever a sell decision has already been recorded. The CLOSE
@@ -394,7 +384,6 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     ? undefined
     : `${(researchCase.valuation.moat_class ?? 'unknown').toUpperCase()} MOAT · ${valDiscountLabel} DISCOUNT`
   // Position-plan headline (right side of its collapsed header): moat tier + entry-cap tag.
-  const positionPlanHint = positionPlan?.investable ? `${positionPlan.moat_class.toUpperCase()} MOAT · ENTRY CAP` : undefined
 
   // ── S8 (Phase 3): the PILLAR frame — the dossier reads as Buffett's checklist applied in order.
   // Front gate (Shariah) → P1 Understand → P2 Moat → P3 Management → P4 Value → Synthesis & decision.
@@ -487,8 +476,6 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
     makeCollapsible(createThesisBreakAuditCard(researchCase), false, mosHint),
     showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
-    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
-    showSizingPanel ? createSizingRecommendationPanel(researchCase) : null,
     showSellPanel ? createSellDecisionPanel(researchCase) : null,
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
     createActionsRow(),
@@ -2415,189 +2402,19 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
 
 // ── Position plan (advisory) ──────────────────────────────────────────────────
 
-function formatPlanMoney(value: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(value)
-  } catch {
-    return `$${Math.round(value)}`
-  }
-}
 
-/**
- * Renders the advisory position plan near the valuation panel.
- * - When a plan exists: target weight + target value, the T1/T2/T3 tranches as rows
- *   (T2/T3 carry a "thesis re-check" badge), and the advisory notes.
- * - When capital is unset (but the case is otherwise sizeable): a prompt to set capital.
- * - Otherwise (no plan, no prompt): nothing — consistent with the gated dossier.
- */
-function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapital: boolean) {
-  if (plan === undefined) {
-    if (!promptForCapital) return null
-    return createElement(
-      'div',
-      { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.5rem' } },
-      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        'Set your investable capital on the Portfolio page to see position sizing.',
-      ),
-    )
-  }
-
-  // D2: a pillar-gated plan renders its NAMED refusal (honest, compact) instead of vanishing.
-  if (!plan.investable) {
-    if (plan.notes.length === 0) return null
-    return createElement(
-      'div',
-      { 'data-testid': 'position-plan-not-sizeable', style: { ...cardStyle, display: 'grid', gap: '0.4rem' } },
-      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-      ...plan.notes.map((note, i) => createElement(
-        'p',
-        { key: `pp-note-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        note,
-      )),
-    )
-  }
-
-  const currency = 'USD'
-
-  return createElement(
-    'div',
-    { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.75rem' } },
-    // Accent title FIRST (the collapsible wrapper lifts it into the summary; the moat + entry-cap tag lives
-    // on the right of the collapsed header via the position-plan hint, so it is not repeated here).
-    createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-    // Target weight + target value
-    createElement(
-      'div',
-      { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      // Owner-locked (2026-07-13): the PRESCRIBED target is gone — the book derives zones and
-      // boundaries. The stat is the CAP (our rail): the maximum "the truck" holds.
-      createPlanMetric('Position cap (our rail)', `${(plan.target_weight * 100).toFixed(0)}%`),
-      createPlanMetric('At the cap', formatPlanMoney(plan.target_value, currency)),
-    ),
-    // Tranche rows
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.5rem' } },
-      ...plan.tranches.map((tranche) => createTrancheRow(tranche, currency)),
-    ),
-    // Advisory notes
-    createElement(
-      'ul',
-      {
-        style: {
-          color: 'var(--owl-color-muted)',
-          display: 'flex',
-          flexDirection: 'column',
-          fontSize: 'var(--owl-text-sm)',
-          gap: '0.3rem',
-          lineHeight: 1.45,
-          margin: 0,
-          paddingLeft: '1.1rem',
-        },
-      },
-      ...plan.notes.map((note, index) => createElement('li', { key: `plan-note-${index}` }, note)),
-    ),
-  )
-}
-
+/** Small labeled stat tile (shared by the sell-decision facts row). */
 function createPlanMetric(label: string, value: string) {
   return createElement(
     'div',
-    {
-      key: label,
-      style: {
-        background: 'var(--owl-color-panel-elevated)',
-        border: '1px solid var(--owl-color-border)',
-        borderRadius: '0.7rem',
-        padding: '0.7rem 0.8rem',
-      },
-    },
-    createElement(
-      'div',
-      {
-        style: {
-          color: 'var(--owl-color-quiet)',
-          fontFamily: 'var(--owl-font-mono)',
-          fontSize: 'var(--owl-text-2xs)',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase' as const,
-        },
-      },
-      label,
-    ),
-    createElement(
-      'div',
-      { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 800, marginTop: '0.15rem' } },
-      value,
-    ),
+    { style: { background: 'var(--owl-color-panel-elevated)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', padding: '0.7rem 0.8rem' } },
+    createElement('div', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', textTransform: 'uppercase' as const } }, label),
+    createElement('div', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 800, marginTop: '0.15rem' } }, value),
   )
 }
 
-function createTrancheRow(tranche: PositionTranche, currency: string) {
-  return createElement(
-    'div',
-    {
-      key: tranche.id,
-      style: {
-        alignItems: 'center',
-        background: 'var(--owl-color-panel-deep)',
-        border: '1px solid var(--owl-color-border)',
-        borderRadius: '0.7rem',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '0.5rem 0.9rem',
-        justifyContent: 'space-between',
-        padding: '0.6rem 0.8rem',
-      },
-    },
-    // Tranche id + trigger
-    createElement(
-      'div',
-      { style: { display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' } },
-      createElement(
-        'span',
-        { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
-        tranche.id,
-      ),
-      createElement(
-        'span',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)' } },
-        `${tranche.trigger_label} · $${tranche.trigger_price_per_share}`,
-      ),
-      tranche.thesis_gate ? createElement(
-        'span',
-        {
-          style: {
-            background: 'rgba(214, 178, 94, 0.15)',
-            border: '1px solid rgba(214, 178, 94, 0.4)',
-            borderRadius: '0.5rem',
-            color: '#f0d999',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-2xs)',
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-            padding: '0.15rem 0.5rem',
-            whiteSpace: 'nowrap' as const,
-          },
-        },
-        'thesis re-check',
-      ) : null,
-    ),
-    // Value + shares
-    createElement(
-      'div',
-      { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', textAlign: 'right' as const } },
-      `${formatPlanMoney(tranche.target_value, currency)} · ~${tranche.approx_shares} sh`,
-    ),
-  )
-}
+// SCALE-DOWN S1 (owner-locked 2026-07-13): the position plan + on-demand sizing recommendation are
+// REMOVED — zones tell you when; the size is yours inside the rails. Legacy events stay readable.
 
 /**
  * One figure in the valuation ledger-line: a mono uppercase label over a
@@ -3528,182 +3345,7 @@ const SIZING_FLOOR_BASIS_LABEL: Record<string, string> = {
   stressed_book: 'stressed book value (softer — haircut book equity per share)',
 }
 
-function formatSizingMoney(value: number | undefined): string {
-  if (value === undefined) return '—'
-  return `$${Math.round(value).toLocaleString('en-US')}`
-}
 
-function createSizingRecommendationPanel(researchCase: AppResearchCase) {
-  const rec = researchCase.sizing_recommendation
-
-  // No recommendation yet — show ONLY the on-demand request control (no fabricated size).
-  if (rec === undefined) {
-    return createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id })
-  }
-
-  // hold_in_savings — the CORRECT posture (NOT a warning). Rendered as a POSITIVE emerald block: capital
-  // parked in the savings sleeve earning the EXPECTED rate is fat-pitch discipline, not under-deployment.
-  if (rec.status === 'hold_in_savings') {
-    const expected = rec.expected_savings_return
-    return createElement(
-      'section',
-      {
-        'data-testid': 'sizing-recommendation',
-        'data-sizing-status': 'hold_in_savings',
-        'aria-label': 'Sizing recommendation',
-        style: {
-          ...cardStyle,
-          // POSITIVE posture: emerald, NOT the gold caveat / red warning palette.
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(52, 211, 153, 0.4)',
-          borderLeft: '3px solid #34d399',
-          display: 'grid',
-          gap: '0.7rem',
-        },
-      },
-      createElement('p', { style: { ...labelStyle, color: '#6ee7b7' } }, 'Position sizing · hold in savings'),
-      createElement(
-        'p',
-        { 'data-testid': 'sizing-hold-correct-posture', style: { color: '#bbf7d0', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
-        'Correct posture: park the capital in the savings sleeve',
-        expected === undefined ? '.' : ` earning ~${(expected * 100).toFixed(1)}% expected.`,
-      ),
-      createElement(
-        'p',
-        { style: { color: '#d1fae5', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        'Nothing here clears the deployment hurdle, so idle capital stays in the Shariah-compliant savings sleeve. This is fat-pitch discipline — waiting for the pitch, not under-deployment. Cash is a first-class position.',
-      ),
-      rec.reason === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', { style: { color: '#a7f3d0' } }, 'Why: '),
-        rec.reason,
-      ),
-      createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-    )
-  }
-
-  // cannot_size — fail-closed (no floor / non-investable / bad inputs). Surfaced honestly, never a size.
-  if (rec.status === 'cannot_size') {
-    return createElement(
-      'section',
-      {
-        'data-testid': 'sizing-recommendation',
-        'data-sizing-status': 'cannot_size',
-        'aria-label': 'Sizing recommendation',
-        style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-border)', display: 'grid', gap: '0.6rem' },
-      },
-      createElement('p', { style: labelStyle }, 'Position sizing · cannot size'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        'Cannot produce a size — fail-closed, never a fabricated number.',
-      ),
-      rec.reason === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Reason: '),
-        rec.reason,
-      ),
-      createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-    )
-  }
-
-  // sizeable — LEAD WITH THE WORST CASE, then the target, then the ladder.
-  const worst = rec.worst_case
-  const floorBasis = worst?.downside_floor_basis
-  const basisLabel = floorBasis === undefined ? undefined : (SIZING_FLOOR_BASIS_LABEL[floorBasis] ?? floorBasis)
-  const clusterFraction = worst?.aggregate_cluster_downside_fraction
-  const bindingLabel = humanizeToken(rec.binding_constraint ?? 'conviction')
-
-  return createElement(
-    'section',
-    {
-      'data-testid': 'sizing-recommendation',
-      'data-sizing-status': 'sizeable',
-      'aria-label': 'Sizing recommendation',
-      style: { ...cardStyle, display: 'grid', gap: '0.85rem' },
-    },
-    createElement('p', { style: labelStyle }, 'Position sizing'),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'Advisory — recomputed on-demand and recorded as an observation, NOT a buy. The worst case comes first; the human still authors and signs the buy below.',
-    ),
-    // ── WORST CASE FIRST (the concrete floor + its basis + the aggregate cluster downside) ──
-    createElement(
-      'div',
-      {
-        'data-testid': 'sizing-worst-case',
-        style: {
-          background: 'rgba(239, 68, 68, 0.07)',
-          border: '1px solid rgba(239, 68, 68, 0.28)',
-          borderRadius: '0.85rem',
-          display: 'grid',
-          gap: '0.4rem',
-          padding: '0.9rem 1rem',
-        },
-      },
-      createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Worst case first'),
-      createElement(
-        'p',
-        { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        worst?.downside_floor_per_share === undefined
-          ? 'Downside floor not recorded.'
-          : `Concrete downside floor $${worst.downside_floor_per_share.toFixed(2)}/share`,
-        worst?.realistic_downside_per_share === undefined
-          ? ''
-          : ` · realistic downside $${worst.realistic_downside_per_share.toFixed(2)}/share from entry`,
-        '.',
-      ),
-      basisLabel === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'sizing-floor-basis', style: { color: '#f3d7d7', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', null, 'Floor basis: '),
-        basisLabel,
-      ),
-      clusterFraction === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'sizing-cluster-downside', style: { color: '#f3d7d7', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', null, 'Aggregate cluster downside: '),
-        `${(clusterFraction * 100).toFixed(1)}% of book NAV if the correlated cluster impairs together.`,
-      ),
-    ),
-    // ── Then the target weight + sizeable value + the BINDING constraint ──
-    createElement(
-      'div',
-      { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      // Owner-locked (2026-07-13): no prescribed weight — the engine figure anchors the worst-case
-      // math below and renders as the risk-checked MAXIMUM, not a target.
-      createPlanMetric('Risk-checked maximum (our rails)', rec.target_weight === undefined ? '—' : `${(rec.target_weight * 100).toFixed(1)}%`),
-      createPlanMetric('Sizeable value', formatSizingMoney(rec.sizeable_value)),
-      createPlanMetric('Conviction factor', rec.conviction_factor === undefined ? '—' : `${rec.conviction_factor.toFixed(2)}×`),
-    ),
-    createElement(
-      'p',
-      { 'data-testid': 'sizing-binding-constraint', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
-      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, 'Binding constraint: '),
-      `${bindingLabel} — the smallest of the conviction target, the deployment cap, the permanent-loss cap, and the cluster cap.`,
-    ),
-    // ── Caveats (never hidden) ──
-    (rec.caveats ?? []).length === 0 ? null : createElement(
-      'ul',
-      {
-        style: {
-          color: 'var(--owl-color-muted)', display: 'flex', flexDirection: 'column',
-          fontSize: 'var(--owl-text-sm)', gap: '0.3rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem',
-        },
-      },
-      ...(rec.caveats ?? []).map((caveat, index) => createElement('li', { key: `sizing-caveat-${index}` }, caveat)),
-    ),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The size is yours to choose inside the rails (the book prescribes zones, not weights); figures shown are at the cap. Let winners run; the buy is human-signed, never auto-traded.',
-    ),
-    createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-  )
-}
 
 // ── Sell decision panel (Phase 6 S8b) ─────────────────────────────────────────
 // Read-only render of the PERSISTED `sell_recommendation` projection (advisory; NOT recomputed here) plus

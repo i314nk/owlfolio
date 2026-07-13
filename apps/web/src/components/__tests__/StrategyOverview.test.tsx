@@ -163,29 +163,10 @@ describe('StrategyOverview', () => {
     expect(html).toContain('risk rails')
   })
 
-  it('renders the Phase-5 conviction-sizing discipline: no Kelly, the two caps, savings first-class, worst-case-first', () => {
+  it('SCALE-DOWN S1: the conviction-sizing discipline section is retired — zones + rails only', () => {
     const html = render()
-    // target = conviction × base weight, explicitly NOT Kelly (no probability/odds/edge).
-    expect(html).toContain(`conviction × ${SIZING_PARAMS.base_target_weight * 100}%`)
-    expect(html).toContain('NOT Kelly')
-    expect(html).toContain('no win-probability, no odds, no edge')
-    // The two distinct caps: 15% deployment vs ~22% appreciation-review.
-    expect(html).toContain('Deployment cap')
-    expect(html).toContain(`${SIZING_PARAMS.per_name_cap * 100}%`)
-    expect(html).toContain('Appreciation review')
-    expect(html).toContain(`~${SIZING_PARAMS.concentration_review_threshold * 100}%`)
-    // Winners run / no force-trim.
-    expect(html).toContain('winners run')
-    expect(html).toContain('never force-trimmed')
-    // Savings as first-class + the triple-duty rate.
-    expect(html).toContain('Cash is a first-class position')
-    expect(html).toContain('triple duty')
-    expect(html).toContain('fat-pitch posture')
-    // Worst-case-in-front discipline.
-    expect(html).toContain('worst case')
-    // NO OVERCLAIM: advisory only + the discount already anchors on the savings rate (F.2 shipped).
-    expect(html).toContain('Advisory only')
-    expect(html).toContain('The discount already anchors on this savings rate')
-    expect(html).toContain('Treasury anchor is retired')
+    expect(html).not.toContain('conviction ×')
+    expect(html).toContain('The SIZE IS YOURS')
+    expect(html).toContain('act boldly — load up the truck')
   })
 })

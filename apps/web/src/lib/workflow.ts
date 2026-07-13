@@ -71,11 +71,6 @@ import { archiveResearchCase } from '@owlfolio/workflow/researchWorkflow'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { runAdmitAssessment, isDeepDiveComplete, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
 import {
-  computeSizingRecommendation,
-  type PersistedDownsideFloor,
-  type SizingAssessmentResult,
-} from '@owlfolio/workflow/sizingAssessment'
-import {
   computeSellDecision,
   type MinimumHoldTrigger,
   type SellAssessmentArgs,
@@ -84,16 +79,11 @@ import {
 } from '@owlfolio/workflow/sellAssessment'
 import { MINIMUM_HOLD_TRIGGERS as MINIMUM_HOLD_TRIGGER_LIST } from '@owlfolio/strategies/minimumHoldGuard'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
-import { screenCheapness } from '@owlfolio/workflow/cheapnessScreen'
 import {
   queueDiscoveryCandidateForQuickScreen,
   rejectDiscoveryCandidate as rejectDiscoveryCandidateEvent,
   promoteDiscoveryCandidateToResearchCase,
 } from '@owlfolio/workflow/discoveryCandidateWorkflow'
-import type { ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
-import type { MoatClass } from '@owlfolio/strategies/strategyContract'
-import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
-import { projectAccountingSnapshot } from '@owlfolio/ledger/projections/accountingProjection'
 import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
 import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
 import { runPriceRefresh, type PriceRefreshResult, type RunPriceRefreshDeps } from '@owlfolio/workflow/priceRefresh'
@@ -1589,233 +1579,12 @@ export async function runResearchCaseReReview(
   }
 }
 
-/**
- * Dependency surface for the on-demand sizing recommendation (Phase 5 S7). Lets the route test inject a
- * fixture price + fundamentals (offline) while the live path resolves fresh SEC EDGAR + Yahoo data.
- */
-export type RecordSizingRecommendationDeps = {
-  /** Pre-resolved fundamentals (test fixture). Takes precedence over the live resolver. */
-  fundamentals?: Fundamentals
-  /** Override the current-price resolver (test fixture). Defaults to the live Yahoo adapter. */
-  resolvePrice?: (ticker: string) => Promise<PriceQuote>
-}
-
-export type RecordSizingRecommendationOutcome =
-  | { status: 'complete'; sizing_recommendation_id: string; recommendation: Record<string, unknown> }
-  | { status: 'not_a_sizing_candidate'; reason: string }
-
-const RISK_LEVELS = new Set(['low', 'medium', 'high'])
-
 function asRiskLevel(value: string | undefined): 'low' | 'medium' | 'high' | undefined {
-  return value !== undefined && RISK_LEVELS.has(value) ? (value as 'low' | 'medium' | 'high') : undefined
+  return value === 'low' || value === 'medium' || value === 'high' ? value : undefined
 }
 
-const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly'])
-
-/**
- * Compute + persist the SIZING recommendation for a research case ON-DEMAND (Phase 5 S7).
- *
- * This is the LIVE wiring that composes the S6 assembler (computeSizingRecommendation) into the
- * watched→held flow. It reads everything FRESH at call time:
- *   - the case FRESH from the ledger (the persisted admit recommendation = the S2 downside floor + its
- *     basis/reliability, the permanent-loss / uncertainty risk levels, the buy-below; valuation.moat_class),
- *   - the FRESH market price (the entry price + the candidate's owner-earnings yield via screenCheapness),
- *   - the user-set investable_capital, the accounting NAV (the S3/S4 BOOK-IMPAIRMENT denominator), the
- *     held book (the S4 cluster aggregation), and the savings config (the S5 deployment hurdle), then
- *   - emits ONE `sizing_recommendation_recorded` OBSERVATION (content-hash idempotency, like admit).
- *
- * It does NOT open the holding — openHoldingFromWatchlist stays human-authored/signed (the irreversible
- * boundary). Fail-closed: a non-candidate (no floor / not gate-passing / no buy-below / no price) is
- * surfaced, never a fabricated size. The newest recorded recommendation wins in the projection.
- */
-export async function recordSizingRecommendation(
-  state: OnboardingState,
-  researchCaseId: string,
-  deps: RecordSizingRecommendationDeps = {},
-): Promise<RecordSizingRecommendationOutcome> {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    const events = await store.list()
-    const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === researchCaseId)
-    if (researchCase === undefined) {
-      throw new Error(`Unknown research case: ${researchCaseId}`)
-    }
-
-    const ticker = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
-
-    // A sizing recommendation is only meaningful for a gate-passing admittable name with a locked
-    // buy-below + a recorded admit recommendation (which carries the S2 floor + risk levels). Gate the
-    // candidate from the projection BEFORE any fresh data fetch (a non-candidate spends zero feed reads).
-    const moatClassRaw = researchCase.valuation?.moat_class
-    const moatClass = moatClassRaw as MoatClass | undefined
-    if (moatClass === undefined || !INVESTABLE_MOAT_CLASSES.has(moatClass)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: `sizing is only live for a wide/monopoly-moat candidate (moat: ${moatClassRaw ?? 'unknown'}).`,
-      }
-    }
-    const admit = researchCase.admit_recommendation
-    if (admit === undefined) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'no admit recommendation recorded yet — run the admit judgment first (it carries the downside floor + risk levels sizing reads).',
-      }
-    }
-    const buyBelow = admit.buy_below ?? researchCase.valuation?.buy_price_per_share
-    if (buyBelow === undefined || !(buyBelow > 0)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'no locked buy-below price — sizing needs the entry price the ladder is laddered against.',
-      }
-    }
-    const permanentLossLevel = asRiskLevel(admit.permanent_loss_risk?.level)
-    const uncertaintyLevel = asRiskLevel(admit.uncertainty?.level)
-    if (permanentLossLevel === undefined || uncertaintyLevel === undefined) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'admit recommendation is missing the permanent-loss / uncertainty risk levels conviction reads.',
-      }
-    }
-
-    // The S2 floor read OFF the persisted admit recommendation (never recomputed). cannot_floor → the
-    // assembler fail-closes to cannot_size (the permanent-loss cap binds on a concrete floor, not a guess).
-    const downsideFloor: PersistedDownsideFloor =
-      admit.downside_floor_per_share !== undefined
-        && (admit.downside_floor_basis === 'net_cash' || admit.downside_floor_basis === 'stressed_book')
-        ? {
-            downside_floor_per_share: admit.downside_floor_per_share,
-            downside_floor_basis: admit.downside_floor_basis,
-            downside_floor_reliability: (admit.downside_floor_reliability ?? 'qualified') as 'sound' | 'qualified' | 'unreliable',
-          }
-        : { cannot_floor: true }
-
-    // FRESH price → the entry price + the candidate's owner-earnings yield (the S5 deployment hurdle input).
-    const fundamentals = deps.fundamentals ?? await resolveFundamentalsFreshForAdmit(ticker)
-    const resolvePrice = deps.resolvePrice ?? ((t: string) => resolveCurrentPrice({ ticker: t }))
-    let freshPrice: number | undefined
-    try {
-      const quote = await resolvePrice(ticker)
-      if (quote.available) freshPrice = quote.price_per_share
-    } catch {
-      freshPrice = undefined
-    }
-    if (freshPrice === undefined || !(freshPrice > 0)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: `cannot size ${ticker}: no fresh market price resolved (the entry price + OE yield are not computable).`,
-      }
-    }
-
-    // Candidate owner-earnings yield FRESH (screenCheapness over fresh fundamentals + fresh price). When
-    // fundamentals are unavailable the yield is 0 → the deployment hurdle does not clear → hold_in_savings
-    // (the CORRECT fail-closed posture), never a fabricated yield.
-    let ownerEarningsYield = 0
-    if (fundamentals !== undefined) {
-      const dilutedShares = fundamentals.latest_annual.diluted_shares_m
-      if (dilutedShares !== undefined && dilutedShares > 0) {
-        const cheap = screenCheapness({
-          fundamentals,
-          market_cap_musd: freshPrice * dilutedShares,
-          gate_passing: true,
-        })
-        ownerEarningsYield = (cheap as { fcf_yield?: number }).fcf_yield ?? 0
-      }
-    }
-
-    // Investable capital (the conviction TARGET + deployment-cap denominator) + accounting NAV (the
-    // S3/S4 BOOK-IMPAIRMENT denominator — NEVER crossed with investable) + the held book (S4 cluster).
-    const investableSnapshot = projectInvestableCapital(events)
-    const investable = investableSnapshot?.amount ?? 0
-    const currency = investableSnapshot?.currency ?? 'USD'
-    const nowIso = new Date().toISOString()
-    const accounting = projectAccountingSnapshot(events, {
-      snapshot_id: `sizing-asof-${researchCaseId}`,
-      period_start: '0000-01-01',
-      period_end: nowIso.slice(0, 10),
-      currency,
-      recorded_at: nowIso,
-    })
-    const bookNav = accounting.nav
-    const heldBook: ClusteredPosition[] = projectHoldings(events)
-      .filter((holding) => holding.currency === currency && holding.ticker !== undefined && holding.ticker !== ticker)
-      .map((holding) => ({
-        ticker: holding.ticker as string,
-        entry_price_per_share: holding.cost_basis_per_share,
-        position_value: holding.latest_market_value ?? holding.total_cost_basis,
-      }))
-
-    // The verified source corpus the recommendation is grounded to = the case's accumulated source_ids.
-    const timeline = projectResearchCaseTimeline(events, researchCaseId)
-    const corpusSourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
-
-    const savings = state.config.savings
-    const savingsRate = savings?.savings_expected_profit_rate ?? 0
-    const equityRiskMargin = savings?.equity_risk_margin ?? 0
-
-    const result: SizingAssessmentResult = computeSizingRecommendation({
-      candidate: {
-        ticker,
-        moat_class: moatClass,
-        permanent_loss_level: permanentLossLevel,
-        uncertainty_level: uncertaintyLevel,
-        entry_price_per_share: buyBelow,
-        fcf_yield: ownerEarningsYield,
-      },
-      downside_floor: downsideFloor,
-      held_book: heldBook,
-      book_nav: bookNav,
-      investable_capital: investable,
-      savings_expected_profit_rate: savingsRate,
-      equity_risk_margin: equityRiskMargin,
-      buy_price_version: SIZING_PARAMS.version,
-      // B6 (book rule 8): surface the load-up advisory when the case's zone flag is armed.
-      ...(researchCase.valuation?.in_load_up_zone === true ? { in_load_up_zone: true } : {}),
-    })
-
-    // Build the persisted payload. Idempotency keyed on case + the recommendation CONTENT (an identical
-    // recompute converges to one event; a changed recompute appends — newest wins in the projection).
-    const payloadCore = buildSizingPayloadCore(result)
-    const contentHash = createHash('sha256').update(JSON.stringify(payloadCore)).digest('hex').slice(0, 16)
-    const sizingRecommendationId = `sizing_${researchCaseId.replace(/^rc_/, '')}_${contentHash}`
-
-    const event: LedgerEventEnvelope<unknown> = {
-      event_id: `evt_sizing_recommendation_recorded_${sizingRecommendationId}`,
-      event_type: 'sizing_recommendation_recorded',
-      aggregate_type: 'research_case',
-      aggregate_id: researchCaseId,
-      correlation_id: researchCaseId,
-      actor_type: 'provider',
-      actor_id: state.config.provider.provider_id,
-      payload: {
-        sizing_recommendation_id: sizingRecommendationId,
-        research_case_id: researchCaseId,
-        ticker,
-        ...payloadCore,
-        // Worker/agent OBSERVATION discipline: this is an observation, NOT a recommendation to ACT, and it
-        // NEVER opens a holding — the buy stays the human-signed openHoldingFromWatchlist transition.
-        is_observation: true,
-        is_recommendation: false,
-      },
-      source_ids: corpusSourceIds,
-      created_at: nowIso,
-      schema_version: 1,
-      idempotency_key: `sizing-recommendation:${researchCaseId}:${contentHash}`,
-    }
-    await store.append(event)
-
-    return {
-      status: 'complete',
-      sizing_recommendation_id: sizingRecommendationId,
-      recommendation: event.payload as Record<string, unknown>,
-    }
-  } finally {
-    store.close()
-  }
-}
+// SCALE-DOWN S1 (owner-locked 2026-07-13): the on-demand sizing recommendation is REMOVED —
+// zones tell you when; the size is yours. Legacy sizing_recommendation events stay readable.
 
 // ---------------------------------------------------------------------------
 // Phase 6 S8a — the ON-DEMAND SELL DECISION (recordSellDecision).
@@ -2097,30 +1866,6 @@ export async function recordSellDecision(
   }
 }
 
-/** Flatten the S6 assembler result into the persisted payload core (status + size fields or reason). */
-function buildSizingPayloadCore(result: SizingAssessmentResult): Record<string, unknown> {
-  if (result.status === 'sizeable') {
-    const rec = result.recommendation
-    return {
-      status: 'sizeable' as const,
-      conviction_factor: rec.conviction_factor,
-      target_weight: rec.target_weight,
-      sizeable_value: rec.sizeable_value,
-      binding_constraint: rec.binding_constraint,
-      worst_case: rec.worst_case,
-      ladder: rec.ladder,
-      caveats: rec.caveats,
-    }
-  }
-  if (result.status === 'hold_in_savings') {
-    return {
-      status: 'hold_in_savings' as const,
-      reason: result.reason,
-      ...(result.expected_savings_return === undefined ? {} : { expected_savings_return: result.expected_savings_return }),
-    }
-  }
-  return { status: 'cannot_size' as const, reason: result.reason }
-}
 
 /** Resolve fundamentals fresh for the admit screen — fail-closed (undefined) on any error / offline. */
 async function resolveFundamentalsFreshForAdmit(ticker: string): Promise<Fundamentals | undefined> {

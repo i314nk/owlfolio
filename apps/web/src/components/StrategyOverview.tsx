@@ -15,7 +15,6 @@ import {
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 
-import { DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, DEFAULT_EQUITY_RISK_MARGIN } from '@owlfolio/shared'
 
 import { RouteHeader, OwlValuationChip } from './designSystem'
 
@@ -56,11 +55,7 @@ const EX_LOAD = EX_IV * (1 - VALUATION_PARAMS.load_up_margin)
 // ZONES and boldness from the margin; sizing = the conviction system (base / truck × conviction).
 const MAX_POSITION_WEIGHT = strategy.portfolio.max_position_weight
 const MAX_POSITIONS = strategy.portfolio.max_positions
-// Phase 5 conviction-sizing constants (rendered from the live sizing config / savings defaults).
-const BASE_TARGET_WEIGHT = SIZING_PARAMS.base_target_weight
-const PER_NAME_CAP = SIZING_PARAMS.per_name_cap
-const CONCENTRATION_REVIEW_THRESHOLD = SIZING_PARAMS.concentration_review_threshold
-const DEPLOYMENT_HURDLE = DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE + DEFAULT_EQUITY_RISK_MARGIN
+// SCALE-DOWN S1: the conviction-sizing constants are retired; the rails render from the contract.
 // Phase 6 sell parameters (rendered live from the versioned config, never hard-coded).
 const MIN_HOLD_MONTHS = SELL_PARAMS.minimum_hold_months
 const SELL_IV_FRACTION = SELL_PARAMS.sell_iv_fraction
@@ -611,84 +606,26 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, pct(VALUATION_PARAMS.load_up_margin)),
         ' or more — act boldly: ',
         createElement('span', { style: goldText }, '"once you find a margin of safety, load up the truck" (rule 8)'),
-        `. In the buy zone the conviction target builds from the ${pct(SIZING_PARAMS.base_target_weight)} base; in the load-up zone the base RISES to the truck weight (${pct(SIZING_PARAMS.load_up_target_weight)} — the position cap). Conviction only ever scales DOWN from the base (no Kelly). `,
-        createElement('span', { style: goldText }, 'Sizing is capital-driven and advisory: you author the buys — the worker never trades.'),
+        `. The SIZE IS YOURS — Owlfolio computes the zones and states the boundaries; it does not prescribe a number. `,
+        createElement('span', { style: goldText }, 'You author the buys — the worker never trades.'),
         ` The ${MAX_POSITIONS}-position limit, the ${pct(MAX_POSITION_WEIGHT)} per-name cap, and the cash buffer are OUR risk rails, not book rules. Adding on the way down is thesis-gated — a falling price is re-checked, never chased. Winners run, never force-trimmed.`,
       ),
       children: createElement(
         'div',
         { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.9rem' } },
         Table({
-          headings: ['Zone', 'Trigger', 'Sizing base'],
+          headings: ['Zone', 'Trigger', 'Posture'],
           rows: [
-            [createElement('span', { style: goldText }, 'Buy zone (rule 7)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}`), createElement('span', { style: monoFigure }, `${pct(SIZING_PARAMS.base_target_weight)} × conviction`)],
-            [createElement('span', { style: goldText }, 'Load-up zone (rule 8)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`), createElement('span', { style: monoFigure }, `${pct(SIZING_PARAMS.load_up_target_weight)} × conviction — the truck`)],
+            [createElement('span', { style: goldText }, 'Buy zone (rule 7)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}`), 'buy — the margin is met'],
+            [createElement('span', { style: goldText }, 'Load-up zone (rule 8)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`), 'act boldly — load up the truck'],
           ],
         }),
       ),
     }),
 
-    // 7a. Conviction sizing discipline (Phase 5 S1–S7) — no Kelly, the two caps, savings first-class.
-    Section({
-      eyebrow: 'Sizing discipline',
-      title: 'How the size is set — worst case first, no Kelly',
-      lead: createElement(
-        'span',
-        null,
-        'The target is ',
-        createElement('span', { style: goldText }, `conviction × ${pct(BASE_TARGET_WEIGHT)}`),
-        ` base weight — conviction (moat, permanent-loss, uncertainty) only scales it DOWN from ${pct(BASE_TARGET_WEIGHT)}, never up. `,
-        createElement('span', { style: goldText }, 'This is deliberately NOT Kelly: there is no win-probability, no odds, no edge term.'),
-        ' A probability-weighted bet size would size up on a "good bet"; we refuse that — the downside is taken down to the concrete floor (a number), and the only quality input is a one-directional down-weight. The sizing recommendation is computed on-demand at the watched→held step, recorded as an observation, and leads with the worst case (the concrete downside floor + its net-cash-vs-stressed-book basis + the aggregate correlated-cluster downside) BEFORE the target weight. The buy is human-signed; nothing auto-trades.',
-      ),
-      children: createElement(
-        'div',
-        { style: { display: 'grid', gap: '0.9rem' } },
-        Table({
-          headings: ['Guardrail', 'Threshold', 'What it does'],
-          rows: [
-            [
-              createElement('span', { style: goldText }, 'Deployment cap'),
-              createElement('span', { style: monoFigure }, pct(PER_NAME_CAP)),
-              `Per-name ceiling on NEW buys/adds at execution time — caps how much capital deploys into one name.`,
-            ],
-            [
-              createElement('span', { style: goldText }, 'Appreciation review'),
-              createElement('span', { style: monoFigure }, `~${pct(CONCENTRATION_REVIEW_THRESHOLD)}`),
-              `A HELD winner whose PRICE appreciates past this raises a human REVIEW — never an auto-trim, never a sale.`,
-            ],
-            [
-              createElement('span', { style: goldText }, 'Deployment hurdle'),
-              createElement('span', { style: monoFigure }, `~${pct(DEPLOYMENT_HURDLE, 1)}`),
-              `A candidate's FCF yield must clear savings (~${pct(DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, 1)}) + an equity-risk margin (~${pct(DEFAULT_EQUITY_RISK_MARGIN, 1)}) to deploy out of savings.`,
-            ],
-          ],
-        }),
-        createElement(
-          'p',
-          { style: { ...bodyStyle, margin: 0 } },
-          'The two caps are distinct and BOTH review-only: the ',
-          createElement('span', { style: goldText }, `${pct(PER_NAME_CAP)} deployment cap`),
-          ' limits new capital going IN, while the ',
-          createElement('span', { style: goldText }, `~${pct(CONCENTRATION_REVIEW_THRESHOLD)} appreciation-review threshold`),
-          ' only flags a held winner whose price ran up for a human look. A winner appreciating between the two raises nothing — ',
-          createElement('span', { style: goldText }, 'winners run; the target weight is an entry cap, not a rebalancing ceiling, and a compounder is never force-trimmed.'),
-        ),
-        createElement(
-          'p',
-          { style: { ...bodyStyle, margin: 0 } },
-          createElement('span', { style: goldText }, 'Cash is a first-class position. '),
-          `When nothing clears the deployment hurdle, idle capital stays in the Shariah-compliant Mudarabah savings sleeve — the CORRECT fat-pitch posture (waiting for the pitch), never under-deployment. The one savings rate does triple duty: the EXPECTED (not guaranteed) return on idle capital, the deployment-hurdle floor, and the discount's risk-free anchor.`,
-        ),
-        // ANCHOR-SWAP-F2 (SHIPPED): discount anchors on the compliant savings rate + equity_premium; Treasury retired. The savings rate IS the discount's risk-free anchor today (see discountRate() in @owlfolio/strategies). Keep this token in CODE only, never in rendered text.
-        createElement(
-          'p',
-          { style: { ...microLabel, color: 'var(--owl-color-muted)', margin: 0 } },
-          'Advisory only — the sizing recommendation is an observation recomputed on-demand; you author and sign every buy. The discount already anchors on this savings rate (the compliant savings rate + the equity premium); the interest-bearing Treasury anchor is retired.',
-        ),
-      ),
-    }),
-
+    // SCALE-DOWN S1 (owner-locked 2026-07-13): the conviction sizing-discipline section is retired
+    // with the engine — zones + rails only; the size is the human’s. 7b documents the worker’s
+    // pullback re-anchoring (a monitor policy), not an entry prescription.
     // 7b. Tranche ladders (position-sizing-spec §2–§4) — both ladders + re-anchoring + time-completion
     Section({
       eyebrow: 'Tranche ladders',

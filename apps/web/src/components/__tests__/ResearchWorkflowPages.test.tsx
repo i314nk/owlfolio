@@ -2,9 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import type { ResearchCaseAdmitRecommendationProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { buildPositionPlan } from '../../lib/positionPlan'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
@@ -899,74 +897,8 @@ describe('research and watchlist workflow pages', () => {
     expect(blockedHoldingHtml).toContain('non_compliant_income_ratio')
   })
 
-  function sizeableResearchCase(): AppResearchCase {
-    return {
-      research_case_id: 'rc_msft_sizeable',
-      version: 1,
-      superseded: false,
-      archived: false,
-      stage: 'decision_drafted',
-      company_id: 'company_msft',
-      ticker: 'MSFT',
-      strategy_id: 'buffett-munger',
-      decision_id: 'decision_msft_sizeable',
-      decision: 'BUY',
-      investment_verdict: 'BUY',
-      valuation_status: 'FAIR',
-      valuation: {
-        moat_class: 'wide',
-        moat_passes_gate: true,
-        buy_price_per_share: 300,
-      },
-      next_required_action: 'Confirm the next user-authored transition.',
-      updated_at: '2026-06-08T12:00:00.000Z',
-      gate_checklist: [],
-      source_ids: [],
-      ledger_timeline: [],
-    }
-  }
 
-  it('renders the advisory position plan (the buy-zone row; load-up row only with a rule-8 threshold)', () => {
-    const plan = buildPositionPlan({
-      moatClass: 'wide',
-      buyPricePerShare: 300,
-      investableCapital: 100000,
-    })
 
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: sizeableResearchCase(),
-      mode: 'personal-local',
-      positionPlan: plan,
-    }))
-
-    expect(html).toContain('Position plan · advisory')
-    expect(html).toContain('Position cap (our rail)')
-    expect(html).toContain('At the cap')
-    // Owner-locked 2026-07-13: the two book zones replace the T1/T2/T3 ladder. Without a load-up
-    // threshold this legacy-input case renders the single buy-zone row, ungated.
-    expect(html).toContain('BUY_ZONE')
-    expect(html).not.toContain('>T2<')
-    const badgeCount = html.split('thesis re-check').length - 1
-    expect(badgeCount).toBe(0)
-    // Advisory notes mention the worker never trades and the entry cap.
-    expect(html).toContain('the worker never trades')
-    expect(html).toContain('inside the rails')
-    // No hardcoded blue/purple.
-    expect(html).not.toContain('#4338ca')
-    expect(html).not.toContain('purple')
-  })
-
-  it('prompts to set investable capital when the case is sizeable but no capital is set', () => {
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: sizeableResearchCase(),
-      mode: 'personal-local',
-      promptForCapital: true,
-    }))
-
-    expect(html).toContain('Position plan · advisory')
-    expect(html).toContain('Set your investable capital on the Portfolio page to see position sizing.')
-    expect(html).not.toContain('thesis re-check')
-  })
 
   function admissionCandidateCase(): AppResearchCase {
     return {
@@ -1078,116 +1010,10 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('Advisory: admittable')
   })
 
-  // ── Phase 5 S7: sizing recommendation panel (worst-case-first, cash-is-correct) ──
-  function admitRecommendationForSizing(): ResearchCaseAdmitRecommendationProjection {
-    return {
-      admit_judgment_id: 'admit_admit_001',
-      uncertainty: { level: 'low' },
-      permanent_loss_risk: { level: 'low' },
-      admittable: true,
-      buy_below: 120,
-      downside_floor_per_share: 80,
-      downside_floor_basis: 'net_cash',
-      downside_floor_reliability: 'sound',
-    }
-  }
 
-  it('shows the on-demand sizing request (no fabricated size) for an admittable candidate', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('Position sizing')
-    expect(html).toContain('Request sizing')
-    expect(html).not.toContain('data-testid="sizing-recommendation"')
-  })
 
-  it('renders a SIZEABLE recommendation WORST-CASE FIRST (floor + basis + cluster) before the target weight', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_001',
-        status: 'sizeable',
-        conviction_factor: 0.8,
-        target_weight: 0.08,
-        sizeable_value: 8000,
-        binding_constraint: 'permanent_loss',
-        worst_case: {
-          downside_floor_per_share: 80,
-          downside_floor_basis: 'net_cash',
-          realistic_downside_per_share: 40,
-          aggregate_cluster_downside_fraction: 0.12,
-        },
-        ladder: [],
-        caveats: ['conviction scaled the target DOWN to 80% of base'],
-        recorded_at: '2026-06-08T13:00:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
 
-    expect(html).toContain('data-testid="sizing-recommendation"')
-    // Worst case appears, and its block appears BEFORE the target-weight metric in the DOM (worst-first).
-    expect(html).toContain('data-testid="sizing-worst-case"')
-    expect(html).toContain('Concrete downside floor $80.00/share')
-    expect(html).toContain('data-testid="sizing-floor-basis"')
-    expect(html).toContain('net cash') // the floor BASIS (net-cash-vs-stressed-book) is shown
-    expect(html).toContain('data-testid="sizing-cluster-downside"')
-    expect(html).toContain('12.0% of book NAV')
-    // binding_constraint surfaced.
-    expect(html).toContain('Binding constraint:')
-    expect(html).toContain('Permanent loss')
-    // Worst-case block precedes the target weight in the rendered order.
-    expect(html.indexOf('sizing-worst-case')).toBeLessThan(html.indexOf('Risk-checked maximum (our rails)'))
-  })
 
-  it('renders hold_in_savings as the CORRECT POSITIVE posture, NOT a yellow/red warning', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_002',
-        status: 'hold_in_savings',
-        reason: 'owner-earnings yield 3.0% does not clear the 4.5% deployment hurdle.',
-        expected_savings_return: 0.02,
-        recorded_at: '2026-06-08T13:30:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-
-    expect(html).toContain('data-sizing-status="hold_in_savings"')
-    expect(html).toContain('data-testid="sizing-hold-correct-posture"')
-    expect(html).toContain('Correct posture')
-    expect(html).toContain('fat-pitch discipline')
-    expect(html).toContain('~2.0% expected')
-    // POSITIVE posture: the emerald palette is used, NOT the gold/yellow caveat or red warning palette.
-    expect(html).toContain('#34d399') // emerald accent border
-    const holdBlock = html.slice(html.indexOf('data-sizing-status="hold_in_savings"'))
-    const panelEnd = holdBlock.indexOf('Re-run sizing')
-    const holdMarkup = holdBlock.slice(0, panelEnd === -1 ? undefined : panelEnd)
-    // No yellow warning gold accent and no red risk color inside the hold-in-savings block.
-    expect(holdMarkup).not.toContain('#f0d999')
-    expect(holdMarkup).not.toContain('rgba(214, 178, 94')
-    expect(holdMarkup).not.toContain('#fca5a5')
-  })
-
-  it('renders cannot_size fail-closed (a reason, never a fabricated number)', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_003',
-        status: 'cannot_size',
-        reason: 'downside floor unavailable (S2 cannot_floor) — fail-closed, no size.',
-        recorded_at: '2026-06-08T13:45:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('data-sizing-status="cannot_size"')
-    expect(html).toContain('fail-closed, no size')
-    expect(html).not.toContain('data-testid="sizing-worst-case"')
-  })
 })
 
 // ---------------------------------------------------------------------------
