@@ -940,8 +940,8 @@ describe('research and watchlist workflow pages', () => {
     }))
 
     expect(html).toContain('Position plan · advisory')
-    expect(html).toContain('Conviction target (our policy)')
-    expect(html).toContain('Target value')
+    expect(html).toContain('Position cap (our rail)')
+    expect(html).toContain('At the cap')
     // Owner-locked 2026-07-13: the two book zones replace the T1/T2/T3 ladder. Without a load-up
     // threshold this legacy-input case renders the single buy-zone row, ungated.
     expect(html).toContain('BUY_ZONE')
@@ -950,7 +950,7 @@ describe('research and watchlist workflow pages', () => {
     expect(badgeCount).toBe(0)
     // Advisory notes mention the worker never trades and the entry cap.
     expect(html).toContain('the worker never trades')
-    expect(html).toContain('entry cap')
+    expect(html).toContain('inside the rails')
     // No hardcoded blue/purple.
     expect(html).not.toContain('#4338ca')
     expect(html).not.toContain('purple')
@@ -1139,7 +1139,7 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Binding constraint:')
     expect(html).toContain('Permanent loss')
     // Worst-case block precedes the target weight in the rendered order.
-    expect(html.indexOf('sizing-worst-case')).toBeLessThan(html.indexOf('Conviction target (our policy)'))
+    expect(html.indexOf('sizing-worst-case')).toBeLessThan(html.indexOf('Risk-checked maximum (our rails)'))
   })
 
   it('renders hold_in_savings as the CORRECT POSITIVE posture, NOT a yellow/red warning', () => {

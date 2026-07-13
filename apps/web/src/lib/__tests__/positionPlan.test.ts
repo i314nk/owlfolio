@@ -42,7 +42,7 @@ describe('buildPositionPlan — pillar gates (D2)', () => {
 })
 
 describe('buildPositionPlan — the two book zones (owner-locked 2026-07-13)', () => {
-  it('builds exactly two zone rows: rule 7 buy zone (base target) + rule 8 load-up (the truck)', () => {
+  it('builds exactly two zone rows priced at the cap: rule 7 buy zone + rule 8 load-up (the truck)', () => {
     const plan = buildPositionPlan({
       moatClass: 'wide', buyPricePerShare: 200, investableCapital: 100_000,
       loadUpBelow: 100, pillars: PASSING_PILLARS,
@@ -54,9 +54,11 @@ describe('buildPositionPlan — the two book zones (owner-locked 2026-07-13)', (
     expect(plan.tranches[1]?.trigger_price_per_share).toBe(100)
     expect(plan.tranches[1]?.trigger_label).toMatch(/rule 8/i)
     expect(plan.tranches[1]?.trigger_label.toLowerCase()).toContain('load up the truck')
-    // RULE 8 TEETH: the load-up row's cumulative target EXCEEDS the buy-zone target (the truck base).
-    expect(plan.tranches[1]!.target_value).toBeGreaterThan(plan.tranches[0]!.target_value)
-    expect(plan.tranches[1]!.fraction).toBeGreaterThan(plan.tranches[0]!.fraction)
+    // OWNER-LOCKED (second pass): no prescribed target — both rows price the CAP ("the truck" is
+    // the maximum the rails allow); the deeper zone buys MORE SHARES for the same cap dollars.
+    expect(plan.tranches[0]!.target_value).toBe(plan.tranches[1]!.target_value)
+    expect(plan.tranches[0]!.fraction).toBe(0.15)
+    expect(plan.tranches[1]!.approx_shares).toBeGreaterThan(plan.tranches[0]!.approx_shares)
     // Adding on the way down stays thesis-gated.
     expect(plan.tranches.map((t) => t.thesis_gate)).toEqual([false, true])
     // The notes speak the book rules + label the rails as OURS.

@@ -117,15 +117,7 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
     permanent_loss_level: 'low',
     uncertainty_level: 'low',
   })
-  // RULE 8 (owner-locked 2026-07-13): the load-up zone's bolder target — the truck base × the same
-  // conviction factor. Shown as the second zone row's target so the plan reads as the book: buy in
-  // the zone; when the discount is deep, act boldly.
-  const truckConviction = computeConvictionFactor({
-    moat_class: moatClass,
-    permanent_loss_level: 'low',
-    uncertainty_level: 'low',
-    in_load_up_zone: true,
-  })
+
   if (conviction.status === 'cannot_size') {
     return {
       investable: false,
@@ -139,10 +131,12 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
     }
   }
 
-  const targetWeight = conviction.target_weight
-  const targetValue = roundMoney(targetWeight * investableCapital)
-  const truckWeight = truckConviction.status === 'ok' ? truckConviction.target_weight : targetWeight
-  const truckValue = roundMoney(truckWeight * investableCapital)
+  // OWNER-LOCKED (2026-07-13, second pass): the PRESCRIBED target weight is REMOVED from the plan —
+  // the book derives zones and boundaries, not numbers. The plan prices each zone AT THE CAP
+  // (max_position_weight — "the truck" IS your maximum): the size decision is the human's, made
+  // inside the rails. (The S1 conviction machinery survives engine-side for the risk caps' math.)
+  const capWeight = strategy.portfolio.max_position_weight
+  const capValue = roundMoney(capWeight * investableCapital)
 
   // OWNER-LOCKED (2026-07-13, the book verbatim): no staged ladder — the book prescribes TWO ZONES,
   // not tranches. "Rule 8: Once you find a margin of safety, load up the truck" / "act boldly".
@@ -152,19 +146,20 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
   const loadUp = input.loadUpBelow !== undefined && input.loadUpBelow > 0 && input.loadUpBelow < buyPricePerShare
     ? input.loadUpBelow
     : undefined
-  const zoneRow = (id: string, label: string, price: number, value: number, weight: number, gated: boolean): PositionTranche => ({
+  const zoneRow = (id: string, label: string, price: number, gated: boolean): PositionTranche => ({
     id,
-    fraction: weight,
+    fraction: capWeight,
     trigger_label: label,
     trigger_price_per_share: roundMoney(price),
-    target_value: value,
-    approx_shares: price > 0 ? Math.floor(value / price) : 0,
+    // The figure is the CAP (our rail), not a prescription: what "the truck" holds at this price.
+    target_value: capValue,
+    approx_shares: price > 0 ? Math.floor(capValue / price) : 0,
     thesis_gate: gated,
   })
   const tranches: PositionTranche[] = [
-    zoneRow('BUY_ZONE', 'rule 7 — the buy zone (a ≥30% margin of safety, never less)', buyPricePerShare, targetValue, targetWeight, false),
+    zoneRow('BUY_ZONE', 'rule 7 — the buy zone (a ≥30% margin of safety, never less)', buyPricePerShare, false),
     ...(loadUp !== undefined
-      ? [zoneRow('LOAD_UP', 'rule 8 — load up the truck (a ≥50% margin: act boldly)', loadUp, truckValue, truckWeight, true)]
+      ? [zoneRow('LOAD_UP', 'rule 8 — load up the truck (a ≥50% margin: act boldly)', loadUp, true)]
       : []),
   ]
 
@@ -176,7 +171,7 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
         ]
       : []),
     'Adding on the way down is thesis-gated — a falling price is re-checked, never chased.',
-    'The conviction target is OUR sizing policy — the book prescribes zones and boldness, not weights. It is an entry cap: let winners run; do not force-trim a compounder.',
+    'The size is YOURS to choose inside the rails — the book prescribes zones and boldness, not weights. The figures shown are at the 15% cap ("the truck"): the maximum the rails allow. Let winners run; do not force-trim a compounder.',
     `The ${(cashBuffer * 100).toFixed(0)}% cash buffer and ${maxPositions}-position limit are OUR risk rails — the book prescribes zones and boldness, not counts or weights.`,
     // S6 follow-up (i): this bare conviction target is NOT fully risk-checked. The downside caps
     // (permanent-loss / cluster / deployment hurdle) are applied at EXECUTION-TIME sizing — the on-demand
@@ -188,8 +183,9 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
   return {
     investable: true,
     moat_class: moatClass,
-    target_weight: targetWeight,
-    target_value: targetValue,
+    // The CAP, not a prescription (kept on the shape for display + legacy readers).
+    target_weight: capWeight,
+    target_value: capValue,
     tranches,
     cash_buffer: cashBuffer,
     max_positions: maxPositions,
