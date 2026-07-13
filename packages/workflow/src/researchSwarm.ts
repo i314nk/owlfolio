@@ -740,6 +740,8 @@ export async function runStrategyResearchSwarm(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        // The registrant's name from EDGAR companyfacts — display-only (board rows show "TICKER — Name").
+        ...(qsFundamentals?.entity_name === undefined ? {} : { entity_name: qsFundamentals.entity_name }),
         engine_version: ENGINE_VERSION,
         ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
@@ -944,6 +946,8 @@ async function emitMoatGateShortCircuit(args: {
   moatTests?: MoatTests
   circleJudgmentPayload?: unknown
   moatGrounded: boolean
+  /** The registrant's name from EDGAR companyfacts (display-only on the board rows). */
+  entityName?: string
 }) {
   const { store, provider, command, strategyRef, accumulated, engineCommit, started, stageAResults, judgment } = args
 
@@ -996,6 +1000,7 @@ async function emitMoatGateShortCircuit(args: {
       research_case_id: command.research_case_id,
       company_id: command.company_id,
       ticker: command.ticker,
+      ...(args.entityName === undefined ? {} : { entity_name: args.entityName }),
       engine_version: ENGINE_VERSION,
       ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
       investment_verdict: verdict,
@@ -1463,6 +1468,7 @@ export async function runResearchDeepDivePhase(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        ...(fundamentals?.entity_name === undefined ? {} : { entity_name: fundamentals.entity_name }),
         engine_version: ENGINE_VERSION,
         ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
@@ -1922,6 +1928,7 @@ export async function runResearchDeepDivePhase(
       ...(moatTests !== undefined ? { moatTests } : {}),
       ...(circleJudgmentPayload !== undefined ? { circleJudgmentPayload } : {}),
       moatGrounded: earlyMoatGrounded,
+      ...(fundamentals?.entity_name === undefined ? {} : { entityName: fundamentals.entity_name }),
     })
   }
 
@@ -3587,6 +3594,7 @@ export async function runResearchDeepDivePhase(
       research_case_id: command.research_case_id,
       company_id: command.company_id,
       ticker: command.ticker,
+      ...(fundamentals?.entity_name === undefined ? {} : { entity_name: fundamentals.entity_name }),
       engine_version: ENGINE_VERSION,
       ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
       investment_verdict: gatedVerdict,

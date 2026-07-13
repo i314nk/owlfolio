@@ -1,6 +1,7 @@
 import { createElement, Fragment } from 'react'
 
-import { OwlValuationChip, RouteHeader, SourceChip } from './designSystem'
+import { OwlButtonLink, OwlValuationChip, RouteHeader } from './designSystem'
+import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
@@ -187,13 +188,14 @@ function createEmptyState() {
 
 function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[], band: ZoneBand) {
   const ticker = item.ticker ?? item.company_id ?? item.watchlist_item_id
-  const v = item.verdict as { buy_price_per_share?: number; proposed_buy_below?: number; market_price_per_share?: number; distance_to_buy_pct?: number; load_up_below?: number } | undefined
+  const v = item.verdict
   const buyBelow = v?.proposed_buy_below ?? v?.buy_price_per_share
   const dist = v?.distance_to_buy_pct
 
-  // COMPACT ROW (owner-locked 2026-07-14): the summary is the zone board line — ticker (a LINK to
-  // the dossier), the two zone thresholds, the live price + distance, and the state badge. The full
-  // checkpoint + actions expand beneath. Only the necessary info shows closed.
+  // COMPACT ROW (owner-locked 2026-07-14): the summary is the zone board line — ticker + company name
+  // (the ticker LINKS to the dossier), the buy threshold, the live price + distance, and the state
+  // badge. Expanding shows the small decision card: verdict summary + the valuation ladder + the
+  // "open the full analysis" action. Specifics live in the dossier, not here.
   const zoneChip = band === 'LOAD_UP'
     ? createElement('span', { key: 'zone', style: { color: '#4ade80', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'LOAD-UP ZONE')
     : band === 'BUY_ZONE'
@@ -209,8 +211,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       className: 'owl-focusable',
       style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
     }, ticker),
+    v?.entity_name !== undefined ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, v.entity_name) : null,
     buyBelow !== undefined ? createElement('span', { key: 'buy', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `buy ≤ $${buyBelow.toFixed(2)}`) : null,
-    v?.load_up_below !== undefined ? createElement('span', { key: 'load', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `load ≤ $${v.load_up_below.toFixed(2)}`) : null,
     v?.market_price_per_share !== undefined ? createElement('span', { key: 'px', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `now $${v.market_price_per_share.toFixed(2)}`) : null,
     createElement('span', { key: 'spacer', style: { flex: 1 } }),
     zoneChip,
@@ -222,172 +224,42 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     ),
   )
 
+  // The expanded body — the SMALL decision card, mirroring the dossier's decision card: the verdict
+  // summary + the price ladder, then the route to the full analysis. Provenance, gate evidence, and
+  // audit IDs live in the dossier.
+  const openHoldingForm = mode === 'personal-local' && item.user_approved && item.holding_id === undefined ? createOpenHoldingForm(item) : null
   return createElement(
     'details',
-    { key: item.watchlist_item_id, id: item.watchlist_item_id, className: 'owl-collapsible-card', 'data-watchlist-row': ticker },
+    { key: item.watchlist_item_id, id: item.watchlist_item_id, className: 'owl-collapsible-card', 'data-watchlist-row': ticker, suppressHydrationWarning: true },
     summaryLine,
     createElement(
       'div',
-      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.6rem', marginTop: '0.5rem' } },
-      // Thesis line: the opening of the case, not the whole narrative — the dossier owns the full text.
-      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, clampThesis(item.thesis_summary)),
-      // Gate evidence (the provider's draft).
+      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.75rem', marginTop: '0.5rem' } },
+      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.thesis_summary)),
+      createPriceLadderElement({
+        ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
+        ...(v?.load_up_below === undefined ? {} : { load: v.load_up_below }),
+        ...(buyBelow === undefined ? {} : { buy: buyBelow }),
+        ...(v?.market_price_per_share === undefined ? {} : { livePrice: v.market_price_per_share }),
+      }),
+      // Staleness is decision-relevant on a waiting board — surface it only when it bites.
+      v?.is_stale === true
+        ? createElement('p', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, 'STALE — last run >12 months ago; re-run before acting on these thresholds.')
+        : null,
       createElement(
         'div',
-        { style: { display: 'grid', gap: '0.2rem' } },
-        createElement('p', { className: 'owl-section-accent' }, 'Case state'),
-        createDetail('Strategy', item.strategy_id ?? 'Unknown'),
-        createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-        ...createLockedBuyBelowDetail(item),
-        ...createShariahGateDetails(item),
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+        createElement(OwlButtonLink, { href: `/research/${item.research_case_id}`, variant: 'primary' }, 'Open the full analysis'),
+        createElement(ReReviewButton, { caseId: item.research_case_id }),
       ),
-      // Verdict band: distance-to-buy-price + staleness indicator.
-      createVerdictBandDetails(item),
       // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
       createWatchlistAlerts(alerts),
-      // The decision checkpoint: provenance + the user's authorization actions.
-      createDecisionCheckpoint(item, mode),
+      openHoldingForm,
     ),
   )
 }
 
-/**
- * Model-verdict figures for one candidate (R1): the model's valuation status, the MODEL-proposed buy-below,
- * the distance from that buy-below (no live quote → said so honestly, never a fake "in the window"), the
- * arithmetic in-buy-zone read, the market-implied growth richness read, the flag-only sanity-check (advisory,
- * never a block), and a staleness indicator (>12mo since the case was last run → re-run before any tranche
- * alert, per position-sizing §5). The retired band/gap framing is gone.
- */
-function createVerdictBandDetails(item: AppWatchlistItem) {
-  const verdict = item.verdict
-  if (verdict === undefined) {
-    return null
-  }
 
-  const fmtPct = (frac: number) => `${(frac * 100).toFixed(1)}%`
-  const buyBelow = verdict.proposed_buy_below ?? verdict.buy_price_per_share
-
-  const lines = []
-  if (verdict.valuation_status !== undefined) {
-    lines.push(createDetail('Model valuation', verdict.valuation_status))
-  }
-  if (buyBelow !== undefined) {
-    lines.push(createDetail('Buy below (computed, rule 7)', `$${buyBelow.toFixed(2)}`))
-  }
-  if (verdict.distance_to_buy_pct !== undefined) {
-    const pct = verdict.distance_to_buy_pct
-    lines.push(createDetail(
-      'Distance to buy price',
-      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below the computed buy threshold — in the buy zone` : `${pct.toFixed(1)}% above the computed buy threshold`,
-    ))
-  } else {
-    lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
-  }
-  // RULE 8 (owner-locked 2026-07-13): the load-up zone read — the watchlist IS the zone board.
-  const v8 = verdict as { load_up_below?: number; in_load_up_zone?: boolean }
-  if (v8.load_up_below !== undefined) {
-    lines.push(createDetail(
-      'Load-up below (rule 8)',
-      v8.in_load_up_zone === true
-        ? `$${v8.load_up_below.toFixed(2)} — IN THE LOAD-UP ZONE: "once you find a margin of safety, load up the truck"`
-        : `$${v8.load_up_below.toFixed(2)}`,
-    ))
-  }
-  if (verdict.market_price_per_share !== undefined) {
-    const priceStr = `$${verdict.market_price_per_share.toFixed(2)}`
-    const asOf = verdict.price_as_of !== undefined ? ` · as of ${verdict.price_as_of.slice(0, 10)}` : ''
-    const distPct = verdict.distance_to_buy_pct !== undefined
-      ? ` · ${verdict.distance_to_buy_pct > 0 ? '+' : ''}${verdict.distance_to_buy_pct.toFixed(0)}% to buy`
-      : ''
-    lines.push(createDetail('Current price', `${priceStr}${asOf}${distPct}`))
-  }
-  if (verdict.in_buy_zone !== undefined) {
-    lines.push(createDetail(
-      'Buy-zone',
-      verdict.in_buy_zone ? 'In the buy zone (price ≤ model buy-below)' : 'Not in the buy zone yet',
-    ))
-  }
-  // The richness read — what today's price implies the business must grow (reverse-DCF), the model's input.
-  if (verdict.market_implied_growth !== undefined) {
-    lines.push(createDetail('Market-implied growth', fmtPct(verdict.market_implied_growth)))
-  }
-  // forward-DCF removal: the dollar reference fair value (cross-check) line is gone — a dollar reference FV
-  // below the model's buy-below read as a contradiction. The reverse-DCF market-implied growth above is the
-  // kept valuation lens.
-
-  const staleness = verdict.is_stale === undefined
-    ? 'Case freshness unknown'
-    : verdict.is_stale
-      ? `Stale (>12 months since last run${verdict.case_updated_at === undefined ? '' : `, last ${verdict.case_updated_at.slice(0, 10)}`}) — re-run before any tranche alert`
-      : `Fresh${verdict.case_updated_at === undefined ? '' : ` (last run ${verdict.case_updated_at.slice(0, 10)})`}`
-
-  const sanityFlags = verdict.sanity_flags ?? []
-
-  return createElement(
-    'div',
-    { 'data-testid': 'watchlist-verdict-band', style: { display: 'grid', gap: '0.2rem', marginTop: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Model verdict'),
-    ...lines,
-    // The deterministic flag-only sanity-check — advisory amber annotations, never a block.
-    sanityFlags.length > 0 ? createElement(
-      'div',
-      { style: { marginTop: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-body', style: { margin: 0 } },
-        createElement('strong', { style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700 } }, `Sanity-check (${sanityFlags.length}): `),
-        'advisory only — does not block the verdict.',
-      ),
-      createElement(
-        'ul',
-        { className: 'owl-body', style: { color: 'var(--owl-color-gold-bright)', display: 'grid', gap: '0.2rem', margin: '0.2rem 0 0', paddingLeft: '1.1rem' } },
-        ...sanityFlags.map((flag, index) => createElement('li', { key: `wl-sanity-${index}` }, `⚠ ${flag}`)),
-      ),
-    ) : null,
-    createElement(
-      'p',
-      { className: 'owl-body', style: { margin: '0.55rem 0 0' } },
-      createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, 'Staleness: '),
-      createElement(
-        'span',
-        { style: { color: verdict.is_stale ? 'var(--owl-color-risk-bright, #fca5a5)' : 'var(--owl-color-muted)' } },
-        staleness,
-      ),
-    ),
-  )
-}
-
-function createDecisionCheckpoint(item: AppWatchlistItem, mode: WorkflowMode) {
-  // Phase 8 S4: admission is one gated step (signed thesis + checklist + Shariah gate), so an admitted
-  // item is already user-confirmed — there is no separate "confirm watchlist draft" affordance anymore.
-  const openHoldingForm = mode === 'personal-local' && item.user_approved && item.holding_id === undefined ? createOpenHoldingForm(item) : null
-
-  return createElement(
-    'div',
-    {
-      style: {
-        borderTop: '1px solid rgba(214, 178, 94, 0.18)',
-        display: 'grid',
-        gap: 'var(--owl-space-3)',
-        marginTop: 'var(--owl-space-2)',
-        paddingTop: 'var(--owl-space-4)',
-      },
-    },
-    createElement('p', { className: 'owl-section-accent' }, 'User decision checkpoint'),
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.2rem' } },
-      createDetail('Created by actor', formatActor(item.created_by_actor_type, item.created_by_actor_id, 'created')),
-      createDetail('Last updated', item.updated_at),
-      createDetail('Confirmation status', item.user_approved ? 'User-confirmed watchlist decision' : 'Awaiting user confirmation'),
-      createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id, 'confirmed', item.updated_at) : 'Not user-confirmed yet'),
-      item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', 'Holding open'),
-      createResearchCaseLink(item.research_case_id),
-      // On-demand thesis re-review vs filings NEW since this case's decision — an observation launch;
-      // a recorded diff surfaces as a monitor alert + the dossier card, never a state change here.
-      item.research_case_id === undefined ? null : createElement(ReReviewButton, { caseId: item.research_case_id }),
-    ),
-    openHoldingForm,
-  )
-}
 
 function shariahChip(item: AppWatchlistItem) {
   if (item.shariah_gate_decision_id === undefined) {
@@ -436,17 +308,6 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
   )
 }
 
-function createResearchCaseLink(researchCaseId: string) {
-  const href = `/research/${researchCaseId}`
-
-  return createElement(
-    'p',
-    { className: 'owl-body', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', margin: '0.55rem 0 0' } },
-    createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, 'Research case link:'),
-    createElement('a', { className: 'owl-focusable', href, style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800, textDecoration: 'none' } }, 'View research dossier'),
-    createElement(SourceChip, { href, id: researchCaseId, label: 'Research case' }),
-  )
-}
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
@@ -455,94 +316,10 @@ function clampThesis(thesis: string | undefined): string {
   return `${thesis.slice(0, 280).trimEnd()}… (full analysis in the dossier)`
 }
 
-function createDetail(label: string, value: string) {
-  return createElement(
-    'p',
-    { className: 'owl-body', style: { margin: '0.55rem 0 0' } },
-    createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, `${label}: `),
-    value,
-  )
-}
 
-/**
- * The frozen model-proposed buy-below (cited reasoning) at admit. There is no deterministic haircut or
- * required-gap engine here: the buy-below is the price the MODEL's reasoning judged cheap enough, frozen at
- * admit. The valuation version it was frozen under is surfaced in the label so a re-anchor is traceable.
- * Renders nothing when no locked buy-below was recorded.
- */
-function createLockedBuyBelowDetail(item: AppWatchlistItem) {
-  if (item.locked_buy_below === undefined) {
-    return []
-  }
 
-  // The buy-below is the frozen model-proposed buy-below at admit, carrying the valuation version it was
-  // frozen under — not a deterministic price-discount knob.
-  const version = item.buy_below_valuation_version === undefined ? '' : ` · ${item.buy_below_valuation_version}`
-  return [createDetail(`Buy-below${version}`, `$${item.locked_buy_below.toFixed(2)}`)]
-}
 
-function createShariahGateDetails(item: AppWatchlistItem) {
-  if (item.shariah_gate_decision_id === undefined) {
-    return []
-  }
 
-  return [
-    createDetail('Shariah gate', `${item.shariah_gate_status ?? 'UNKNOWN'} — ${describeGateAllowance(item.shariah_gate_allowed)}`),
-    ...(item.shariah_gate_reasons === undefined || item.shariah_gate_reasons.length === 0
-      ? []
-      : [createDetail('Shariah gate reasons', item.shariah_gate_reasons.join(' '))]),
-    ...(item.shariah_required_source_ids === undefined || item.shariah_required_source_ids.length === 0
-      ? []
-      : [createDetail('Required Shariah sources', item.shariah_required_source_ids.join(', '))]),
-    ...(item.shariah_missing_evidence === undefined || item.shariah_missing_evidence.length === 0
-      ? []
-      : [createDetail('Missing Shariah evidence', item.shariah_missing_evidence.join(', '))]),
-    createElement(
-      'details',
-      { key: 'gate-audit-trail', style: { marginTop: '0.55rem' } },
-      createElement(
-        'summary',
-        { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
-        'Audit IDs',
-      ),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: '0.35rem 0 0' } },
-        `Gate decision: ${item.shariah_gate_decision_id}`,
-      ),
-    ),
-  ]
-}
-
-function formatActor(actorType: string | undefined, actorId: string | undefined, role: 'created' | 'confirmed' = 'created', updatedAt?: string): string {
-  if (actorType === undefined || actorId === undefined) {
-    return 'Not recorded'
-  }
-
-  if (actorType === 'provider') {
-    return 'Proposed by the research harness'
-  }
-  if (role === 'confirmed' && (actorType === 'user' || actorId === 'user_local' || actorId === 'local')) {
-    if (updatedAt !== undefined) {
-      const dateLabel = new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      return `You confirmed on ${dateLabel}`
-    }
-    return 'You confirmed'
-  }
-
-  return `${actorType}:${actorId}`
-}
-
-function describeGateAllowance(allowed: boolean | undefined): string {
-  if (allowed === true) {
-    return 'allowed'
-  }
-  if (allowed === false) {
-    return 'blocked'
-  }
-
-  return 'gate decision pending'
-}
 
 function createLotInput(
   label: string,

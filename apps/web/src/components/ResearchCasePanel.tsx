@@ -1,5 +1,6 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
 import { RunDeepDiveButton } from './RunDeepDiveButton'
+import { createPriceLadderElement } from './PriceLadder'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -1774,45 +1775,15 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
 // load-up, rule-7 buy, intrinsic value), the live price as a marker. Zone colors: deep green below
 // load-up, green to buy, sand to IV, muted beyond. Scale: 0 → max(price, IV) with 8% headroom.
 function createPriceLadder(researchCase: AppResearchCase, livePrice: number | undefined) {
+  // Delegates to the shared ladder (also rendered on the watchlist zone board + portfolio rows).
   const v = researchCase.valuation as { intrinsic_value_per_share?: number; load_up_below?: number } | undefined
-  const iv = v?.intrinsic_value_per_share
-  const load = v?.load_up_below
   const buy = researchCase.valuation?.buy_price_per_share ?? researchCase.valuation?.proposed_buy_below
-  if (iv === undefined || load === undefined || buy === undefined || livePrice === undefined) return null
-  if (!(iv > 0) || !(load > 0) || !(buy > load) || !(iv > buy) || !(livePrice > 0)) return null
-  const top = Math.max(livePrice, iv) * 1.08
-  const pct = (x: number) => `${((x / top) * 100).toFixed(2)}%`
-  const seg = (from: number, to: number, color: string, key: string) => createElement('div', {
-    key,
-    style: { background: color, height: '100%', left: pct(from), position: 'absolute' as const, top: 0, width: pct(to - from) },
+  return createPriceLadderElement({
+    ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
+    ...(v?.load_up_below === undefined ? {} : { load: v.load_up_below }),
+    ...(buy === undefined ? {} : { buy }),
+    ...(livePrice === undefined ? {} : { livePrice }),
   })
-  const tick = (x: number, label: string, key: string) => createElement('div', {
-    key,
-    style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', left: pct(x), position: 'absolute' as const, top: '100%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
-  }, label)
-  const inZone = livePrice <= buy
-  return createElement(
-    'div',
-    { 'data-testid': 'price-ladder', style: { display: 'grid', gap: '0.2rem', margin: '0.3rem 0 1.4rem' } },
-    createElement(
-      'div',
-      { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '999px', height: '0.85rem', overflow: 'visible', position: 'relative' as const } },
-      seg(0, load, 'rgba(34, 197, 94, 0.55)', 'seg-load'),
-      seg(load, buy, 'rgba(34, 197, 94, 0.28)', 'seg-buy'),
-      seg(buy, iv, 'rgba(214, 178, 94, 0.25)', 'seg-fair'),
-      // The live-price marker.
-      createElement('div', {
-        'data-testid': 'price-ladder-marker',
-        style: { background: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', borderRadius: '1px', bottom: '-0.3rem', left: pct(livePrice), position: 'absolute' as const, top: '-0.3rem', transform: 'translateX(-50%)', width: '3px' },
-      }),
-      createElement('div', {
-        style: { color: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, left: pct(livePrice), position: 'absolute' as const, bottom: 'calc(100% + 0.35rem)', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
-      }, `price $${livePrice.toFixed(2)}`),
-      tick(load, `load up $${load.toFixed(2)}`, 'tick-load'),
-      tick(buy, `buy $${buy.toFixed(2)}`, 'tick-buy'),
-      tick(iv, `IV $${iv.toFixed(2)}`, 'tick-iv'),
-    ),
-  )
 }
 
 function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {

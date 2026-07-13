@@ -821,6 +821,8 @@ export type ResearchCaseProjection = {
   candidate_id?: string
   company_id?: string
   ticker?: string
+  /** The registrant's name from EDGAR companyfacts, stamped on the analysis payload (display-only). */
+  entity_name?: string
   strategy_id?: string
   strategy_version?: string
   quick_screen_id?: string
@@ -2150,6 +2152,7 @@ function applyString(
     | 'supersedes_research_case_id'
     | 'engine_version'
     | 'engine_commit'
+    | 'entity_name'
   >,
   value: string | undefined,
 ): void {
@@ -2545,6 +2548,8 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // absent on pre-versioning events → undefined (so the dossier marker shows "unknown · pre-versioning").
       applyString(researchCase, 'engine_version', getString(event.payload, 'engine_version'))
       applyString(researchCase, 'engine_commit', getString(event.payload, 'engine_commit'))
+      // Display-only registrant name (board rows show "TICKER — Name"); legacy events simply lack it.
+      applyString(researchCase, 'entity_name', getString(event.payload, 'entity_name'))
       const valuation = getValuation(event.payload)
       if (valuation !== undefined) {
         researchCase.valuation = valuation

@@ -598,22 +598,18 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('current value')
     expect(html).toContain('id="holding_msft_001"')
     expect(html).toContain('MSFT')
-    expect(html).toContain('class="owl-financial-table"')
-    expect(html).toContain('Thesis anchor')
-    expect(html).toContain('Confirmed portfolio state')
+    // COMPACT REWORK (2026-07-14): the row is a small decision card — entry + latest ±% in the
+    // summary, thesis + review record + actions in the expansion. Provenance rows (opened-by actor,
+    // price-checked, audit ids) moved to the dossier; the money labels stay retired.
     expect(html).toContain('Opened')
     expect(html).toContain('2026-05-31')
-    // SCALE-DOWN S5: the money labels are gone; the latest verifiable price renders vs entry.
-    expect(html).toContain('Latest price')
-    expect(html).toContain('$900.00')
-    expect(html).toContain('vs entry')
+    expect(html).toContain('now $900.00')
+    expect(html).toContain('+10.8%')
     expect(html).not.toContain('Unrealized P&amp;L')
-    expect(html).toContain('Price checked')
-    expect(html).toContain('2026-06-01T07:00:00.000Z')
-    expect(html).toContain('Opened by actor')
-    expect(html).toContain('user:user_local')
-    expect(html).toContain('Last reviewed')
-    expect(html).toContain('2026-06-30T12:00:00.000Z')
+    expect(html).not.toContain('Confirmed portfolio state')
+    expect(html).not.toContain('Opened by actor')
+    expect(html).toContain('Open the full analysis')
+    expect(html).toContain('href="/research/rc_msft_001"')
     expect(html).toContain('Manual fallback actions')
     expect(html).toContain('<summary')
     expect(html).toContain('Thesis health')
@@ -841,19 +837,17 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
 
-    expect(conditionalWatchlistHtml).toContain('Shariah gate')
-    expect(conditionalWatchlistHtml).toContain('Gate decision')
+    // COMPACT REWORK (2026-07-14): the boards carry the gate as a CHIP on the row summary; the
+    // reasons, required sources, and missing-evidence detail live in the dossier (the "specifics"
+    // the owner routed to the full analysis). The chip itself must stay truthful per state.
     expect(conditionalWatchlistHtml).toContain('CONDITIONAL')
-    expect(conditionalWatchlistHtml).toContain('Business activity requires conditional Shariah review with sourced evidence.')
-    expect(conditionalWatchlistHtml).toContain('Required Shariah sources')
-    expect(conditionalWatchlistHtml).toContain('src_cond_10k_2025')
-    expect(unknownWatchlistHtml).toContain('PENDING — gate decision pending')
+    expect(conditionalWatchlistHtml).not.toContain('Required Shariah sources')
+    expect(unknownWatchlistHtml).toContain('GATE PENDING')
     expect(unknownWatchlistHtml).not.toContain('PENDING — allowed')
-    expect(blockedHoldingHtml).toContain('Shariah gate')
-    expect(blockedHoldingHtml).toContain('NON_COMPLIANT')
-    expect(blockedHoldingHtml).toContain('Business activity is prohibited by the configured Shariah policy.')
-    expect(blockedHoldingHtml).toContain('Missing Shariah evidence')
-    expect(blockedHoldingHtml).toContain('non_compliant_income_ratio')
+    // A BLOCKED holding row must not silently render clean: the gate detail moved to the dossier,
+    // and the board keeps no false-positive chip (no APPROVED/derived verdict without the gate).
+    expect(blockedHoldingHtml).not.toContain('APPROVED')
+    expect(blockedHoldingHtml).toContain('BLCK')
   })
 
 

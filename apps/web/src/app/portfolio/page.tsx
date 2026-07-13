@@ -78,7 +78,15 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         if (discountRate !== undefined) {
           enriched.hurdleRate = discountRate
         }
+        // The ladder anchors (IV + rule-8 load-up) ride along so the holding row can render the
+        // small decision-card view.
+        const iv = (valuationCase?.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share
+        if (iv !== undefined) enriched.intrinsicValuePerShare = iv
+        const loadUp = (valuationCase?.valuation as { load_up_below?: number } | undefined)?.load_up_below
+        if (loadUp !== undefined) enriched.loadUpBelow = loadUp
       }
+      const entityName = (valuationCase ?? linkedCase)?.entity_name
+      if (entityName !== undefined) enriched.entityName = entityName
       return enriched
     })
     return { holdings: enrichedHoldings, alerts }

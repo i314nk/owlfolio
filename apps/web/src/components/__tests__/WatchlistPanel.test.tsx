@@ -72,21 +72,33 @@ describe('WatchlistPanel zone board', () => {
     expect(html.indexOf('NEARCO')).toBeLessThan(html.indexOf('FARCO'))
   })
 
-  it('renders a distance-to-buy figure and a staleness indicator per case', () => {
+  // COMPACT REWORK (2026-07-14): the expansion is the SMALL decision card — verdict summary +
+  // the shared price ladder + "Open the full analysis". The detail rows moved to the dossier.
+  it('renders the price ladder in the expansion when every anchor is computable', () => {
     const html = render([
       item({
-        watchlist_item_id: 'w_buy',
+        watchlist_item_id: 'w_ladder',
         ticker: 'AAA',
-        verdict: { state: 'BUY-WINDOW', proposed_buy_below: 100, distance_to_buy_pct: -8, is_stale: false, case_updated_at: '2026-02-01T00:00:00.000Z' },
+        verdict: { proposed_buy_below: 100, load_up_below: 72, intrinsic_value_per_share: 143, market_price_per_share: 130, distance_to_buy_pct: 30 },
       }),
     ])
-    expect(html).toContain('Distance to buy price')
-    expect(html).toContain('in the buy zone')
-    expect(html).toContain('Staleness:')
-    expect(html).toContain('Buy below (computed, rule 7)')
+    expect(html).toContain('data-testid="price-ladder"')
+    expect(html).toContain('load up $72.00')
+    expect(html).toContain('buy $100.00')
+    expect(html).toContain('IV $143.00')
+    expect(html).toContain('price $130.00')
+    expect(html).toContain('Open the full analysis')
   })
 
-  it('renders the verdict framing: valuation status, computed buy-below, in-buy-zone, market-implied growth', () => {
+  it('omits the ladder honestly when an anchor is missing (no partial ladders)', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_partial', ticker: 'BBB', verdict: { proposed_buy_below: 100, market_price_per_share: 130 } }),
+    ])
+    expect(html).not.toContain('data-testid="price-ladder"')
+    expect(html).toContain('Open the full analysis')
+  })
+
+  it('keeps the row to the necessary figures — the detail rows live in the dossier', () => {
     const html = render([
       item({
         watchlist_item_id: 'w_model',
@@ -101,25 +113,22 @@ describe('WatchlistPanel zone board', () => {
         },
       }),
     ])
-    expect(html).toContain('Model valuation')
-    expect(html).toContain('EXPENSIVE')
-    expect(html).toContain('Buy below (computed, rule 7)')
-    expect(html).toContain('$147.00')
-    expect(html).toContain('Buy-zone')
-    expect(html).toContain('Not in the buy zone')
-    expect(html).toContain('Market-implied growth')
-    expect(html).toContain('9.0%')
-    // forward-DCF removal: the dollar reference fair value line is gone even though the verdict carries the
-    // legacy reference_fair_value: 210 (no figure, no "cross-check" label).
+    expect(html).toContain('buy ≤ $147.00')
+    // The old always-open detail rows are gone from the board.
+    expect(html).not.toContain('Model valuation')
+    expect(html).not.toContain('Market-implied growth')
     expect(html).not.toContain('$210.00')
-    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
-    // The retired band/gap + price-vs-FV framing is gone.
     expect(html).not.toContain('Sustainable band')
-    expect(html).not.toContain('Required growth gap')
-    expect(html).not.toContain('Discount to fair value')
   })
 
-  it('renders the flag-only sanity-check as advisory annotations (never a block)', () => {
+  it('renders the company name beside the ticker when the linked case recorded one', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_name', ticker: 'V', verdict: { proposed_buy_below: 280, entity_name: 'VISA INC.' } }),
+    ])
+    expect(html).toContain('VISA INC.')
+  })
+
+  it('does not render sanity-check annotations on the board (the dossier owns them)', () => {
     const html = render([
       item({
         watchlist_item_id: 'w_sanity',
@@ -132,12 +141,11 @@ describe('WatchlistPanel zone board', () => {
         },
       }),
     ])
-    expect(html).toContain('Sanity-check (1)')
-    expect(html).toContain('does not block the verdict')
-    expect(html).toContain('Implied growth 12% exceeds the demonstrated CAGR')
+    expect(html).not.toContain('Sanity-check (1)')
+    expect(html).not.toContain('Implied growth 12% exceeds the demonstrated CAGR')
   })
 
-  it('flags a stale case honestly and shows an honest "no quote" distance', () => {
+  it('flags a stale case with a one-line caution in the expansion', () => {
     const html = render([
       item({
         watchlist_item_id: 'w_stale',
@@ -145,8 +153,7 @@ describe('WatchlistPanel zone board', () => {
         verdict: { state: 'WATCH', proposed_buy_below: 60, is_stale: true, case_updated_at: '2024-01-01T00:00:00.000Z' },
       }),
     ])
-    expect(html).toContain('Stale (&gt;12 months since last run')
-    expect(html).toContain('No live market quote')
+    expect(html).toContain('STALE — last run &gt;12 months ago')
   })
 
   it('places candidates with no verdict band in the unclassified section', () => {
@@ -154,7 +161,7 @@ describe('WatchlistPanel zone board', () => {
     expect(html).toContain('data-verdict-band="UNCLASSIFIED"')
   })
 
-  it('labels the locked buy-below with its valuation version (provisional-MoS flag retired)', () => {
+  it('no longer renders the locked buy-below provenance row on the board (dossier-only)', () => {
     const html = render([
       item({
         watchlist_item_id: 'w_prov',
@@ -163,11 +170,7 @@ describe('WatchlistPanel zone board', () => {
         buy_below_valuation_version: 'valuation-2026-06-cap-1',
       }),
     ])
-    // The MoS-as-price-haircut / provisional-MoS labels are retired (conservatism lives in the required gap).
-    // The buy-below is the frozen price at the buy-threshold growth, carrying its valuation version.
-    expect(html).toContain('Buy-below · valuation-2026-06-cap-1')
-    expect(html).toContain('$123.45')
-    expect(html).not.toContain('provisional MoS')
+    expect(html).not.toContain('Buy-below · valuation-2026-06-cap-1')
   })
 })
 

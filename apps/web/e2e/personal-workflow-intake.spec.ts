@@ -140,9 +140,10 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Draft — awaiting user confirmation')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
   await msftRow.locator('> summary').click()
-  await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
-  await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
-  await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
+  // The expansion is the small decision card: the thesis + "Open the full analysis" (gate reasons,
+  // required sources, and provenance moved to the dossier).
+  await expect(msftRow.getByText(/durable quality compounder/)).toBeVisible()
+  await expect(msftRow.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   // The dashboard shows the item already confirmed: no pending watchlist-confirmation approval remains.
   await page.goto('/')
@@ -162,8 +163,6 @@ test('personal-local mode can create the first research case from the command ce
 
   await expect(page).toHaveURL('/watchlist')
   await expect(page.locator('details[data-watchlist-row="MSFT"]').getByText('Held', { exact: true })).toBeVisible()
-  await page.locator('details[data-watchlist-row="MSFT"] > summary').click()
-  await expect(page.getByText('Holding open')).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
@@ -173,11 +172,11 @@ test('personal-local mode can create the first research case from the command ce
   await expect(msftHolding).toBeVisible()
   await expect(msftHolding.getByText('entry $812.40')).toBeVisible()
   await msftHolding.locator('> summary').click()
-  // SCALE-DOWN S5: the thesis view — the entry price is the anchor; no share/value books.
-  await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
-  await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
+  // SCALE-DOWN S5: the thesis view — the entry price is the anchor; no share/value books. Gate
+  // evidence lives in the dossier now; the row keeps the anchor + the route to the full analysis.
   await expect(page.getByText('Your entry price: $812.40')).toBeVisible()
   await expect(page.getByText('Opened: 2026-05-31')).toBeVisible()
+  await expect(msftHolding.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   // SCALE-DOWN S5: the manual valuation form + money books are retired — no valuation steps.
   await page.getByText('Manual fallback actions', { exact: true }).click()

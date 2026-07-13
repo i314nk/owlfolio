@@ -176,6 +176,10 @@ export type AppWatchlistVerdict = {
   is_stale?: boolean
   /** Market-implied near-term growth (reverse-DCF of today's price), fraction — the richness read. */
   market_implied_growth?: number
+  /** The DCF intrinsic value per share from the linked case — the ladder's top anchor. */
+  intrinsic_value_per_share?: number
+  /** The registrant's name from the linked case (EDGAR companyfacts); absent on legacy cases. */
+  entity_name?: string
 }
 
 /**
@@ -212,6 +216,11 @@ export function enrichWatchlistItemsWithVerdict(
       ...(valuation.sanity_flags === undefined ? {} : { sanity_flags: valuation.sanity_flags }),
       ...(valuation.market_implied_growth === undefined ? {} : { market_implied_growth: valuation.market_implied_growth }),
     }
+    // The ladder anchors + the display name ride the verdict so the board can render the small
+    // decision-card view without re-projecting the case.
+    const iv = (valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share
+    if (iv !== undefined) verdict.intrinsic_value_per_share = iv
+    if (linked?.entity_name !== undefined) verdict.entity_name = linked.entity_name
     // RULE 8: the load-up threshold — from the linked case when present, else derived from the
     // frozen reference IV (load_up = IV × (1 − load_up_margin); pure arithmetic, same provenance).
     const linkedLoadUp = (linked?.valuation as { load_up_below?: number } | undefined)?.load_up_below

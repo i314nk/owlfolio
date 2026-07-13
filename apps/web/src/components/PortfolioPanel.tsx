@@ -3,6 +3,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 
 import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
+import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
@@ -25,6 +26,12 @@ export type PortfolioHolding = AppHolding & {
   buyBelowPricePerShare?: number
   moatClass?: string
   hurdleRate?: number
+  /** DCF intrinsic value per share from the linked case — the ladder's top anchor. */
+  intrinsicValuePerShare?: number
+  /** The rule-8 load-up threshold from the linked case. */
+  loadUpBelow?: number
+  /** The registrant's name from the linked case (EDGAR companyfacts); absent on legacy cases. */
+  entityName?: string
   /**
    * The harness-marshaled re-underwrite findings (business itemId -> finding), a PURE read of the HELD name's
    * research-case projection resolved by the loader. Passed to the review confirm/override forms so each
@@ -41,13 +48,6 @@ export type PortfolioPanelProps = {
   alerts?: MonitorAlert[]
 }
 
-const cardStyle = {
-  background: 'var(--owl-color-panel-elevated)',
-  border: '1px solid var(--owl-color-border)',
-  borderRadius: 'var(--owl-radius-panel)',
-  boxShadow: 'var(--owl-shadow-panel)',
-  padding: '1.15rem 1.3rem',
-}
 
 const inputStyle = {
   background: 'var(--owl-color-panel-elevated)',
@@ -226,6 +226,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
     'summary',
     { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem' } },
     tickerEl,
+    holding.entityName !== undefined ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, holding.entityName) : null,
     createElement('span', { key: 'entry', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `entry ${formatMoney(holding.cost_basis_per_share, holding.currency)}`),
     holding.latest_price_per_share !== undefined
       ? createElement('span', { key: 'px', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `now ${formatMoney(holding.latest_price_per_share, holding.currency)}${priceMove !== undefined ? ` (${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}%)` : ''}`)
@@ -237,19 +238,44 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
 
   return createElement(
     'details',
-    { key: holding.holding_id, id: holding.holding_id, className: 'owl-collapsible-card', 'data-holding-row': ticker, ...(needsAttention ? { open: true } : {}) },
+    { key: holding.holding_id, id: holding.holding_id, className: 'owl-collapsible-card', 'data-holding-row': ticker, suppressHydrationWarning: true, ...(needsAttention ? { open: true } : {}) },
     summaryLine,
     createElement(
       'div',
-      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.2rem', marginTop: '0.5rem' } },
+      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.75rem', marginTop: '0.5rem' } },
+      // The SMALL decision card, mirroring the dossier's decision card: the thesis summary + the
+      // price ladder against the frozen zones, then the route to the full analysis. Provenance,
+      // gate evidence, and audit IDs live in the dossier.
+      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.thesis_summary)),
+      createPriceLadderElement({
+        ...(holding.intrinsicValuePerShare === undefined ? {} : { iv: holding.intrinsicValuePerShare }),
+        ...(holding.loadUpBelow === undefined ? {} : { load: holding.loadUpBelow }),
+        ...(holding.buyBelowPricePerShare === undefined ? {} : { buy: holding.buyBelowPricePerShare }),
+        ...(holding.latest_price_per_share === undefined ? {} : { livePrice: holding.latest_price_per_share }),
+      }),
       ...(chip === undefined
         ? []
         : [createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, chip.reference)]),
-      createPositionEconomicsTable(holding),
+      ...(holding.research_case_id === undefined
+        ? []
+        : [createElement(
+            'div',
+            { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+            createElement(OwlButtonLink, { href: `/research/${holding.research_case_id}`, variant: 'primary' }, 'Open the full analysis'),
+            createElement(ReReviewButton, { caseId: holding.research_case_id }),
+          )]),
+      // The thesis anchor + the user's own review record — the figures a sell advisory hangs on.
+      createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.2rem' } },
+        createDetail('Your entry price', formatMoney(holding.cost_basis_per_share, holding.currency)),
+        createDetail('Opened', holding.opened_at),
+        ...(holding.thesis_health === undefined ? [] : [createDetail('Thesis health', holding.thesis_health)]),
+        ...(holding.action_stance === undefined ? [] : [createDetail('Action stance', holding.action_stance)]),
+        ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
+        ...(holding.latest_review_rationale === undefined ? [] : [createDetail('Review rationale', holding.latest_review_rationale)]),
+      ),
       createHoldingAlerts(alerts),
-      createConfirmedPortfolioState(holding),
-      ...createShariahGateDetails(holding),
-      createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
       ...(mode === 'personal-local'
         ? [
             ...(holding.pending_review_id === undefined ? [] : [createReviewForm(holding)]),
@@ -262,54 +288,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
 
 
 
-function createPositionEconomicsTable(holding: AppHolding) {
-  // The thesis strip: the entry-price anchor + the latest verifiable PRICE beside it (no values,
-  // no P&L books — the % move contextualizes check-ins and sell advisories).
-  const priceMove = holding.latest_price_per_share !== undefined && holding.cost_basis_per_share > 0
-    ? ((holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share) * 100
-    : undefined
-  return createElement(
-    'section',
-    { className: 'owl-financial-table', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Thesis anchor'),
-    createDetail('Your entry price', formatMoney(holding.cost_basis_per_share, holding.currency)),
-    createDetail('Opened', holding.opened_at),
-    ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Latest price', `${formatMoney(holding.latest_price_per_share, holding.currency)}${priceMove !== undefined ? ` (${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}% vs entry)` : ''}`)]),
-    ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Price checked', holding.latest_price_checked_at)]),
-  )
-}
 
-function createConfirmedPortfolioState(holding: AppHolding) {
-  const hasAuditIds = holding.research_case_id !== undefined || holding.watchlist_item_id !== undefined
-
-  return createElement(
-    'section',
-    { className: 'owl-workflow-card', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Confirmed portfolio state'),
-    createDetail('Strategy', holding.strategy_id ?? 'Strategy not recorded'),
-    createDetail('Opened by actor', formatActor(holding.opened_by_actor_type, holding.opened_by_actor_id)),
-    ...(holding.latest_reviewed_at === undefined ? [] : [createDetail('Last reviewed', holding.latest_reviewed_at)]),
-    createDetail('Last updated', holding.updated_at),
-    ...(holding.thesis_health === undefined ? [] : [createDetail('Thesis health', holding.thesis_health)]),
-    ...(holding.action_stance === undefined ? [] : [createDetail('Action stance', holding.action_stance)]),
-    ...(holding.latest_review_rationale === undefined ? [] : [createDetail('Review rationale', holding.latest_review_rationale)]),
-    ...(holding.latest_review_evidence_summary === undefined ? [] : [createDetail('Review evidence', holding.latest_review_evidence_summary)]),
-    ...(holding.latest_review_uncertainty === undefined ? [] : [createDetail('Review uncertainty', holding.latest_review_uncertainty)]),
-    ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
-    // On-demand thesis re-review vs filings NEW since this holding's decision — an observation launch;
-    // a recorded diff surfaces as a monitor alert + the dossier card, never a portfolio action.
-    ...(holding.research_case_id === undefined ? [] : [createElement(ReReviewButton, { caseId: holding.research_case_id })]),
-    ...(hasAuditIds
-      ? [createElement(
-        'details',
-        { style: { marginTop: '0.75rem' } },
-        createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Audit / provenance'),
-        ...(holding.research_case_id === undefined ? [] : [createDetail('Research case', holding.research_case_id)]),
-        ...(holding.watchlist_item_id === undefined ? [] : [createDetail('Watchlist item', holding.watchlist_item_id)]),
-      )]
-      : []),
-  )
-}
 
 function createReviewForm(holding: PortfolioHolding) {
   if (holding.pending_review_id !== undefined) {
@@ -534,49 +513,8 @@ function createDetail(label: string, value: string) {
   )
 }
 
-function createShariahGateDetails(holding: AppHolding) {
-  if (holding.shariah_gate_decision_id === undefined) {
-    return []
-  }
 
-  return [
-    createDetail('Shariah gate', `${holding.shariah_gate_status ?? 'UNKNOWN'} — ${describeGateAllowance(holding.shariah_gate_allowed)}`),
-    ...(holding.shariah_gate_reasons === undefined || holding.shariah_gate_reasons.length === 0
-      ? []
-      : [createDetail('Shariah gate reasons', holding.shariah_gate_reasons.join(' '))]),
-    ...(holding.shariah_required_source_ids === undefined || holding.shariah_required_source_ids.length === 0
-      ? []
-      : [createDetail('Required Shariah sources', holding.shariah_required_source_ids.join(', '))]),
-    ...(holding.shariah_missing_evidence === undefined || holding.shariah_missing_evidence.length === 0
-      ? []
-      : [createDetail('Missing Shariah evidence', holding.shariah_missing_evidence.join(', '))]),
-    createElement(
-      'details',
-      { style: { marginTop: '0.5rem' } },
-      createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Gate decision (audit)'),
-      createDetail('Gate decision', holding.shariah_gate_decision_id),
-    ),
-  ]
-}
 
-function formatActor(actorType: string | undefined, actorId: string | undefined): string {
-  if (actorType === undefined || actorId === undefined) {
-    return 'Not recorded'
-  }
-
-  return `${actorType}:${actorId}`
-}
-
-function describeGateAllowance(allowed: boolean | undefined): string {
-  if (allowed === true) {
-    return 'allowed'
-  }
-  if (allowed === false) {
-    return 'blocked'
-  }
-
-  return 'gate decision pending'
-}
 
 
 type HoldingValuationChip = {
@@ -645,6 +583,13 @@ function buyBelowReferenceLine(holding: PortfolioHolding, buyBelow: number): str
     parts.push(`${Math.round(holding.hurdleRate * 100)}% hurdle`)
   }
   return parts.join(' · ')
+}
+
+/** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
+function clampThesis(thesis: string | undefined): string {
+  if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
+  if (thesis.length <= 280) return thesis
+  return `${thesis.slice(0, 280).trimEnd()}… (full analysis in the dossier)`
 }
 
 function formatMoney(value: number, currency: string): string {
