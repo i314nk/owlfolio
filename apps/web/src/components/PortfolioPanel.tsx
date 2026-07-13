@@ -207,39 +207,56 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
   const ticker = holding.ticker ?? holding.company_id ?? holding.holding_id
   const chip = holdingValuationChip(holding)
 
+  // COMPACT ROW (owner-locked 2026-07-14): the summary is one line — ticker (a LINK to the dossier
+  // when the case id survives), entry vs latest price, the valuation chip, and the review badge.
+  // Everything else (review state, forms, Shariah, alerts) expands beneath. A pending review or an
+  // urgent alert opens the row by default so an action waiting on the user is never hidden.
+  const priceMove = holding.latest_price_per_share !== undefined && holding.cost_basis_per_share > 0
+    ? ((holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share) * 100
+    : undefined
+  const needsAttention = holding.pending_review_id !== undefined || alerts.some((alert) => alert.severity === 'urgent')
+  const tickerEl = holding.research_case_id !== undefined
+    ? createElement('a', {
+        href: `/research/${holding.research_case_id}`,
+        className: 'owl-focusable',
+        style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
+      }, ticker)
+    : createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800 } }, ticker)
+  const summaryLine = createElement(
+    'summary',
+    { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem' } },
+    tickerEl,
+    createElement('span', { key: 'entry', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `entry ${formatMoney(holding.cost_basis_per_share, holding.currency)}`),
+    holding.latest_price_per_share !== undefined
+      ? createElement('span', { key: 'px', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `now ${formatMoney(holding.latest_price_per_share, holding.currency)}${priceMove !== undefined ? ` (${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}%)` : ''}`)
+      : null,
+    createElement('span', { key: 'spacer', style: { flex: 1 } }),
+    ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
+    createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Review drafted' : holding.thesis_health ?? 'Review pending'),
+  )
+
   return createElement(
-    'section',
-    { key: holding.holding_id, id: holding.holding_id, className: 'owl-section-card owl-workflow-card' },
+    'details',
+    { key: holding.holding_id, id: holding.holding_id, className: 'owl-collapsible-card', 'data-holding-row': ticker, ...(needsAttention ? { open: true } : {}) },
+    summaryLine,
     createElement(
       'div',
-      { className: 'owl-row owl-row-top' },
-      createElement(
-        'div',
-        { className: 'owl-row-main' },
-        createElement('p', { className: 'owl-section-accent' }, 'Open position'),
-        createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, ticker),
-        ...(chip === undefined
-          ? []
-          : [createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0' } }, chip.reference)]),
-      ),
-      createElement(
-        'div',
-        { className: 'owl-row-aside' },
-        ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
-        createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
-      ),
+      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.2rem', marginTop: '0.5rem' } },
+      ...(chip === undefined
+        ? []
+        : [createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, chip.reference)]),
+      createPositionEconomicsTable(holding),
+      createHoldingAlerts(alerts),
+      createConfirmedPortfolioState(holding),
+      ...createShariahGateDetails(holding),
+      createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
+      ...(mode === 'personal-local'
+        ? [
+            ...(holding.pending_review_id === undefined ? [] : [createReviewForm(holding)]),
+            createManualFallbackActions(holding),
+          ]
+        : []),
     ),
-    createPositionEconomicsTable(holding),
-    createHoldingAlerts(alerts),
-    createConfirmedPortfolioState(holding),
-    ...createShariahGateDetails(holding),
-    createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
-    ...(mode === 'personal-local'
-      ? [
-          ...(holding.pending_review_id === undefined ? [] : [createReviewForm(holding)]),
-          createManualFallbackActions(holding),
-        ]
-      : []),
   )
 }
 

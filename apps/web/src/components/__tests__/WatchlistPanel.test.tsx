@@ -22,16 +22,54 @@ function render(items: AppWatchlistItem[]): string {
   return renderToStaticMarkup(createElement(WatchlistPanel, { items, mode: 'personal-local' }))
 }
 
-describe('WatchlistPanel model-verdict sections', () => {
-  it('splits candidates into BUY-WINDOW / WATCH-FAIR / WATCH sections by verdict state', () => {
+describe('WatchlistPanel zone board', () => {
+  // Compact rework (owner-locked 2026-07-14): the watchlist is organized by the BOOK's zones, not the
+  // verdict-state vocabulary — load-up (rule 8) → buy zone (rule 7) → above-zone waiting → unclassified.
+  it('splits candidates into load-up / buy-zone / above-zone sections', () => {
     const html = render([
-      item({ watchlist_item_id: 'w_buy', ticker: 'AAA', verdict: { state: 'BUY-WINDOW', proposed_buy_below: 100 } }),
-      item({ watchlist_item_id: 'w_fair', ticker: 'BBB', verdict: { state: 'WATCH-FAIR', proposed_buy_below: 80 } }),
-      item({ watchlist_item_id: 'w_watch', ticker: 'CCC', verdict: { state: 'WATCH', proposed_buy_below: 50 } }),
+      item({ watchlist_item_id: 'w_load', ticker: 'AAA', verdict: { state: 'BUY-WINDOW', proposed_buy_below: 100, in_buy_zone: true, in_load_up_zone: true } }),
+      item({ watchlist_item_id: 'w_buy', ticker: 'BBB', verdict: { state: 'BUY-WINDOW', proposed_buy_below: 80, in_buy_zone: true, in_load_up_zone: false } }),
+      item({ watchlist_item_id: 'w_watch', ticker: 'CCC', verdict: { state: 'WATCH', proposed_buy_below: 50, in_buy_zone: false } }),
     ])
-    expect(html).toContain('data-verdict-band="BUY-WINDOW"')
-    expect(html).toContain('data-verdict-band="WATCH-FAIR"')
-    expect(html).toContain('data-verdict-band="WATCH"')
+    expect(html).toContain('data-verdict-band="LOAD_UP"')
+    expect(html).toContain('data-verdict-band="BUY_ZONE"')
+    expect(html).toContain('data-verdict-band="ABOVE_ZONE"')
+    expect(html).toContain('In the load-up zone (rule 8)')
+    expect(html).toContain('In the buy zone (rule 7)')
+    expect(html).toContain('Above the zone — waiting')
+  })
+
+  it('renders a compact row: the ticker links to the original analysis; the details expand', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_row', ticker: 'AAA', verdict: { state: 'WATCH', proposed_buy_below: 100, market_price_per_share: 130, distance_to_buy_pct: 30 } }),
+    ])
+    // The ticker in the summary is a link to the dossier — click-through to the original analysis.
+    expect(html).toContain('href="/research/case_w_row"')
+    expect(html).toContain('data-watchlist-row="AAA"')
+    // The one-line summary carries only the necessary figures.
+    expect(html).toContain('buy ≤ $100.00')
+    expect(html).toContain('now $130.00')
+    expect(html).toContain('30% ABOVE THE ZONE')
+    // The heavy always-open card framing is gone.
+    expect(html).not.toContain('Watchlist candidate')
+    expect(html).not.toContain('Provider draft state')
+  })
+
+  it('places a priced verdict with NO legacy state in the above-zone section (new runs emit no state)', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_new', ticker: 'VVV', verdict: { proposed_buy_below: 280, market_price_per_share: 348.97, distance_to_buy_pct: 25, in_buy_zone: false } }),
+    ])
+    expect(html).toContain('data-verdict-band="ABOVE_ZONE"')
+    expect(html).not.toContain('data-verdict-band="UNCLASSIFIED"')
+  })
+
+  it('sorts the above-zone section nearest-to-the-zone first', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_far', ticker: 'FARCO', verdict: { state: 'WATCH', proposed_buy_below: 50, distance_to_buy_pct: 40 } }),
+      item({ watchlist_item_id: 'w_near', ticker: 'NEARCO', verdict: { state: 'WATCH-FAIR', proposed_buy_below: 90, distance_to_buy_pct: 5 } }),
+    ])
+    expect(html.indexOf('NEARCO')).toBeGreaterThan(-1)
+    expect(html.indexOf('NEARCO')).toBeLessThan(html.indexOf('FARCO'))
   })
 
   it('renders a distance-to-buy figure and a staleness indicator per case', () => {

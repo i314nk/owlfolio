@@ -41,7 +41,7 @@ describe('research and watchlist workflow pages', () => {
     // admission lands the item user-confirmed in one gated step (signed thesis + checklist + Shariah).
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
     expect(personalDraftHtml).not.toContain('Confirm watchlist draft')
-    expect(personalConfirmedHtml).toContain('User confirmed')
+    expect(personalConfirmedHtml).toContain('Confirmed')
     expect(personalConfirmedHtml).not.toContain('Confirm watchlist draft')
     expect(personalConfirmedHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
   })
@@ -196,7 +196,7 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('color:#f7f8ff')
     expect(personalDraftHtml).not.toContain('Record initial holding')
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
-    expect(personalHeldHtml).toContain('Holding recorded')
+    expect(personalHeldHtml).toContain('>Held<')
     expect(personalHeldHtml).not.toContain('Record initial holding')
     expect(personalHeldHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
   })

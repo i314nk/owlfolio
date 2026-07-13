@@ -27,41 +27,54 @@ const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-// ── Model-verdict sections (R1): BUY-WINDOW / WATCH-FAIR / WATCH — the model's proposed verdict states ──
-type VerdictBand = 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' | 'UNCLASSIFIED'
+// ── ZONE BOARD (owner-locked 2026-07-14): the watchlist is organized by the book's zones — the
+// deepest opportunity first. LOAD_UP (≥50% margin) → BUY_ZONE (≥30%) → ABOVE_ZONE (waiting, sorted
+// nearest-first) → UNCLASSIFIED (no verdict yet). Rows are COMPACT: one line each; the ticker links
+// to the dossier; the row expands for the full checkpoint + actions.
+type ZoneBand = 'LOAD_UP' | 'BUY_ZONE' | 'ABOVE_ZONE' | 'UNCLASSIFIED'
 
-const BAND_ORDER: VerdictBand[] = ['BUY-WINDOW', 'WATCH-FAIR', 'WATCH', 'UNCLASSIFIED']
+const BAND_ORDER: ZoneBand[] = ['LOAD_UP', 'BUY_ZONE', 'ABOVE_ZONE', 'UNCLASSIFIED']
 
-const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
-  'BUY-WINDOW': {
-    title: 'Buy-window',
-    note: 'Price is at or below the computed buy threshold on a gate-clean case. Observation only — you author every buy.',
+const BAND_META: Record<ZoneBand, { title: string; note: string }> = {
+  LOAD_UP: {
+    title: 'In the load-up zone (rule 8)',
+    note: '"Once you find a margin of safety, load up the truck." A ≥50% margin on a gate-clean case. Observation only — you author every buy.',
   },
-  'WATCH-FAIR': {
-    title: 'Watch-fair',
-    note: 'Wonderful at fair — quality at fair value, the human-discretion zone. Never a harness buy signal.',
+  BUY_ZONE: {
+    title: 'In the buy zone (rule 7)',
+    note: 'Price at or below the computed buy threshold (a ≥30% margin of safety). Observation only — you author every buy.',
   },
-  WATCH: {
-    title: 'Watch',
-    note: 'Tracked while the price sits above the computed buy threshold; waiting for the price to enter the zone and the reasoning to hold.',
+  ABOVE_ZONE: {
+    title: 'Above the zone — waiting',
+    note: 'Tracked while the price sits above the computed buy threshold; nearest to the zone first. Patience is the position.',
   },
   UNCLASSIFIED: {
-    title: 'Tracked (no model verdict yet)',
-    note: 'No model verdict computed yet — run or re-run the case to classify it.',
+    title: 'Tracked (no verdict yet)',
+    note: 'No computed thresholds yet — run or re-run the case to place it on the board.',
   },
 }
 
-function bandFor(item: AppWatchlistItem): VerdictBand {
-  const state = item.verdict?.state
-  if (state === 'BUY-WINDOW' || state === 'WATCH-FAIR' || state === 'WATCH') {
-    return state
-  }
+function bandFor(item: AppWatchlistItem): ZoneBand {
+  const v = item.verdict
+  if (v?.in_load_up_zone === true) return 'LOAD_UP'
+  if (v?.in_buy_zone === true) return 'BUY_ZONE'
+  // A verdict object exists IFF the case computed a buy threshold (enrichWatchlistItemsWithVerdict
+  // guards on it) — so any verdict outside the zones is priced-and-waiting, whatever the legacy
+  // `state` vocabulary says. UNCLASSIFIED is reserved for genuinely unpriced cases.
+  if (v !== undefined) return 'ABOVE_ZONE'
   return 'UNCLASSIFIED'
 }
 
+/** Sort inside a band: nearest to the buy zone first (unknown distances last). */
+function zoneSort(a: AppWatchlistItem, b: AppWatchlistItem): number {
+  const da = a.verdict?.distance_to_buy_pct ?? Number.POSITIVE_INFINITY
+  const db = b.verdict?.distance_to_buy_pct ?? Number.POSITIVE_INFINITY
+  return da - db
+}
+
 export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: WatchlistPanelProps) {
-  const sectionsForBand = (band: VerdictBand) => {
-    const bandItems = items.filter((item) => bandFor(item) === band)
+  const sectionsForBand = (band: ZoneBand) => {
+    const bandItems = items.filter((item) => bandFor(item) === band).sort(zoneSort)
     if (bandItems.length === 0) {
       return []
     }
@@ -72,8 +85,8 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: 
         { key: `band-${band}`, 'aria-label': `${meta.title} candidates`, 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
         createElement('p', { className: 'owl-section-accent' }, `${meta.title} · ${bandItems.length}`),
         createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, meta.note),
+        ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id), band)),
       ),
-      ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id))),
     ]
   }
 
@@ -172,57 +185,69 @@ function createEmptyState() {
 
 // ── Candidate card ────────────────────────────────────────────────────────────
 
-function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[]) {
+function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[], band: ZoneBand) {
   const ticker = item.ticker ?? item.company_id ?? item.watchlist_item_id
+  const v = item.verdict as { buy_price_per_share?: number; proposed_buy_below?: number; market_price_per_share?: number; distance_to_buy_pct?: number; load_up_below?: number } | undefined
+  const buyBelow = v?.proposed_buy_below ?? v?.buy_price_per_share
+  const dist = v?.distance_to_buy_pct
+
+  // COMPACT ROW (owner-locked 2026-07-14): the summary is the zone board line — ticker (a LINK to
+  // the dossier), the two zone thresholds, the live price + distance, and the state badge. The full
+  // checkpoint + actions expand beneath. Only the necessary info shows closed.
+  const zoneChip = band === 'LOAD_UP'
+    ? createElement('span', { key: 'zone', style: { color: '#4ade80', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'LOAD-UP ZONE')
+    : band === 'BUY_ZONE'
+      ? createElement('span', { key: 'zone', style: { color: '#4ade80', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'BUY ZONE')
+      : dist !== undefined
+        ? createElement('span', { key: 'zone', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, `${dist.toFixed(0)}% ABOVE THE ZONE`)
+        : null
+  const summaryLine = createElement(
+    'summary',
+    { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem' } },
+    createElement('a', {
+      href: `/research/${item.research_case_id}`,
+      className: 'owl-focusable',
+      style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
+    }, ticker),
+    buyBelow !== undefined ? createElement('span', { key: 'buy', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `buy ≤ $${buyBelow.toFixed(2)}`) : null,
+    v?.load_up_below !== undefined ? createElement('span', { key: 'load', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `load ≤ $${v.load_up_below.toFixed(2)}`) : null,
+    v?.market_price_per_share !== undefined ? createElement('span', { key: 'px', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `now $${v.market_price_per_share.toFixed(2)}`) : null,
+    createElement('span', { key: 'spacer', style: { flex: 1 } }),
+    zoneChip,
+    ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
+    createElement(
+      StatusBadge,
+      { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
+      item.holding_id !== undefined ? 'Held' : item.user_approved ? 'Confirmed' : 'Legacy draft',
+    ),
+  )
 
   return createElement(
-    'section',
-    { key: item.watchlist_item_id, id: item.watchlist_item_id, className: 'owl-section-card owl-workflow-card' },
-    // Heading row: ticker + gate chip + status badge.
+    'details',
+    { key: item.watchlist_item_id, id: item.watchlist_item_id, className: 'owl-collapsible-card', 'data-watchlist-row': ticker },
+    summaryLine,
     createElement(
       'div',
-      { className: 'owl-row owl-row-top' },
+      { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.6rem', marginTop: '0.5rem' } },
+      // Thesis line: the opening of the case, not the whole narrative — the dossier owns the full text.
+      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, clampThesis(item.thesis_summary)),
+      // Gate evidence (the provider's draft).
       createElement(
         'div',
-        { className: 'owl-row-main' },
-        createElement('p', { className: 'owl-section-accent' }, 'Watchlist candidate'),
-        createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, ticker),
-        createElement('p', { className: 'owl-row-helper' }, item.thesis_summary ?? 'No thesis recorded'),
+        { style: { display: 'grid', gap: '0.2rem' } },
+        createElement('p', { className: 'owl-section-accent' }, 'Case state'),
+        createDetail('Strategy', item.strategy_id ?? 'Unknown'),
+        createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
+        ...createLockedBuyBelowDetail(item),
+        ...createShariahGateDetails(item),
       ),
-      createElement(
-        'div',
-        { className: 'owl-row-aside' },
-        ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
-        createElement(
-          StatusBadge,
-          { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
-          item.holding_id !== undefined
-            ? 'Holding recorded'
-            : item.user_approved
-              ? 'User confirmed'
-              // Phase 8 S4: admission is a single gated step, so new items land confirmed. A bare
-              // unconfirmed item is now only a legacy ledger artifact (no confirm action remains).
-              : 'Legacy unconfirmed draft',
-        ),
-      ),
+      // Verdict band: distance-to-buy-price + staleness indicator.
+      createVerdictBandDetails(item),
+      // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
+      createWatchlistAlerts(alerts),
+      // The decision checkpoint: provenance + the user's authorization actions.
+      createDecisionCheckpoint(item, mode),
     ),
-    // Thesis & gate evidence (the provider's draft).
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.2rem' } },
-      createElement('p', { className: 'owl-section-accent' }, 'Provider draft state'),
-      createDetail('Strategy', item.strategy_id ?? 'Unknown'),
-      createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
-      createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-      ...createLockedBuyBelowDetail(item),
-      ...createShariahGateDetails(item),
-    ),
-    // Verdict band: distance-to-buy-price + staleness indicator (position-sizing §5).
-    createVerdictBandDetails(item),
-    // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
-    createWatchlistAlerts(alerts),
-    // The decision checkpoint: provenance + the user's authorization actions.
-    createDecisionCheckpoint(item, mode),
   )
 }
 
@@ -421,6 +446,13 @@ function createResearchCaseLink(researchCaseId: string) {
     createElement('a', { className: 'owl-focusable', href, style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800, textDecoration: 'none' } }, 'View research dossier'),
     createElement(SourceChip, { href, id: researchCaseId, label: 'Research case' }),
   )
+}
+
+/** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
+function clampThesis(thesis: string | undefined): string {
+  if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
+  if (thesis.length <= 280) return thesis
+  return `${thesis.slice(0, 280).trimEnd()}… (full analysis in the dossier)`
 }
 
 function createDetail(label: string, value: string) {
