@@ -18,7 +18,6 @@ const navSections: NavSection[] = [
     items: [
       { href: '/', label: 'Command Center' },
       { href: '/research', label: 'Research' },
-      { href: '/lifecycle', label: 'Lifecycle' },
       { href: '/watchlist', label: 'Watchlist' },
       { href: '/portfolio', label: 'Portfolio' },
       // B7 (book alignment): the passive index foundation — plan, contributions, drift; no sell control.

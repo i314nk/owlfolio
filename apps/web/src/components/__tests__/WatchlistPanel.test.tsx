@@ -43,12 +43,12 @@ describe('WatchlistPanel model-verdict sections', () => {
       }),
     ])
     expect(html).toContain('Distance to buy price')
-    expect(html).toContain('in the buy window')
+    expect(html).toContain('in the buy zone')
     expect(html).toContain('Staleness:')
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed, rule 7)')
   })
 
-  it('renders the model verdict framing: valuation status, model buy-below, in-buy-zone, market-implied growth', () => {
+  it('renders the verdict framing: valuation status, computed buy-below, in-buy-zone, market-implied growth', () => {
     const html = render([
       item({
         watchlist_item_id: 'w_model',
@@ -65,7 +65,7 @@ describe('WatchlistPanel model-verdict sections', () => {
     ])
     expect(html).toContain('Model valuation')
     expect(html).toContain('EXPENSIVE')
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed, rule 7)')
     expect(html).toContain('$147.00')
     expect(html).toContain('Buy-zone')
     expect(html).toContain('Not in the buy zone')

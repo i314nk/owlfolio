@@ -23,7 +23,7 @@ import { RouteHeader, OwlValuationChip } from './designSystem'
 const strategy = buffettMungerStrategy
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // RELIGHTENED DECISION (R1): the deterministic required_growth_gap / band engine is RETIRED. The MODEL now
-// proposes the verdict, the valuation, and the buy-below with cited reasoning; the deterministic side emits
+// proposes the verdict and valuation with cited reasoning; the deterministic side emits
 // a flag-only sanity-check. No band/gap display constant remains.
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
@@ -440,7 +440,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Honest scope: the circle is permissive by default, the size axis is deferred, the model-proposed buy-below is provisional (the human signs it off), and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
+          'Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
         ),
       ),
     }),
@@ -551,7 +551,7 @@ export function StrategyOverview(): ReactNode {
             [createElement('span', { style: goldText }, 'Load-up margin (rule 8)'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.load_up_margin)} below IV`)],
           ],
         }),
-        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist — not a license to stretch the horizon or shave the margin. The thresholds are computed; the model’s own price view is recorded as an advisory cross-check and reconciled by a divergence flag.'),
+        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist — not a license to stretch the horizon or shave the margin. The thresholds are computed arithmetic (IV × 0.70 / × 0.50) — the model judges growth and the exit comps, never the price.'),
 
         // Worked example — computed from the live book model.
         createElement(

@@ -35,7 +35,7 @@ const BAND_ORDER: VerdictBand[] = ['BUY-WINDOW', 'WATCH-FAIR', 'WATCH', 'UNCLASS
 const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
   'BUY-WINDOW': {
     title: 'Buy-window',
-    note: 'Price is at or below the model-proposed buy-below on a gate-clean case. Observation only — you author every buy.',
+    note: 'Price is at or below the computed buy threshold on a gate-clean case. Observation only — you author every buy.',
   },
   'WATCH-FAIR': {
     title: 'Watch-fair',
@@ -43,7 +43,7 @@ const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
   },
   WATCH: {
     title: 'Watch',
-    note: 'Tracked while the price sits above the model-proposed buy-below; waiting for the price to meet it and the reasoning to hold.',
+    note: 'Tracked while the price sits above the computed buy threshold; waiting for the price to enter the zone and the reasoning to hold.',
   },
   UNCLASSIFIED: {
     title: 'Tracked (no model verdict yet)',
@@ -247,16 +247,26 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
     lines.push(createDetail('Model valuation', verdict.valuation_status))
   }
   if (buyBelow !== undefined) {
-    lines.push(createDetail('Model buy-below', `$${buyBelow.toFixed(2)}`))
+    lines.push(createDetail('Buy below (computed, rule 7)', `$${buyBelow.toFixed(2)}`))
   }
   if (verdict.distance_to_buy_pct !== undefined) {
     const pct = verdict.distance_to_buy_pct
     lines.push(createDetail(
       'Distance to buy price',
-      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below the model buy-below — in the buy window` : `${pct.toFixed(1)}% above the model buy-below`,
+      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below the computed buy threshold — in the buy zone` : `${pct.toFixed(1)}% above the computed buy threshold`,
     ))
   } else {
     lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
+  }
+  // RULE 8 (owner-locked 2026-07-13): the load-up zone read — the watchlist IS the zone board.
+  const v8 = verdict as { load_up_below?: number; in_load_up_zone?: boolean }
+  if (v8.load_up_below !== undefined) {
+    lines.push(createDetail(
+      'Load-up below (rule 8)',
+      v8.in_load_up_zone === true
+        ? `$${v8.load_up_below.toFixed(2)} — IN THE LOAD-UP ZONE: "once you find a margin of safety, load up the truck"`
+        : `$${v8.load_up_below.toFixed(2)}`,
+    ))
   }
   if (verdict.market_price_per_share !== undefined) {
     const priceStr = `$${verdict.market_price_per_share.toFixed(2)}`

@@ -183,10 +183,10 @@ describe('LearnTabs', () => {
     expect(html).toContain('already-wonderful')
     expect(html).toContain('permanent-loss risk')
     expect(html).toContain('bear case')
-    // Admit human-decided: signed thesis (not pre-filled) + provisional-MoS buy-below.
+    // Admit human-decided: signed thesis (not pre-filled) + computed buy-below.
     expect(html).toContain('signed thesis')
     expect(html).toContain('never pre-filled')
-    expect(html).toContain('provisional')
+    expect(html).toContain('computed')
     // NO OVERCLAIM: no admit-recommendation panel yet.
     expect(html).toContain('no admit-recommendation panel yet')
   })

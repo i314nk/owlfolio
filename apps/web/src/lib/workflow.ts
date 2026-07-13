@@ -176,6 +176,9 @@ export type AppWatchlistVerdict = {
   market_price_per_share?: number
   /** Signed distance of market vs buy price as a PERCENT (negative = below buy price = in the window). */
   distance_to_buy_pct?: number
+  /** RULE 8 (owner-locked 2026-07-13): the load-up threshold (IV × 0.50) + the zone read at the live price. */
+  load_up_below?: number
+  in_load_up_zone?: boolean
   /** ISO timestamp of the price snapshot used for market_price_per_share (from the ledger snapshot). */
   price_as_of?: string
   /** The case's last-updated timestamp — basis for the staleness read. */
@@ -220,11 +223,21 @@ export function enrichWatchlistItemsWithVerdict(
       ...(valuation.sanity_flags === undefined ? {} : { sanity_flags: valuation.sanity_flags }),
       ...(valuation.market_implied_growth === undefined ? {} : { market_implied_growth: valuation.market_implied_growth }),
     }
+    // RULE 8: the load-up threshold — from the linked case when present, else derived from the
+    // frozen reference IV (load_up = IV × (1 − load_up_margin); pure arithmetic, same provenance).
+    const linkedLoadUp = (linked?.valuation as { load_up_below?: number } | undefined)?.load_up_below
+    const frozenIv = (item as { frozen_reference_fair_value?: number }).frozen_reference_fair_value
+    const loadUpBelow = linkedLoadUp
+      ?? (typeof frozenIv === 'number' && Number.isFinite(frozenIv) && frozenIv > 0
+        ? Number((frozenIv * (1 - VALUATION_PARAMS.load_up_margin)).toFixed(2))
+        : undefined)
+    if (loadUpBelow !== undefined) verdict.load_up_below = loadUpBelow
     if (typeof item.ticker === 'string' && item.ticker.length > 0 && snapshots.has(item.ticker)) {
       const snap = snapshots.get(item.ticker)!
       verdict.market_price_per_share = snap.price_per_share
       verdict.distance_to_buy_pct = ((snap.price_per_share - buyBelow) / buyBelow) * 100
       verdict.in_buy_zone = snap.price_per_share <= buyBelow
+      if (loadUpBelow !== undefined) verdict.in_load_up_zone = snap.price_per_share <= loadUpBelow
       verdict.price_as_of = snap.as_of
     }
     const updatedAt = linked?.updated_at

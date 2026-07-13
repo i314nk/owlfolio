@@ -20,7 +20,7 @@ import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatal
 const strategy = buffettMungerStrategy
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // RELIGHTENED DECISION (R1): the deterministic required_growth_gap / band engine is RETIRED. The MODEL now
-// proposes the verdict, the valuation, and the buy-below with cited reasoning; the deterministic side emits
+// proposes the verdict and valuation with cited reasoning; the deterministic side emits
 // a flag-only sanity-check. No band/gap display constant remains. Terminal g + horizon stay uniform.
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
@@ -207,7 +207,7 @@ function StrategyTab(): ReactNode {
           { key: 'r', eyebrow: 'Required return', body: createElement('span', null, 'the flat ', mono(pct(VALUATION_PARAMS.required_return_default)), ' hurdle for every business (user-settable) — no beta, no quality knob. It doubles as the active-vs-passive bar.') },
           { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s cited FCF growth; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
           { key: 'exit', eyebrow: 'Exit multiple', body: createElement('span', null, 'Anchored to NAMED comparables (each industry carries its own multiples — no fixed band): the harness checks the choice against the comps’ median and falls back to a conservative ', mono(`${VALUATION_PARAMS.exit_multiple_fallback}×`), ' only when absent or absurd.') },
-          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The model’s own price view is recorded as an advisory cross-check.') },
+          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The thresholds are arithmetic — the model judges growth and the exit comps, never the price.') },
         ], '200px'),
       ),
     }),
@@ -227,15 +227,15 @@ function StrategyTab(): ReactNode {
           createElement('span', { key: 2 }, gold('Size'), ' — the Pabrai Principle 5 axis, ', gold('deferred'), '. A size boundary favouring small, under-followed names is part of the model but shipped permissive; it does not yet constrain admission.'),
           createElement('span', { key: 3 }, gold('Cheapness counts only on an already-wonderful business'), ' — price is never the entry reason. Cheapness is considered only after a business passes the quality gate; a cheap business that fails the gate is still a PASS.'),
           createElement('span', { key: 4 }, gold('Uncertainty vs permanent-loss risk'), ' — the admit judgment splits the two. An opportunity is high uncertainty + ', gold('low permanent-loss risk'), '; an independent bear case tests that the downside is uncertainty, not impairment.'),
-          createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and the frozen ', gold('model-proposed buy-below'), ' at admit. A future re-underwrite re-anchors that buy-below visibly, never moving it silently.'),
+          createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and the frozen ', gold('computed buy-below'), ' at admit. A future re-underwrite re-anchors that buy-below visibly, never moving it silently.'),
         ]),
-        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the model-proposed buy-below is provisional (the human signs it off), and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
+        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
       ),
     }),
     PanelSection({
       eyebrow: 'The verdict',
       title: 'BUY, WATCH, or PASS',
-      lead: 'The model proposes the draft verdict with cited reasoning — a BUY-WINDOW draft when the price has met its proposed buy-below, WATCH while the price sits above it, and a failed quality gate forces PASS. The deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds) but never blocks the verdict — the human audits the reasoning and decides.',
+      lead: 'The model proposes the draft verdict with cited reasoning — a BUY-WINDOW draft when the price has met the computed buy threshold, WATCH while the price sits above it, and a failed quality gate forces PASS. The deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds) but never blocks the verdict — the human audits the reasoning and decides.',
       children: caveat('Every output here is a draft. Nothing becomes a watchlist entry or a holding without an explicit, user-authored ledger transition. See the full method on the Strategy page.'),
     }),
   )
@@ -458,7 +458,7 @@ function LifecycleTab(): ReactNode {
         gold('EXITED'),
         '. A name becomes a candidate from discovery + research, advances to watched on a user-confirmed watchlist entry, becomes held on an explicit open-holding entry, and is exited when no live entity remains. Every transition is append-only and timestamped, and ',
         gold('every irreversible transition is human-authored'),
-        ' — the agent never trades and never moves a name between states. The Lifecycle page renders this one list grouped by state.',
+        ' — the agent never trades and never moves a name between states. Research, watchlist, and portfolio each render their slice of this one list.',
       ),
       children: bullets([
         createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the front gates; the Shariah sector exclusion is applied before a candidate even enters the ledger, and most names die cheaply here.'),
@@ -483,7 +483,7 @@ function LifecycleTab(): ReactNode {
         { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
         cardGrid([
           { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
-          { key: 'tranche', eyebrow: 'Tranche triggers (held)', body: 'Price at T2 (−10%) or T3 (−20%) triggers a thesis re-check first, then a tranche alert — never mechanical averaging-down.' },
+          { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs — the book has no ladder) — never mechanical averaging-down.' },
           { key: 'conc', eyebrow: 'Concentration (held)', body: 'The 15% deployment cap binds new buys; a held position that APPRECIATES past a higher concentration-review threshold (~22%) raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim.' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
           { key: 'rereview', eyebrow: 'Check-in (any decided name; the book: quarterly is the ideal rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
