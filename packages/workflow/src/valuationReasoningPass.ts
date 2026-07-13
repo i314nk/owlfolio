@@ -59,7 +59,17 @@ export const ValuationReasoningSchema = z.object({
       // OWNER RULE (2026-07-12): the reference band IS the named-comps set — structured so the
       // harness can check the chosen multiple against their MEDIAN deterministically (the
       // conservative-tilt rule). Optional at the schema level; absence is a visible advisory.
-      comps: z.array(z.object({ name: z.string().min(1), p_fcf: z.number().positive() })).optional(),
+      // TOLERANT SHAPE (SPGI live find, rc_spgi_1783951008414): a model returning comps as a STRING
+      // (or malformed entries) must DEGRADE to unstructured — the advisory covers honesty — never
+      // fail the whole stage into an unpriced RESEARCH_MORE.
+      comps: z.preprocess(
+        (v) => Array.isArray(v)
+          ? v.filter((c) => typeof c === 'object' && c !== null
+              && typeof (c as { name?: unknown }).name === 'string' && ((c as { name: string }).name).length > 0
+              && typeof (c as { p_fcf?: unknown }).p_fcf === 'number' && (c as { p_fcf: number }).p_fcf > 0)
+          : undefined,
+        z.array(z.object({ name: z.string().min(1), p_fcf: z.number().positive() })).optional(),
+      ),
       citation: z.string().optional(),
     })
     .optional(),
