@@ -176,7 +176,7 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
         ]
       : []),
     'Adding on the way down is thesis-gated — a falling price is re-checked, never chased.',
-    'Target weight is an entry cap — let winners run; do not force-trim a compounder.',
+    'The conviction target is OUR sizing policy — the book prescribes zones and boldness, not weights. It is an entry cap: let winners run; do not force-trim a compounder.',
     `The ${(cashBuffer * 100).toFixed(0)}% cash buffer and ${maxPositions}-position limit are OUR risk rails — the book prescribes zones and boldness, not counts or weights.`,
     // S6 follow-up (i): this bare conviction target is NOT fully risk-checked. The downside caps
     // (permanent-loss / cluster / deployment hurdle) are applied at EXECUTION-TIME sizing — the on-demand

@@ -2476,7 +2476,9 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
     createElement(
       'div',
       { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      createPlanMetric('Target weight', `${(plan.target_weight * 100).toFixed(0)}%`),
+      // Owner note (2026-07-13): the book prescribes ZONES, not weights — the number is OUR
+      // conviction policy (base/truck × conviction) and says so.
+      createPlanMetric('Conviction target (our policy)', `${(plan.target_weight * 100).toFixed(0)}%`),
       createPlanMetric('Target value', formatPlanMoney(plan.target_value, currency)),
     ),
     // Tranche rows
@@ -3671,7 +3673,7 @@ function createSizingRecommendationPanel(researchCase: AppResearchCase) {
     createElement(
       'div',
       { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      createPlanMetric('Target weight', rec.target_weight === undefined ? '—' : `${(rec.target_weight * 100).toFixed(1)}%`),
+      createPlanMetric('Conviction target (our policy)', rec.target_weight === undefined ? '—' : `${(rec.target_weight * 100).toFixed(1)}%`),
       createPlanMetric('Sizeable value', formatSizingMoney(rec.sizeable_value)),
       createPlanMetric('Conviction factor', rec.conviction_factor === undefined ? '—' : `${rec.conviction_factor.toFixed(2)}×`),
     ),
@@ -3695,7 +3697,7 @@ function createSizingRecommendationPanel(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'Target weight is an entry cap — let winners run; the buy is human-signed, never auto-traded.',
+      'The conviction target is OUR sizing policy (the book prescribes zones, not weights) and an entry cap — let winners run; the buy is human-signed, never auto-traded.',
     ),
     createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
   )
