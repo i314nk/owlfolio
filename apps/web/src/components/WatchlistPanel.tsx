@@ -238,7 +238,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     createElement(
       'div',
       { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.75rem', marginTop: '0.5rem' } },
-      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.thesis_summary)),
+      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.latest_analysis_thesis ?? item.thesis_summary)),
       createPriceLadderElement({
         ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
         ...(v?.load_up_below === undefined ? {} : { load: v.load_up_below }),

@@ -142,7 +142,8 @@ test('personal-local mode can create the first research case from the command ce
   await msftRow.locator('> summary').click()
   // The expansion is the small decision card: the thesis + "Open the full analysis" (gate reasons,
   // required sources, and provenance moved to the dossier).
-  await expect(msftRow.getByText(/durable quality compounder/)).toBeVisible()
+  // The display text is the LATEST ANALYSIS's own thesis (not the admitted-on draft copy).
+  await expect(msftRow.getByText(/wide-moat compounder/)).toBeVisible()
   await expect(msftRow.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   // The dashboard shows the item already confirmed: no pending watchlist-confirmation approval remains.
@@ -215,6 +216,9 @@ test('personal-local mode can create the first research case from the command ce
   await applyProviderDraft.click()
 
   await expect(page).toHaveURL('/portfolio')
+  // The POST redirects back to /portfolio, so the URL matches on the OLD document too — wait for the
+  // post-action summary badge (only on the fresh document) before expanding the row.
+  await expect(msftHolding.getByText('HEALTHY', { exact: true }).first()).toBeVisible()
   await page.locator('details[data-holding-row="MSFT"] > summary').click()
   await expect(page.getByText('Thesis health: HEALTHY')).toBeVisible()
   await expect(page.getByText('Action stance: HOLD')).toBeVisible()
@@ -243,6 +247,7 @@ test('personal-local mode can create the first research case from the command ce
   await applyUserOverride.click()
 
   await expect(page).toHaveURL('/portfolio')
+  await expect(msftHolding.getByText('WATCH', { exact: true }).first()).toBeVisible()
   await page.locator('details[data-holding-row="MSFT"] > summary').click()
   await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
   await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()
@@ -259,6 +264,7 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('button', { name: /reject strategy review/i }).click()
 
   await expect(page).toHaveURL('/portfolio')
+  await expect(msftHolding.getByText('WATCH', { exact: true }).first()).toBeVisible()
   await page.locator('details[data-holding-row="MSFT"] > summary').click()
   await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
   await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()

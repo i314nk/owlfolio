@@ -36,6 +36,7 @@ export type PortfolioHolding = AppHolding & {
   displayResearchCaseId?: string
   latestAnalysisVerdict?: string
   latestAnalysisAt?: string
+  latestAnalysisThesis?: string
   /**
    * The harness-marshaled re-underwrite findings (business itemId -> finding), a PURE read of the HELD name's
    * research-case projection resolved by the loader. Passed to the review confirm/override forms so each
@@ -251,7 +252,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       // The SMALL decision card, mirroring the dossier's decision card: the thesis summary + the
       // price ladder against the frozen zones, then the route to the full analysis. Provenance,
       // gate evidence, and audit IDs live in the dossier.
-      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.thesis_summary)),
+      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
       createPriceLadderElement({
         ...(holding.intrinsicValuePerShare === undefined ? {} : { iv: holding.intrinsicValuePerShare }),
         ...(holding.loadUpBelow === undefined ? {} : { load: holding.loadUpBelow }),

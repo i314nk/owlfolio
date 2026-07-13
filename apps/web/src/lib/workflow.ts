@@ -147,6 +147,8 @@ export type AppWatchlistItem = WatchlistProjection & {
   /** The latest analysis's verdict + date — rendered honestly when that run produced no thresholds. */
   latest_analysis_verdict?: string
   latest_analysis_at?: string
+  /** The latest analysis's own thesis summary — the display text (the item's copy is the admitted-on draft). */
+  latest_analysis_thesis?: string
 }
 
 /**
@@ -221,6 +223,7 @@ export function enrichWatchlistItemsWithVerdict(
       ...(linked?.research_case_id === undefined ? {} : { display_research_case_id: linked.research_case_id }),
       ...(linked?.investment_verdict === undefined ? {} : { latest_analysis_verdict: linked.investment_verdict }),
       ...(linked?.updated_at === undefined ? {} : { latest_analysis_at: linked.updated_at }),
+      ...(linked?.thesis_summary === undefined ? {} : { latest_analysis_thesis: linked.thesis_summary }),
     }
     const valuation = linked?.valuation
     const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share

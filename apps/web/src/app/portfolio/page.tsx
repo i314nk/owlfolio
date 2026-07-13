@@ -91,6 +91,7 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         enriched.displayResearchCaseId = valuationCase.research_case_id
         if (valuationCase.investment_verdict !== undefined) enriched.latestAnalysisVerdict = valuationCase.investment_verdict
         enriched.latestAnalysisAt = valuationCase.updated_at
+        if (valuationCase.thesis_summary !== undefined) enriched.latestAnalysisThesis = valuationCase.thesis_summary
       }
       return enriched
     })
