@@ -246,13 +246,16 @@ advisory: **you author and sign the actual buys, and the worker never trades.**
 
 ---
 
-## 7. Shariah and purification
+## 7. Shariah screening (SCALE-DOWN 2026-07-13: the payment ledger is retired)
 
-- Shariah screening is required (`shariah.required: true`).
-- Conditional investments are allowed by policy (`allow_conditional: true`) with the `CONDITIONAL` status triggering a purification obligation.
-- Accepted statuses: `COMPLIANT`, `CONDITIONAL`. Prohibited: `NON_COMPLIANT`.
-- Purification obligations and payments are separate auditable ledger events.
-- These screens are local-ledger/accounting aids, not professional legal, tax, or Shariah rulings.
+- Shariah screening is required (`shariah.required: true`) and fully grounded: the front gate's
+  sector judgment on the primary filing + the harness-recomputed AAOIFI ratios.
+- Conditional investments are allowed by policy (`allow_conditional: true`); a `CONDITIONAL` status
+  carries the computed **purification RATE** on the dossier as guidance ("purify ~X% of dividends").
+- Accepted statuses: `COMPLIANT`, `CONDITIONAL`. Prohibited: `NON_COMPLIANT` (never price-overridable).
+- The obligation/payment LEDGER is retired (owner-locked): its inputs are unverifiable by design.
+  Tracking and paying is the human's; legacy purification events stay readable in the audit timeline.
+- These screens are a local screening aid, not professional legal, tax, or Shariah rulings.
 
 ---
 

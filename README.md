@@ -29,8 +29,8 @@ rate, comp sales, and gross margin read out of the hash-verified filings):
 
 ![An example analysis dossier with the thesis re-review card](docs/assets/readme-analysis.gif)
 
-**The pages** — intake → dossier → promote to watchlist → record the lot → portfolio valuation →
-accounting, pipeline, lifecycle, audit trail, the Learn docs, and the strategy overview:
+**The pages** — intake → dossier → promote to watchlist → record your entry → the held-thesis view,
+plus the pipeline, audit trail, the Learn docs, and the strategy overview:
 
 ![A tour of the main pages](docs/assets/readme-pages.gif)
 
@@ -57,7 +57,7 @@ auditable back to its source.
 The core design rule is **"code computes, judgment proposes"**:
 
 - Deterministic code computes numbers (free cash flow, intrinsic value and
-  the buy thresholds, ratios, purification amounts). Models never set a
+  the buy thresholds, ratios, the purification rate). Models never set a
   figure anyone acts on.
 - Models propose judgments (moat, management, thesis) — but every citable source is
   fetched by the harness itself (SSRF-guarded, SEC-host-allowlisted),
@@ -81,8 +81,8 @@ The core design rule is **"code computes, judgment proposes"**:
 
 ### Built and working today (local alpha)
 
-- Browser onboarding, Command Center, research cockpit, watchlist, portfolio,
-  purification/accounting projections, audit trail, provider status, and a
+- Browser onboarding, Command Center, research cockpit, watchlist (the zone
+  board), the held-thesis portfolio view, audit trail, provider status, and a
   Learn section documenting the strategy and grounding architecture.
 - The multi-agent research swarm with a hardened circle-of-competence gate
   (k-sample unanimous agreement + grounded evidence floors, tunable in
@@ -142,7 +142,7 @@ Gaps are tracked in `docs/ALPHA_READINESS.md`.
 
 The intent is a **personal fiduciary analyst that runs on your machine** — an
 always-on research department for one investor, with the judgment loop of a
-disciplined value shop and the audit trail of an accounting system:
+disciplined value shop and a complete audit trail:
 
 - **From human-fired to scheduled.** Every capability is already a one-tick,
   cadence-tagged unit. The next structural arc is the scheduler that fires
@@ -159,10 +159,12 @@ disciplined value shop and the audit trail of an accounting system:
   execute yourself, the golden-set qualification gate, dual-model cross-checks
   on the judgments that matter most, and eventually a point-in-time backtester
   — so the system's track record is a recorded artifact, not marketing.
-- **Shariah-complete workflows.** Screening, purification, and zakat
-  accounting as first-class, auditable ledger domains — aiming for
+- **Grounded Shariah screening.** The front gate, harness-recomputed AAOIFI
+  ratios, and the purification rate as dossier guidance — aiming for
   scholar-reviewable methodology, while staying honest that software is not a
-  fatwa.
+  fatwa. (The obligation/payment bookkeeping was deliberately removed: its
+  inputs are unverifiable by design, and confidently wrong purification
+  amounts are worse than none.)
 - **Local forever.** Your research, ledger, and keys stay on your machine. The
   only thing that leaves is a grounded, SSRF-guarded fetch to a public filing
   archive or the model provider you chose.
@@ -201,9 +203,9 @@ browser:
 
 Go to `http://127.0.0.1:3000`. First launch walks you through onboarding in
 the browser — pick personal-local mode, choose a provider (OpenRouter is the
-default: create a key at openrouter.ai, paste it in), pick a model, and set
-your investable capital. That's it: the Command Center is your dashboard, and
-you can start your first research run from there.
+default: create a key at openrouter.ai, paste it in) and pick a model. That's
+it: the Command Center is your dashboard, and you can start your first
+research run from there.
 
 Everything is local: runtime state lives under `data/` (git-ignored), and API
 keys live in a local env file (`OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`)
@@ -297,8 +299,8 @@ corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 ```
 
-Twelve task kinds exist (reviews, monitors, Shariah re-screen, valuation
-refresh, purification, forecast resolution, 13F discovery, thesis re-review
+Eleven task kinds exist (reviews, monitors, the Shariah re-screen, the
+held-ticker price poll, forecast resolution, 13F discovery, thesis re-review
 checks, and the research/deep-dive queues). All are one-tick and human-gated:
 the worker records observations and drafts, and provider spend is bounded
 (e.g. the re-review sweep only spends on strong triggers, capped per tick).
@@ -333,15 +335,19 @@ portfolio pages).
 
 ---
 
-## Shariah / accounting / purification limitations
+## Shariah screening limitations
 
 Owlfolio is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
 system, or accounting firm:
 
 - Shariah screens are local policy/audit aids and may require human scholar review.
-- Purification obligations and payments are tracked as auditable ledger events; users remain responsible for final calculation and payment decisions.
-- Monthly accounting is bounded by local ledger events and manual valuation/cash inputs; it is not a broker statement or tax filing substitute.
-- Provider outputs are drafts/observations. User-authored transitions are required for watchlist confirmations, holding opens, review overrides, payments, and any portfolio action.
+- The dossier states the purification RATE as guidance ("CONDITIONAL — purify
+  ~X% of dividends"); tracking and paying it is yours. Owlfolio deliberately
+  keeps no books: bookkeeping built on unverifiable manual inputs was removed
+  in the 2026-07 scale-down.
+- Provider outputs are drafts/observations. User-authored transitions are
+  required for watchlist confirmations, holding opens, review overrides, and
+  any portfolio action.
 
 ---
 

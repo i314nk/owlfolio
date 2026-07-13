@@ -256,7 +256,7 @@ function SwarmTab(): ReactNode {
     PanelSection({
       eyebrow: 'Division of labour',
       title: 'Agents propose, the harness computes, the human decides',
-      lead: 'One principle holds the system together. LLM agents gather evidence and classify. Deterministic code does the valuation math, ratio checks, gates, and accounting. A human authors every irreversible transition. These three roles are never mixed.',
+      lead: 'One principle holds the system together. LLM agents gather evidence and classify. Deterministic code does the valuation math, ratio checks, and gates. A human authors every irreversible transition. These three roles are never mixed.',
       children: caveat(
         createElement(
           'span',
@@ -546,7 +546,7 @@ function ShariahTab(): ReactNode {
     PanelSection({
       eyebrow: 'Enforced at six points',
       title: 'Shariah is a property, not a single lane',
-      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, the purification engine, and exit rules. A FAIL stops the case outright and is never price-overridable.',
+      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, and exit rules. A FAIL stops the case outright and is never price-overridable. The dossier states the purification RATE as guidance; Owlfolio keeps no payment books.',
       children: cardGrid([
         { key: 'sector', eyebrow: 'Sector screen', body: createElement('span', null, 'Segment-level revenue check; more than ', mono('5%'), ' impermissible core revenue screens the name out before any valuation is attempted.') },
         { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono(pct(AAOIFI_DEBT_RATIO_MAX)), ', computed by the harness from primary filings.') },
@@ -555,17 +555,16 @@ function ShariahTab(): ReactNode {
       ]),
     }),
     PanelSection({
-      eyebrow: 'Purification & zakat',
-      title: 'Computed by code, disbursed by the human',
-      lead: 'Obligations are arithmetic, not advice. The engine runs automatically; its output is a payable, never an instruction.',
+      eyebrow: 'Purification guidance',
+      title: 'The rate is computed; the books are yours',
+      lead: 'SCALE-DOWN (2026-07): Owlfolio computes the purification RATE from grounded filings and states it on the dossier — it deliberately keeps no obligation/payment books, because their inputs (your actual dividends and payments) are unverifiable by design.',
       children: bullets([
-        createElement('span', { key: 1 }, gold('On-dividend purification'), ' — on each dividend, purification due = dividend × purification %, posted to a separate purification ledger. Capital-gains purification is off by default (a stricter mode is user-selectable).'),
-        createElement('span', { key: 2 }, gold('Zakat'), ' — an optional module; the methodology and base are a user-authored setting, not an agent judgment.'),
-        createElement('span', { key: 3 }, gold('Human-authored disbursement'), ' — the ledger tracks accrued versus paid; a human authors the charitable disbursement entry.'),
+        createElement('span', { key: 1 }, gold('The rate'), ' — purification due = dividend × the computed purification % (from the harness-recomputed AAOIFI impermissible-income read). Stated on every CONDITIONAL dossier.'),
+        createElement('span', { key: 2 }, gold('The discipline'), ' — track and pay it yourself (a spreadsheet does this honestly); confidently wrong purification amounts from stale inputs are worse than none.'),
       ]),
     }),
     caveat(
-      'These screens and the purification arithmetic are a local screening aid and a local accounting aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Material ambiguity should be taken to a qualified Shariah adviser.',
+      'These screens and the purification rate are a local screening aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Material ambiguity should be taken to a qualified Shariah adviser.',
     ),
   )
 }
@@ -615,7 +614,7 @@ function TieringTab(): ReactNode {
         { key: 't1', eyebrow: 'T1 — Frontier', body: 'Synthesis and the highest-stakes lanes (moat, Shariah). Long-context reasoning and disciplined citation; errors here poison verdicts.' },
         { key: 't2', eyebrow: 'T2 — Mid', body: 'The Munger inversion pass and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
         { key: 't3', eyebrow: 'T3 — Cheap / local', body: 'High-volume, low-judgment work: news and filing scans, trigger detection, entity resolution. Near-zero marginal cost.' },
-        { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, purification arithmetic, accounting, 13F/EDGAR parsing. Deterministic by constitution.' },
+        { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, the purification rate, 13F/EDGAR parsing. Deterministic by constitution.' },
       ]),
     }),
     PanelSection({

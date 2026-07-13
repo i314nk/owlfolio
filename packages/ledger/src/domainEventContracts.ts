@@ -209,6 +209,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S2 (2026-07-13): PRODUCER RETIRED (the money layer) — legacy events stay readable.
     event_type: 'holding_valuation_recorded',
     aggregate_type: 'holding',
     actor_type: 'worker',
@@ -320,6 +321,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S3 (2026-07-13): PRODUCER RETIRED (the payment ledger) — the dossier keeps the grounded purification RATE as guidance.
     event_type: 'purification_obligation_recorded',
     aggregate_type: 'purification_entry',
     actor_type: 'worker',
@@ -327,6 +329,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     payload_fields: ['obligation_id', 'holding_id', 'amount', 'currency', 'period_start', 'period_end'],
   },
   {
+    // SCALE-DOWN S3 (2026-07-13): PRODUCER RETIRED — tracking/paying purification happens outside the app.
     event_type: 'purification_payment_recorded',
     aggregate_type: 'purification_entry',
     actor_type: 'user',
@@ -334,6 +337,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     payload_fields: ['payment_id', 'obligation_id', 'amount', 'currency', 'paid_at', 'recipient'],
   },
   {
+    // SCALE-DOWN S2 (2026-07-13): PRODUCER RETIRED (monthly books removed).
     event_type: 'accounting_snapshot_recorded',
     aggregate_type: 'accounting_snapshot',
     actor_type: 'worker',
@@ -443,6 +447,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S5 (2026-07-13): PRODUCER RETIRED (the onboarding gate is provider-only).
     event_type: 'investable_capital_set',
     aggregate_type: 'portfolio',
     actor_type: 'user',
@@ -793,6 +798,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     // fat-pitch posture (nothing clears the hurdle → capital parked in the savings sleeve), NEVER a
     // warning. It does NOT open the holding — the buy stays the human-signed holding-open transition.
     // Grounded to the case corpus; the newest recorded recommendation wins (recomputed fresh on-demand).
+    // SCALE-DOWN S1 (2026-07-13): PRODUCER RETIRED (zones tell you when; the size is yours).
     event_type: 'sizing_recommendation_recorded',
     aggregate_type: 'research_case',
     actor_type: 'provider',
@@ -835,6 +841,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     // record of an index purchase already made elsewhere (no broker, no execution). The plan (split /
     // monthly amount / schedule day) lives in app-config; this event is the recorded side. Rule 3 by
     // construction: no withdrawal/sell event type exists for the sleeve.
+    // SCALE-DOWN S4 (2026-07-13): PRODUCER RETIRED (the passive page is informative only).
     event_type: 'passive_contribution_recorded',
     aggregate_type: 'passive_sleeve',
     actor_type: 'user',
