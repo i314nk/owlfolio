@@ -2070,7 +2070,6 @@ export async function runResearchDeepDivePhase(
             assumed_growth: valuationStageOutcome.valuation_reasoning.assumed_growth,
             assumed_growth_rationale: valuationStageOutcome.valuation_reasoning.assumed_growth_rationale,
             assumed_growth_citation: valuationStageOutcome.valuation_reasoning.assumed_growth_citation,
-            ...(valuationStageOutcome.valuation_reasoning.proposed_buy_below === undefined ? {} : { proposed_buy_below: valuationStageOutcome.valuation_reasoning.proposed_buy_below }),
           }
         : { failure_reason: valuationStageOutcome.reason }),
       corpus_source_ids: [...accumulated.values()].map((s) => s.source_id),
@@ -2256,7 +2255,6 @@ export async function runResearchDeepDivePhase(
       + (valuationStageOutcome.status === 'ok'
         ? `THE VALUATION STAGE already produced the grounded valuation judgment — reconcile with it, do NOT re-value: `
           + `assumed_growth=${valuationStageOutcome.valuation_reasoning.assumed_growth}, `
-          + `${valuationStageOutcome.valuation_reasoning.proposed_buy_below !== undefined ? `proposed_buy_below=${valuationStageOutcome.valuation_reasoning.proposed_buy_below}, ` : ''}`
           + `basis: the harness's deterministic FCF (CFO − capex) intrinsic value ` 
         : `The valuation stage did not produce a grounded judgment (${valuationStageOutcome.status === 'failed' ? valuationStageOutcome.reason : 'unavailable'}) — the harness records the valuation as ungrounded; write your valuation_rationale accordingly (do not fabricate figures). `)
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. IMPORTANT: these REQUIRED audit artifacts do NOT argue against your own verdict — every sound thesis still has a nameable wrong-assumption and concrete break triggers; recording them is bookkeeping for the human, not evidence of fragility. Judge the verdict on the thesis itself. `
@@ -3193,19 +3191,9 @@ export async function runResearchDeepDivePhase(
   // buy-below read as a contradiction. The reverse-DCF market-implied growth (computed above) is the kept
   // valuation lens; the buy-below is the model's own number.
 
-  // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
-  const proposedBuyBelowRaw = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined
-  // R1 SUPERSEDED (owner-approved 2026-07-11): the OPERATIVE buy-below is COMPUTED — the reference
-  // value margined by the uniform required margin. Live find: the model's free-standing price swung
-  // run-to-run ($350→$650 COST) while its structured judgments stayed stable; judgment now flows
-  // through the stage's INPUTS (growth, bridge) and the arithmetic produces the threshold ("if it can
-  // be computed, compute it" — and the Buffett structure: the entry price FOLLOWS from value and the
-  // required margin). The model's own price stays RECORDED as an ADVISORY cross-check below.
-  const modelProposedBuyBelow = (typeof proposedBuyBelowRaw === 'number'
-    && Number.isFinite(proposedBuyBelowRaw)
-    && proposedBuyBelowRaw > 0)
-    ? proposedBuyBelowRaw
-    : undefined
+  // OWNER-LOCKED (2026-07-13): the model's ADVISORY buy price is RETIRED end-to-end — the book's
+  // thresholds are arithmetic (IV × 0.70 / × 0.50), not the model's to propose. The stage no longer
+  // asks for it; a legacy/replay value on the wire is tolerated by the schema and IGNORED here.
 
   // ---- Phase 4/E2 (owner-locked): the BOOK intrinsic value is the ONLY reference ----
   // IV = Σ discounted FCF(1..10, at the model's cited growth) + discounted(FCF10 × industry exit
@@ -3286,11 +3274,13 @@ export async function runResearchDeepDivePhase(
   // margin (F.13: never moat-tiered — the moat's contribution to safety stays in the surfaced,
   // human-weighted channels). Audit-only, exactly like adequacy was: it NEVER gates the verdict.
   const requiredMos = buffettMungerStrategy.valuation.required_margin_of_safety
-  // Post-flip: the grade measures the MODEL's ADVISORY price (the computed operative threshold is
-  // 25%-margined by construction, so grading it would be a tautology).
-  const margin_of_safety_grade = (modelProposedBuyBelow !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
+  // OWNER-LOCKED (2026-07-13, with the advisory price retired): the grade measures the margin
+  // TODAY'S PRICE actually offers against the computed intrinsic value — (IV − price)/IV vs the
+  // book's 30% bar. 'adequate' ⇔ in the buy zone by construction; the grade is the zone read in
+  // margin vocabulary. Audit-only; it never gates the verdict.
+  const margin_of_safety_grade = (current_price !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
     ? (() => {
-        const discount = (mosReferenceValue - modelProposedBuyBelow) / mosReferenceValue
+        const discount = (mosReferenceValue - current_price) / mosReferenceValue
         const grade: 'adequate' | 'thin' | 'inadequate' =
           discount >= requiredMos ? 'adequate' : discount >= requiredMos / 2 ? 'thin' : 'inadequate'
         return {
@@ -3361,42 +3351,9 @@ export async function runResearchDeepDivePhase(
 
   // Advisory cross-check (R1 superseded, owner-approved 2026-07-11): the model's price view vs the
   // METHOD's computed threshold — divergence >25% asks the human to reconcile.
-  if (buy_below !== undefined && buy_below > 0 && modelProposedBuyBelow !== undefined
-    && Math.abs(modelProposedBuyBelow - buy_below) / buy_below > 0.25) {
-    sanity_flags.push(
-      `buy_below_divergence: the model's ADVISORY buy price ($${modelProposedBuyBelow.toFixed(2)}) diverges `
-      + `>25% from the METHOD's computed threshold ($${buy_below.toFixed(2)} = reference less the required `
-      + `margin) — reconcile: the model would pay materially ${modelProposedBuyBelow > buy_below ? 'more' : 'less'} than the method.`,
-    )
-  }
-
-  // (f) the model's proposed_buy_below implies (the BOOK model inverted at that price) an absurd growth.
-  let buyBelowImpliedGrowth: number | undefined
-  if (
-    modelProposedBuyBelow !== undefined
-    && fcfMusdUsd !== undefined
-    && fcfMusdUsd > 0
-    && shares_valid
-  ) {
-    buyBelowImpliedGrowth = fcfImpliedGrowth({
-      price_per_share: modelProposedBuyBelow,
-      fcf_musd: fcfMusdUsd,
-      required_return,
-      exit_multiple: exitResolution.multiple,
-      ...(cashMusdUsd !== undefined ? { cash_musd: cashMusdUsd } : {}),
-      ...(debtMusdUsd !== undefined ? { total_debt_musd: debtMusdUsd } : {}),
-      shares_m: shares_outstanding,
-      horizon: VALUATION_PARAMS.stage1_horizon,
-    })
-    if (buyBelowImpliedGrowth !== undefined && buyBelowImpliedGrowth > singleGrowthCap) {
-      sanity_flags.push(
-        `sanity_buy_below_implies_absurd_growth: the model's ADVISORY proposed buy-below ($${modelProposedBuyBelow!.toFixed(2)}) still implies `
-        + `~${(buyBelowImpliedGrowth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — even at the "buy" `
-        + `price the market would price in growth the method would refuse to underwrite.`,
-      )
-    }
-  }
-
+  // OWNER-LOCKED (2026-07-13): the model's ADVISORY buy price is retired — the book's thresholds
+  // are arithmetic (IV × 0.70 / × 0.50), not the model's to propose. The buy_below_divergence and
+  // advisory-implies-absurd-growth flags retired with it (legacy payload keys tolerated on read).
   // (g) implied EXIT multiple absurdity — DIRECTIONAL, flag-only. Too HIGH (> the book band's 20×
   // ceiling) → the live price requires exiting at a P/FCF no defensible buyer would pay. The LOW
   // direction is fail-closed (non-computable emits nothing). Advisory only — never blocks or clamps.
@@ -3466,26 +3423,11 @@ export async function runResearchDeepDivePhase(
       + `required margin). Recorded as WATCH until the price enters the zone; the BUY thesis is preserved for auditing.`
     : undefined
 
-  // OWNER RULE (2026-07-10, the SPGI dogfood): a model BUY whose OWN buy-below still implies growth ABOVE
-  // the method's single-growth underwriting cap is not a recordable buy signal — by the method's own
-  // arithmetic, even the "buy" price already pays for growth the method refuses to credit (live SPGI: a
-  // $450 buy-below implying ~16.7% vs the harness's ~$247 fair value; every sanity flag fired and the BUY
-  // still recorded). Same family as the buy-zone clamp: pure T0 arithmetic on the model's own numbers,
-  // conservative-only (BUY → WATCH, never touches WATCH/PASS), the model's full thesis stays recorded.
-  const buyBelowAbsurd =
-    moat_passes_gate
-    && !sectorShariahFail
-    && !buyDataUnconfirmed
-    && !buyOutOfBuyZone
-    && dec.analysis.investment_verdict === 'BUY'
-    && buyBelowImpliedGrowth !== undefined
-    && buyBelowImpliedGrowth > singleGrowthCap
-  const buyBelowAbsurdReason = buyBelowAbsurd && buy_below !== undefined && buyBelowImpliedGrowth !== undefined
-    ? `buy_below_implies_absurd_growth: the model verdict is BUY, but its ADVISORY buy price ($${modelProposedBuyBelow!.toFixed(2)}) `
-      + `already implies ~${(buyBelowImpliedGrowth * 100).toFixed(1)}% growth — above the ${(singleGrowthCap * 100).toFixed(0)}% cap the method `
-      + 'underwrites. Recorded as WATCH: even at the proposed buy price the market would be paying for growth '
-      + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
-    : undefined
+  // OWNER RULE (2026-07-10, the SPGI dogfood) — RETIRED 2026-07-13 with the advisory price: the
+  // rail guarded the MODEL's own proposed buy price; the computed threshold (IV × 0.70) cannot
+  // imply above-cap growth by construction, so there is nothing left to guard.
+  const buyBelowAbsurd = false
+  const buyBelowAbsurdReason: string | undefined = undefined
 
   // OWNER RULE (2026-07-11, Phase 3 S5): the MANAGEMENT VETO — "no price compensates for management
   // you can't trust", and the owner extended it to TALENT: a model BUY on a GROUNDED worst-tier
@@ -3762,16 +3704,8 @@ export async function runResearchDeepDivePhase(
         // E2: the BOOK intrinsic value per share is now surfaced first-class — it is the computed
         // reference the whole method margins off (and the sign-off freeze snapshots it verbatim).
         ...(moat_passes_gate && fcfValuation !== undefined ? { intrinsic_value_per_share: Number(fcfValuation.intrinsic_value_per_share.toFixed(2)) } : {}),
-        // R1 superseded: the model's own price view, recorded as ADVISORY (the divergence flag reconciles).
-        ...(moat_passes_gate && modelProposedBuyBelow !== undefined ? { model_proposed_buy_below: modelProposedBuyBelow } : {}),
-        ...(!moat_passes_gate && modelProposedBuyBelow !== undefined
-          ? {
-              unvetted_model_proposals: {
-                ...(modelProposedBuyBelow !== undefined ? { proposed_buy_below: modelProposedBuyBelow } : {}),
-                note: 'Recorded for audit only — the case was set aside at the moat gate BEFORE the buy-price sanity rails ran; these model proposals are UNVETTED.',
-              },
-            }
-          : {}),
+        // OWNER-LOCKED (2026-07-13): model_proposed_buy_below is RETIRED (legacy payloads keep the
+        // key; the projection/display tolerate it). The thresholds are arithmetic only.
         // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
         // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),

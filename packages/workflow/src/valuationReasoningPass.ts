@@ -42,6 +42,8 @@ export const ValuationReasoningSchema = z.object({
   // the T0 side keeps its existing graceful degradation when a model omits them.
   // The model's judged buy-below price (price currency). Verbatim — the deterministic rails
   // (buy-zone clamp, absurd-implied-growth clamp, T0 MoS grade in V2) police it.
+  // OWNER-LOCKED (2026-07-13): RETIRED — the book's thresholds are arithmetic (IV × 0.70/0.50),
+  // not the model's to propose. Tolerated on the wire for legacy fakes/replays; never consumed.
   proposed_buy_below: z.number().positive().optional(),
   // C3 (owner-locked 2026-07-12): valuation_status is retired from the stage — the harness DERIVES
   // it arithmetically from the computed thresholds (a legacy emission is stripped as an unknown key).
@@ -131,10 +133,7 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `  - assumed_growth_rationale: WHY that growth is defensible, CITED (a durable source, not "strong execution").\n`
     + `  - assumed_growth_citation: REQUIRED — the source_id of a VERIFIED primary source backing the growth `
     + `rationale (again a real grounded source_id, NOT prose).\n`
-    + `  - proposed_buy_below: the price at/below which you would buy, in the US-LISTED quote currency (USD `
-    + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
-    + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
-    + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
+
     + `  - industry_exit_multiple: the price-to-free-cash-flow multiple a rational buyer would pay for `
     + `this business in ~10 years ({multiple, basis_note, citation?}) — ANCHORED TO NAMED COMPARABLES, not `
     + `an unnamed industry average (owner rule): (1) NAME the 2-4 CLOSEST comparable companies and the `
@@ -180,11 +179,6 @@ export async function runValuationReasoningPass(
   const requiredFields: RequiredFieldCheck<ValuationReasoningAnalysis>[] = [
     // Phase 2 V4: the stage OWNS the buy-below / status / bridge — retry-forced (schema stays optional so
     // an exhausted retry degrades to the visible failed outcome instead of a hard throw).
-    {
-      name: 'valuation_reasoning.proposed_buy_below',
-      present: (a) => typeof a.valuation_reasoning?.proposed_buy_below === 'number' && Number.isFinite(a.valuation_reasoning.proposed_buy_below) && a.valuation_reasoning.proposed_buy_below > 0,
-      hint: 'the price at/below which you would buy, in the US-LISTED quote currency (a positive number)',
-    },
     // Phase 4 (book alignment): the industry P/FCF exit multiple — retry-forced; an exhausted retry
     // degrades to the harness's conservative fallback multiple (12×), never a hard throw.
     {

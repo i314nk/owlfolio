@@ -1635,11 +1635,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     const { events, cp } = await runWith({
       moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.30, reinvestment_rate: 0.5,
     }, 'neg-fcf', { fundamentals: negFcf })
-    // No positive OE/share → no point FV and no computed threshold (both fail closed; R1 superseded).
-    // The model's price view survives as ADVISORY only.
+    // No positive FCF → no computed threshold (fail-closed). OWNER-LOCKED 2026-07-13: the model's
+    // advisory price is RETIRED — nothing else substitutes.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
-    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(150)
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBeUndefined()
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
     expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/free cash flow.*not positive/i)
@@ -1830,7 +1830,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     // Recorded buy-below IS the computed threshold (fixture: FV@15% ≈ 264.08 → ×0.70 = 184.86).
     expect(cp?.valuation?.buy_price_per_share).toBe(184.86)
     expect(valuation?.['proposed_buy_below']).toBe(184.86)
-    expect(valuation?.['model_proposed_buy_below']).toBe(150)
+    // OWNER-LOCKED 2026-07-13: the model's advisory price is retired — the legacy key never emits.
+    expect(valuation?.['model_proposed_buy_below']).toBeUndefined()
     // forward-DCF removal: the dollar reference_fair_value / fair_value_per_share are no longer emitted.
     expect(valuation?.['reference_fair_value']).toBeUndefined()
     expect(valuation?.['fair_value_per_share']).toBeUndefined()
@@ -1999,15 +2000,15 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
   })
 
-  it('GATE (owner rule, 2026-07-10 SPGI dogfood) — model BUY whose OWN buy-below implies growth ABOVE the cap → recorded WATCH', async () => {
-    // Live SPGI shape: price inside the model's aggressive buy zone, but the buy-below itself prices
-    // in growth the method's single-growth cap refuses to underwrite (harness fair value was ~half
-    // the model's buy-below). Arithmetic on the model's own numbers → derate to WATCH, thesis kept.
+  it('the SPGI advisory-price rail is RETIRED with the advisory (the computed zone gate is the protection)', async () => {
+    // OWNER-LOCKED 2026-07-13: the rail guarded the MODEL's own proposed price; with the advisory
+    // retired there is nothing to guard — the computed threshold (IV × 0.70) cannot imply above-cap
+    // growth by construction. A BUY inside the COMPUTED zone records as BUY; the legacy knob is inert.
     const { cp } = await runRelit({
       id: 'buyzone-absurd', price: 120, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
     })
-    expect(cp?.investment_verdict).toBe('WATCH')
-    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
+    expect(cp?.investment_verdict).toBe('BUY')
+    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(false)
   })
 
   it('S6 — a moat-FAILED case SHORT-CIRCUITS at the early gate: Pillars 3–4 never run, no buy numbers exist at all', async () => {
@@ -3394,7 +3395,8 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     })
     // R1 superseded: the stage's 333 is the ADVISORY price; the operative threshold is computed.
     expect(valuation?.['buy_price_per_share']).toBe(172.37) // E2 fixture IV@g=0.05 (246.24) × 0.70
-    expect(valuation?.['model_proposed_buy_below']).toBe(333)
+    // OWNER-LOCKED 2026-07-13: the advisory price is retired — never emitted, stage or monolithic.
+    expect(valuation?.['model_proposed_buy_below']).toBeUndefined()
     // C3: the status is DERIVED — price 60 sits inside the computed buy zone (172.37) → ATTRACTIVE.
     expect(cp?.valuation_status).toBe('ATTRACTIVE')
   })
