@@ -1,102 +1,78 @@
-import { createElement } from 'react'
-
-import { mergePassiveSleeveConfig } from '@owlfolio/shared/appConfig'
-
-import { PassiveContributionForm } from '../../components/PassiveContributionForm'
-import { PassiveSleevePanel } from '../../components/PassiveSleevePanel'
+// SCALE-DOWN S4 (owner-locked 2026-07-13): the passive page is INFORMATIVE ONLY. The contribution
+// tracker is removed (user-input accounting — the class the scale-down retired); what remains is the
+// book's passive foundation as pedagogy: keep market exposure via broad ETFs, contribute on a
+// schedule, never sell the sleeve — plus named Shariah-compliant ETF candidates, clearly labeled
+// educational content, not advice. Nothing on this page reads or writes the ledger.
 import { RouteHeader } from '../../components/designSystem'
-import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
-import { isUnconfiguredForUser } from '../../lib/modeView'
-import { getOnboardingState } from '../../lib/onboarding'
-import { computePassiveDue, computeSplitDrift } from '../../lib/passiveSleeve'
-import { getPassiveSleeveView } from '../../lib/workflow'
 
 export const dynamic = 'force-dynamic'
 
-const pct = (v: number): string => `${(v * 100).toFixed(0)}%`
-const usd = (v: number): string => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+const RULES = [
+  {
+    title: 'Rule 1 — Own the market first',
+    body: 'Before any single business, keep broad market exposure through a low-cost index ETF. The passive sleeve is the foundation the concentrated Buffett-Munger sleeve stands on — it guarantees you participate in the market’s compounding even when no wonderful business trades at a margin of safety.',
+  },
+  {
+    title: 'Rule 2 — Contribute on a schedule, not a feeling',
+    body: 'A fixed monthly contribution (dollar-cost averaging) removes timing judgment entirely. The schedule is the discipline: the same amount, the same day, regardless of headlines or prices.',
+  },
+  {
+    title: 'Rule 3 — Never sell the sleeve',
+    body: 'The passive sleeve has no sell rule because it has no sell decision. Withdrawals are a retirement-planning question, not an investing one. Volatility is the admission price of the equity premium.',
+  },
+]
 
-/**
- * B7 (Phase 4, book alignment): the PASSIVE page — the book's step-2 foundation. The plan (split +
- * monthly DCA + schedule day), the recorded contributions, the rule-2 due read, and the split-drift
- * view. Rule 3 by construction: there is NO sell/withdraw affordance anywhere on this page.
- */
-export default async function PassivePage() {
-  const state = await getOnboardingState()
-  if (isUnconfiguredForUser(state.config)) {
-    return createElement(UnconfiguredNotice, { feature: 'Passive sleeve' })
-  }
+// Named candidates — EDUCATIONAL examples of Shariah-screened broad-market ETFs, not recommendations
+// to buy any specific fund. Screens, fees, and holdings change: verify the fund's own current
+// prospectus + Shariah certification before acting.
+const ETFS = [
+  { ticker: 'SPUS', name: 'SP Funds S&P 500 Sharia Industry Exclusions ETF', note: 'US large-cap; S&P 500 screened by AAOIFI-based exclusions.' },
+  { ticker: 'HLAL', name: 'Wahed FTSE USA Shariah ETF', note: 'US broad market; FTSE Shariah screens.' },
+  { ticker: 'SPWO', name: 'SP Funds S&P World ETF', note: 'Global (including non-US) Shariah-screened exposure.' },
+  { ticker: 'ISDW / ISDU', name: 'iShares MSCI World / USA Islamic UCITS ETFs', note: 'UCITS wrappers for non-US investors; MSCI Islamic screens.' },
+  { ticker: 'SPSK', name: 'SP Funds Dow Jones Global Sukuk ETF', note: 'The fixed-income-like sleeve: sukuk, not bonds.' },
+]
 
-  const passive = mergePassiveSleeveConfig(state.config.passive)
-  const configured = state.config.passive?.passive_set_at !== undefined
-  const { sleeve, active_value } = await getPassiveSleeveView(state)
-  const today = new Date().toISOString().slice(0, 10)
-  const due = computePassiveDue(passive, sleeve.last_contribution_at, today)
-  const drift = computeSplitDrift({ split: passive.split, passive_total_contributed: sleeve.total_contributed, active_value })
+export default function PassivePage() {
+  return (
+    <main className="owl-route-frame">
+      <RouteHeader
+        kicker="Passive foundation"
+        title="Passive"
+        description="Keep market exposure through broad Shariah-compliant ETFs. This page is educational — Owlfolio does not track, recommend, or execute passive investments."
+      />
+      <hr className="owl-rule" />
 
-  const helper = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } as const
+      <section className="owl-section-card" aria-label="The passive rules">
+        <p className="owl-section-accent">The book&rsquo;s passive foundation (rules 1&ndash;3)</p>
+        <div style={{ display: 'grid', gap: '0.9rem', marginTop: '0.6rem' }}>
+          {RULES.map((rule) => (
+            <div key={rule.title}>
+              <p style={{ color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 }}>{rule.title}</p>
+              <p style={{ color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0.2rem 0 0' }}>{rule.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-  return createElement(
-    'main',
-    { className: 'owl-route-frame owl-route-frame-wide' },
-    createElement(
-      'p',
-      { className: 'owl-route-back-row' },
-      createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
-    ),
-    createElement(RouteHeader, {
-      kicker: 'Passive foundation',
-      title: 'Passive sleeve — monthly dollar-cost averaging',
-      description: 'The index foundation on the side of the active book. Rule 1: only an amount you can regularly commit. Rule 2: buy on a consistent schedule, no matter what. Rule 3: a lifelong commitment — this page deliberately has no sell control.',
-    }),
-    createElement('hr', { className: 'owl-rule' }),
-    createElement(PassiveSleevePanel, { initialPassive: passive, configured }),
-    createElement('hr', { className: 'owl-rule' }),
-    createElement(
-      'section',
-      { 'aria-label': 'Passive sleeve status', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' }, 'data-testid': 'passive-sleeve-status' },
-      createElement('p', { className: 'owl-section-accent' }, 'The recorded side'),
-      createElement(
-        'div',
-        { className: 'owl-ledger-line' },
-        createElement('article', { className: 'owl-ledger-stat' },
-          createElement('p', { className: 'owl-ledger-label' }, 'Total contributed (at cost)'),
-          createElement('p', { className: 'owl-ledger-figure owl-ledger-figure-money' }, usd(sleeve.total_contributed))),
-        createElement('article', { className: 'owl-ledger-stat' },
-          createElement('p', { className: 'owl-ledger-label' }, 'Months contributed'),
-          createElement('p', { className: 'owl-ledger-figure' }, String(sleeve.months_contributed))),
-        createElement('article', { className: 'owl-ledger-stat' },
-          createElement('p', { className: 'owl-ledger-label' }, 'Next due (rule 2)'),
-          createElement('p', { className: 'owl-ledger-figure', 'data-testid': 'passive-next-due' }, due.next_due)),
-        createElement('article', { className: 'owl-ledger-stat' },
-          createElement('p', { className: 'owl-ledger-label' }, 'This month'),
-          createElement('p', {
-            className: 'owl-ledger-figure',
-            'data-testid': 'passive-month-status',
-            style: due.overdue ? { color: 'var(--owl-color-gold-bright)' } : {},
-          }, due.contributed_this_month ? 'Contributed ✓' : due.overdue ? 'OVERDUE — rule 2: no matter what' : 'Due ahead')),
-      ),
-      createElement(PassiveContributionForm),
-      createElement(
-        'p',
-        { style: helper, 'data-testid': 'passive-drift' },
-        `Split: target ${pct(drift.target_passive_fraction)} passive`
-        + (drift.actual_passive_fraction !== undefined
-            ? ` · actual ${pct(drift.actual_passive_fraction)} (${(drift.drift ?? 0) >= 0 ? 'passive-heavy' : 'active-heavy'} by ${pct(Math.abs(drift.drift ?? 0))})`
-            : ' · nothing recorded yet'),
-      ),
-      createElement('p', { style: { ...helper, color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-2xs)', fontFamily: 'var(--owl-font-mono)' } }, drift.basis_note),
-      sleeve.contributions.length === 0
-        ? null
-        : createElement(
-            'ul',
-            { style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', gap: '0.25rem', margin: 0, paddingLeft: '1.1rem' } },
-            ...[...sleeve.contributions].reverse().slice(0, 12).map((c) => createElement(
-              'li',
-              { key: c.contribution_id },
-              `${c.contributed_at} — ${usd(c.amount)}${c.instrument !== undefined ? ` · ${c.instrument}` : ''}${c.note !== undefined ? ` · ${c.note}` : ''}`,
-            )),
-          ),
-    ),
+      <section className="owl-section-card" aria-label="Shariah-compliant ETF candidates">
+        <p className="owl-section-accent">Shariah-compliant ETF candidates</p>
+        <p style={{ color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.4rem 0 0.8rem' }}>
+          Named examples of Shariah-screened broad-market funds — a starting point for your own research, not a recommendation.
+        </p>
+        <div style={{ display: 'grid', gap: '0.7rem' }}>
+          {ETFS.map((etf) => (
+            <div key={etf.ticker} style={{ background: 'var(--owl-color-panel-elevated)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', padding: '0.7rem 0.9rem' }}>
+              <p style={{ color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 }}>{etf.ticker}</p>
+              <p style={{ color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', margin: '0.15rem 0 0' }}>{etf.name}</p>
+              <p style={{ color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.15rem 0 0' }}>{etf.note}</p>
+            </div>
+          ))}
+        </div>
+        <p style={{ color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: '0.9rem 0 0' }}>
+          EDUCATIONAL CONTENT, NOT ADVICE. Screens, fees, holdings, and Shariah certifications change — verify each fund&rsquo;s current prospectus and certification yourself before investing. Owlfolio records nothing about your passive holdings.
+        </p>
+      </section>
+    </main>
   )
 }

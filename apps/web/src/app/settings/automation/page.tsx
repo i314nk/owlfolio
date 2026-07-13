@@ -6,8 +6,7 @@ import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { AutomationSettingsPanel } from '../../../components/AutomationSettingsPanel'
 import { SavingsAnchorPanel } from '../../../components/SavingsAnchorPanel'
 import { RequiredReturnPanel } from '../../../components/RequiredReturnPanel'
-import { PassiveSleevePanel } from '../../../components/PassiveSleevePanel'
-import { mergePassiveSleeveConfig, mergeValuationConfig } from '@owlfolio/shared/appConfig'
+import { mergeValuationConfig } from '@owlfolio/shared/appConfig'
 import { RouteHeader } from '../../../components/designSystem'
 import { getOnboardingState } from '../../../lib/onboarding'
 
@@ -37,12 +36,6 @@ export default async function AutomationSettingsPage() {
     createElement(RequiredReturnPanel, {
       initialValuation: mergeValuationConfig(state.config.valuation),
       configured: state.config.valuation?.required_return_set_at !== undefined,
-    }),
-    createElement('hr', { className: 'owl-rule' }),
-    // B7 (book alignment): the passive-sleeve plan — split, monthly DCA amount, schedule day (rules 1–3).
-    createElement(PassiveSleevePanel, {
-      initialPassive: mergePassiveSleeveConfig(state.config.passive),
-      configured: state.config.passive?.passive_set_at !== undefined,
     }),
     createElement('hr', { className: 'owl-rule' }),
     // The compliant savings anchor (F.2): the user-owned number behind the deployment hurdle + sizing.
