@@ -4,7 +4,6 @@ import { join } from 'node:path'
 
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectPurificationLedger } from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectPendingResearchRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
@@ -190,6 +189,31 @@ async function appendCostHolding(store: InMemoryEventStore<LedgerEventEnvelope<u
 }
 
 describe('worker runtime', () => {
+
+  // SCALE-DOWN S2: the valuation leg is retired — the task is the held-ticker PRICE POLL now.
+  it('the rescoped portfolio_valuation_refresh records price snapshots and NO holding valuations', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_pvr', {
+      scheduled_task_id: 'task_pvr',
+      task_kind: 'portfolio_valuation_refresh',
+      cadence: '0 6 * * *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+    }))
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      now: () => '2026-07-01T06:01:00.000Z',
+      run_id: () => 'run_pvr_rescope',
+      priceSource: makeMockPriceSource({ COST: { available: true, price_per_share: 120, currency: 'USD', as_of: '2026-07-01T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+    expect(result.completed).toBe(1)
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'price_snapshot_recorded')).toBe(true)
+    expect(events.some((e) => e.event_type === 'holding_valuation_recorded')).toBe(false)
+    expect(result.summaries.join(' ')).toMatch(/price snapshot/i)
+  })
   it('loads config and resolves runtime paths without importing web UI modules', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-runtime-'))
     const configPath = join(projectDir, 'config', 'app-config.json')
@@ -713,121 +737,7 @@ describe('worker runtime', () => {
     ])
   })
 
-  it('refreshes portfolio valuations via injected price source (yahoo) without approving actions', async () => {
-    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
-    await appendCostHolding(store)
-    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_unknown_001', {
-      holding_id: 'holding_unknown_001',
-      watchlist_item_id: 'wl_unknown_001',
-      research_case_id: 'rc_unknown_001',
-      ticker: 'ZZZZ',
-      strategy_id: 'buffett-munger',
-      shares: 2,
-      cost_basis_per_share: 50,
-      currency: 'USD',
-      opened_at: '2026-05-30',
-    }))
-    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
 
-    const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'yahoo' },
-      // ZZZZ is not in the map → unavailable
-    })
-
-    const result = await runScheduledTasks(store, {
-      as_of: '2026-06-01',
-      dry_run: true,
-      task_kind: 'portfolio_valuation_refresh',
-      now: () => '2026-06-01T07:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_refresh_001',
-      priceSource,
-    })
-
-    expect(result).toMatchObject({ completed: 1, failed: 0 })
-    const events = await store.list()
-    const valuation = events.find((event) => event.event_type === 'holding_valuation_recorded')
-    expect(valuation).toMatchObject({
-      aggregate_type: 'holding',
-      aggregate_id: 'holding_cost_001',
-      actor_type: 'worker',
-      actor_id: 'owlfolio-worker',
-      causation_id: 'evt_scheduled_task_run_started_run_portfolio_valuation_refresh_001',
-      payload: expect.objectContaining({
-        snapshot_id: 'scheduled_holding_cost_001_20260601',
-        holding_id: 'holding_cost_001',
-        price_per_share: 912.34,
-        market_value: 912.34,
-        valuation_source: 'yahoo',
-        price_checked_at: '2026-06-01',
-        confidence: 'market',
-        caveat: 'Live market price from Yahoo Finance',
-        valued_by_actor_type: 'worker',
-        valued_by_actor_id: 'owlfolio-worker',
-      }),
-      source_ids: ['yahoo:COST:2026-06-01'],
-    })
-    expect(projectHoldings(events).find((holding) => holding.holding_id === 'holding_cost_001')).toMatchObject({
-      latest_valuation_source: 'yahoo',
-      latest_price_checked_at: '2026-06-01',
-      latest_valuation_confidence: 'market',
-      latest_valuation_source_ids: ['yahoo:COST:2026-06-01'],
-    })
-    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
-    expect(completed?.payload).toMatchObject({
-      result_summary: 'portfolio_valuation_refresh dry-run: refreshed 1 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
-      observations: [
-        'COST valuation refreshed from yahoo at $912.34; factual valuation update only',
-        'ZZZZ: no auto price (manual valuation required) — no mock price',
-      ],
-      approval_gates: [],
-      human_approval_required: false,
-      auto_approved_actions: 0,
-      missing_data_holding_ids: ['holding_unknown_001'],
-    })
-    expect(events).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ event_type: 'holding_opened', actor_type: 'worker' }),
-      expect.objectContaining({ event_type: 'holding_review_confirmed', actor_type: 'worker' }),
-      expect.objectContaining({ event_type: 'watchlist_draft_confirmed', actor_type: 'worker' }),
-      expect.objectContaining({ event_type: 'purification_payment_recorded', actor_type: 'worker' }),
-    ]))
-  })
-
-  it('does not count same-day idempotent valuation refresh reruns as new snapshot events', async () => {
-    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
-    await appendCostHolding(store)
-    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
-
-    const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'yahoo' },
-    })
-
-    await runScheduledTasks(store, {
-      as_of: '2026-06-01',
-      dry_run: true,
-      task_kind: 'portfolio_valuation_refresh',
-      now: () => '2026-06-01T07:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_refresh_001',
-      priceSource,
-    })
-    const rerun = await runScheduledTasks(store, {
-      as_of: '2026-06-01',
-      dry_run: true,
-      task_kind: 'portfolio_valuation_refresh',
-      now: () => '2026-06-01T08:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_refresh_002',
-      priceSource,
-    })
-
-    const events = await store.list()
-    expect(events.filter((event) => event.event_type === 'holding_valuation_recorded')).toHaveLength(1)
-    expect(rerun).toMatchObject({ completed: 1, failed: 0, events_appended: 2 })
-    expect(rerun.summaries).toEqual([
-      'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 0 holding(s) missing price data; no investment decision or portfolio action taken',
-    ])
-    expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_portfolio_valuation_refresh_002')?.payload).toMatchObject({
-      observations: ['COST valuation already refreshed from yahoo for 2026-06-01; no duplicate valuation event appended'],
-    })
-  })
 
   it('projects AAOIFI-aware purification obligations from dividend and Shariah evidence without marking payments resolved', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
@@ -1508,81 +1418,7 @@ describe('worker runtime', () => {
     expect((await store.list()).filter((event) => event.event_type === 'scheduled_task_run_started')).toHaveLength(2)
   })
 
-  it('appends holding_valuation_recorded with valuation_source yahoo when injected price source returns available', async () => {
-    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
-    await appendCostHolding(store)
-    await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T07:00:00.000Z' })
 
-    const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 905.00, currency: 'USD', as_of: '2026-06-02', source: 'yahoo' },
-    })
-
-    const result = await runScheduledTasks(store, {
-      as_of: '2026-06-02',
-      dry_run: true,
-      task_kind: 'portfolio_valuation_refresh',
-      now: () => '2026-06-02T07:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_yahoo_001',
-      priceSource,
-    })
-
-    expect(result).toMatchObject({ completed: 1, failed: 0 })
-    const events = await store.list()
-    const valuation = events.find((event) => event.event_type === 'holding_valuation_recorded')
-    expect(valuation).toBeDefined()
-    expect(valuation?.payload).toMatchObject({
-      holding_id: 'holding_cost_001',
-      price_per_share: 905.00,
-      market_value: 905.00,
-      valuation_source: 'yahoo',
-      confidence: 'market',
-      caveat: 'Live market price from Yahoo Finance',
-      valued_by_actor_type: 'worker',
-      valued_by_actor_id: 'owlfolio-worker',
-    })
-    expect(valuation?.source_ids).toEqual(['yahoo:COST:2026-06-02'])
-    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
-    expect(completed?.payload).toMatchObject({
-      result_summary: expect.stringContaining('refreshed 1 holding valuation(s)'),
-      approval_gates: [],
-      human_approval_required: false,
-      auto_approved_actions: 0,
-    })
-  })
-
-  it('skips holding_valuation_recorded and notes manual required when injected price source returns unavailable', async () => {
-    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
-    await appendCostHolding(store)
-    await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T07:00:00.000Z' })
-
-    // Price source returns unavailable for all tickers (simulates uncovered exchange / network error)
-    const priceSource = makeMockPriceSource({})
-
-    const result = await runScheduledTasks(store, {
-      as_of: '2026-06-02',
-      dry_run: true,
-      task_kind: 'portfolio_valuation_refresh',
-      now: () => '2026-06-02T07:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_unavailable_001',
-      priceSource,
-    })
-
-    expect(result).toMatchObject({ completed: 1, failed: 0 })
-    const events = await store.list()
-    // No holding_valuation_recorded events appended
-    expect(events.filter((event) => event.event_type === 'holding_valuation_recorded')).toHaveLength(0)
-    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
-    expect(completed?.payload).toMatchObject({
-      result_summary: 'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
-      missing_data_holding_ids: ['holding_cost_001'],
-      approval_gates: [],
-      human_approval_required: false,
-    })
-    // Observation must mention manual valuation required
-    const observations = (completed?.payload as Record<string, unknown>)?.observations
-    expect(Array.isArray(observations)).toBe(true)
-    expect((observations as string[]).some((obs) => obs.includes('manual valuation required'))).toBe(true)
-  })
 
   it('automation settings: disabling watchlist_monitoring sets watchlist_monitor task enabled=false', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()

@@ -58,7 +58,6 @@ const SCAN_SET: string[] = [
   'apps/web/src/components/ResearchCasePanel.tsx',
   'apps/web/src/components/WatchlistPanel.tsx',
   'apps/web/src/components/PipelineObservatory.tsx',
-  'apps/web/src/components/PerformancePanel.tsx',
 ]
 
 /**

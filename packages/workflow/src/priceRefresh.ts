@@ -5,7 +5,6 @@
  * fetches each price via resolveCurrentPrice, and emits:
  *   - price_snapshot_recorded   — per refreshed ticker   (always)
  *   - watchlist_monitor_alert_recorded — when a buy-window signal fires or is suppressed
- *   - holding_valuation_recorded — per holding for each refreshed ticker
  *
  * Returns { refreshed, unavailable, buy_zone_hits }.
  *
@@ -172,42 +171,9 @@ export async function runPriceRefresh(
       }
     }
 
-    // ── holding_valuation_recorded (per holding with this ticker) ────────────
-    for (const holding of holdings) {
-      if (holding.ticker !== ticker) continue
-
-      const snapshotId = `hval_${holding.holding_id}_${asOfDate}`
-      const marketValue = Math.round(quote.price_per_share * holding.shares * 100) / 100
-
-      await store.append({
-        event_id: `evt_holding_valuation_recorded_${snapshotId}`,
-        event_type: 'holding_valuation_recorded',
-        aggregate_type: 'holding',
-        aggregate_id: holding.holding_id,
-        actor_type: 'worker',
-        actor_id: PRICE_REFRESH_ACTOR_ID,
-        idempotency_key: `holding-valuation:${holding.holding_id}:${asOfDate}:${quote.source}`,
-        payload: {
-          snapshot_id: snapshotId,
-          holding_id: holding.holding_id,
-          price_per_share: quote.price_per_share,
-          shares: holding.shares,
-          market_value: marketValue,
-          currency: holding.currency,
-          valued_at: asOfDate,
-          valuation_source: quote.source,
-          price_checked_at: quote.as_of,
-          confidence: 'market',
-          caveat: 'Live market price',
-          missing_data: [],
-          valued_by_actor_type: 'worker',
-          valued_by_actor_id: PRICE_REFRESH_ACTOR_ID,
-        },
-        source_ids: [`${quote.source}:${ticker}:${quote.as_of}`],
-        created_at: checkedAt,
-        schema_version: 1,
-      } satisfies LedgerEventEnvelope<Record<string, unknown>>)
-    }
+    // SCALE-DOWN S2 (owner-locked 2026-07-13): the holding-valuation leg is REMOVED — position
+    // values were the money layer (unverifiable user shares × price). Price snapshots (above) are
+    // the surviving, externally-verifiable output: they power the zone board + buy-zone alerts.
   }
 
   return { refreshed, unavailable, buy_zone_hits }

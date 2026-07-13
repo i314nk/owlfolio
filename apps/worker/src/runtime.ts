@@ -221,9 +221,6 @@ function quarterStartDateForEnd(quarterEnd: string): string {
   return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 1)).toISOString().slice(0, 10)
 }
 
-function roundMoney(value: number): number {
-  return Number(value.toFixed(2))
-}
 
 function resolveProjectRootFromCwd(cwd: string): string {
   const normalized = cwd.replace(/\/+$/, '') || cwd
@@ -1916,86 +1913,72 @@ function normalizeTicker(ticker: string | undefined): string | undefined {
   return normalized === undefined || normalized.length === 0 ? undefined : normalized
 }
 
-function valuationSnapshotId(holdingId: string, asOf: string): string {
-  return `scheduled_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
-}
 
 async function runPortfolioValuationRefreshTask(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: TaskHandlerOptions,
 ): Promise<TaskResult> {
+  // SCALE-DOWN S2 (owner-locked 2026-07-13): the holding-VALUATION leg is removed (position values
+  // were the money layer). The task survives — kind kept for scheduled-task contract stability — as
+  // the PRICE POLL for held names: one price_snapshot_recorded per held ticker (externally
+  // verifiable), powering the zone board, sell advisories, and pullback rungs. No valuations.
   const events = await store.list()
   const holdings = projectHoldings(events)
   const asOf = options.as_of ?? currentDate()
   const checkedAt = options.now?.() ?? nowIso()
   const observations: string[] = []
   const missingDataHoldingIds: string[] = []
-  const existingValuationKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const seenTickers = new Set<string>()
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
   let refreshed = 0
 
   for (const holding of holdings) {
     const ticker = normalizeTicker(holding.ticker)
     if (ticker === undefined) {
       missingDataHoldingIds.push(holding.holding_id)
-      observations.push(`${holding.company_id ?? holding.holding_id}: no ticker; manual valuation required`)
+      observations.push(`${holding.company_id ?? holding.holding_id}: no ticker; no price poll possible`)
       continue
     }
+    if (seenTickers.has(ticker)) continue
+    seenTickers.add(ticker)
 
-    // TODO: thread exchange/market from holding intake
     const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
-
     if (!quote.available) {
       missingDataHoldingIds.push(holding.holding_id)
-      observations.push(`${ticker}: no auto price (manual valuation required) — ${quote.reason}`)
+      observations.push(`${ticker}: no market quote available`)
       continue
     }
-
-    const valuationSource = quote.source
-    const valuationKey = `holding-valuation:${holding.holding_id}:${asOf}:${valuationSource}`
-    if (existingValuationKeys.has(valuationKey)) {
-      observations.push(`${ticker} valuation already refreshed from ${valuationSource} for ${asOf}; no duplicate valuation event appended`)
-      continue
-    }
-
-    const snapshotId = valuationSnapshotId(holding.holding_id, asOf)
-    const marketValue = roundMoney(quote.price_per_share * holding.shares)
+    const snapId = `psnap_${ticker}_${asOf}_${quote.source}`
+    const idemKey = `price-snapshot:${ticker}:${asOf}:${quote.source}`
+    if (existingKeys.has(idemKey)) continue
     await store.append({
-      event_id: `evt_holding_valuation_recorded_${snapshotId}`,
-      event_type: 'holding_valuation_recorded',
-      aggregate_type: 'holding',
-      aggregate_id: holding.holding_id,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      correlation_id: options.scheduled_task_run_id,
-      idempotency_key: valuationKey,
+      event_id: `evt_price_snapshot_recorded_${snapId}`,
+      event_type: 'price_snapshot_recorded',
+      aggregate_type: 'portfolio',
+      aggregate_id: ticker,
       actor_type: 'worker',
       actor_id: WORKER_ACTOR_ID,
+      idempotency_key: idemKey,
       payload: {
-        snapshot_id: snapshotId,
-        holding_id: holding.holding_id,
+        snapshot_id: snapId,
+        ticker,
         price_per_share: quote.price_per_share,
-        shares: holding.shares,
-        market_value: marketValue,
-        currency: holding.currency,
-        valued_at: asOf,
-        valuation_source: valuationSource,
-        price_checked_at: quote.as_of,
-        confidence: 'market',
-        caveat: 'Live market price from Yahoo Finance',
-        missing_data: [],
-        valued_by_actor_type: 'worker',
-        valued_by_actor_id: WORKER_ACTOR_ID,
+        currency: quote.currency,
+        as_of: quote.as_of,
+        source: quote.source,
+        checked_at: checkedAt,
       },
-      source_ids: [`${valuationSource}:${ticker}:${quote.as_of}`],
+      source_ids: [`${quote.source}:${ticker}:${quote.as_of}`],
       created_at: checkedAt,
       schema_version: 1,
     } satisfies LedgerEventEnvelope<Record<string, unknown>>)
-    existingValuationKeys.add(valuationKey)
+    existingKeys.add(idemKey)
     refreshed += 1
-    observations.push(`${ticker} valuation refreshed from ${valuationSource} at $${quote.price_per_share.toFixed(2)}; factual valuation update only`)
+    observations.push(`${ticker} price snapshot recorded from ${quote.source} at $${quote.price_per_share.toFixed(2)}; factual price update only`)
   }
 
   return {
-    result_summary: `portfolio_valuation_refresh dry-run: refreshed ${refreshed} holding valuation(s), ${missingDataHoldingIds.length} holding(s) missing price data; no investment decision or portfolio action taken`,
+    result_summary: `portfolio_valuation_refresh dry-run: recorded ${refreshed} held-ticker price snapshot(s), ${missingDataHoldingIds.length} holding(s) missing price data; valuations retired (scale-down); no investment decision or portfolio action taken`,
     observations,
     approval_gates: [],
     human_approval_required: false,

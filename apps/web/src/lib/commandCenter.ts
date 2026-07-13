@@ -15,7 +15,6 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig } from '@owlfolio/shared'
 
-import { buildMonthlyAccountingReport } from './accounting'
 import { isUnconfiguredForUser } from './modeView'
 import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
@@ -32,11 +31,6 @@ export type CommandCenterAction = {
   label: string
 }
 
-export type CommandCenterAccountingAlert = {
-  label: string
-  message: string
-  href: string
-}
 
 /** A strong discovery signal surfaced on the home "needs your attention" rail (CLUSTER_BUY especially). */
 export type CommandCenterDiscoverySignal = {
@@ -58,7 +52,6 @@ export type AppCommandCenter = {
   next_recommended_action: string
   approval_queue: CommandCenterApprovalQueueItem[]
   holding_review_prompts: CommandCenterHoldingReviewPrompt[]
-  accounting_alert?: CommandCenterAccountingAlert
   recent_activity: CommandCenterRecentActivity[]
   /** Open agent observations + human-decision drafts (NOT executed) — the "needs your attention" rail. */
   monitor_alerts: MonitorAlert[]
@@ -171,7 +164,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
     const activeStore = store ?? (ownedStore = new SQLiteEventStore(config.ledger_path))
     const events = await activeStore.list()
     const summary = projectCommandCenterSummary(events)
-    const accountingAlert = buildAccountingAlert(events)
+    // SCALE-DOWN S2: the accounting books are removed — no accounting alert.
 
     return {
       product_name: 'Owlfolio',
@@ -186,7 +179,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         : summary.next_recommended_action,
       approval_queue: summary.approval_queue,
       holding_review_prompts: summary.holding_review_prompts,
-      ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
       recent_activity: summary.recent_activity.length === 0
         ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
         : summary.recent_activity,
@@ -206,28 +198,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
   }
 }
 
-function buildAccountingAlert(events: LedgerEventEnvelope<unknown>[]): CommandCenterAccountingAlert | undefined {
-  const hasAccountingSource = events.some((event) => event.event_type === 'holding_opened' || event.event_type === 'accounting_snapshot_recorded')
-  if (!hasAccountingSource) {
-    return undefined
-  }
-
-  const report = buildMonthlyAccountingReport(events)
-  const snapshot = report.current_period_snapshot
-  return {
-    label: 'Monthly accounting report',
-    message: `${formatAccountingMonth(snapshot.period_end)} NAV: ${formatAccountingMoney(snapshot.nav, snapshot.currency)}; ${snapshot.missing_valuation_holding_ids.length} holdings missing valuations.`,
-    href: '/accounting/monthly',
-  }
-}
-
-function formatAccountingMoney(value: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', { currency, style: 'currency' }).format(value)
-}
-
-function formatAccountingMonth(date: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`))
-}
 
 async function buildCommandCenterProviderStatus(
   config: AppConfig,

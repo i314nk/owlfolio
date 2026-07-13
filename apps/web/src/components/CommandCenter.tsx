@@ -468,7 +468,8 @@ function createAgentsDesk(dashboard: AppCommandCenter) {
 // ── 6. Holdings & books ───────────────────────────────────────────────────────
 
 function createHoldingsAndBooks(dashboard: AppCommandCenter) {
-  const accounting = createAccountingRow(dashboard)
+  // SCALE-DOWN S2: the accounting books are removed — no accounting row.
+  const accounting = null
   const reviews = createHoldingReviewRows(dashboard)
 
   if (accounting === null && reviews === null) {
@@ -484,28 +485,6 @@ function createHoldingsAndBooks(dashboard: AppCommandCenter) {
   )
 }
 
-function createAccountingRow(dashboard: AppCommandCenter) {
-  const alert = dashboard.accounting_alert
-  if (alert === undefined) {
-    return null
-  }
-
-  return createElement(
-    'div',
-    { className: 'owl-row owl-row-top' },
-    createElement(
-      'div',
-      { className: 'owl-row-main' },
-      createElement('p', { className: 'owl-row-title' }, alert.label),
-      createElement('p', { className: 'owl-row-helper' }, alert.message),
-    ),
-    createElement(
-      'div',
-      { className: 'owl-row-aside' },
-      createElement(OwlButtonLink, { href: alert.href, variant: 'secondary' }, `Open ${alert.label.toLowerCase()}`),
-    ),
-  )
-}
 
 function createHoldingReviewRows(dashboard: AppCommandCenter) {
   if (dashboard.holding_review_prompts.length === 0) {
@@ -693,16 +672,6 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
     })
   }
 
-  if (dashboard.accounting_alert !== undefined) {
-    cards.push({
-      category: 'Accounting reminder',
-      description: dashboard.accounting_alert.message,
-      href: dashboard.accounting_alert.href,
-      label: 'Open accounting report',
-      title: 'Review monthly accounting',
-      tone: 'info',
-    })
-  }
 
   if (counts.open_holdings > 0) {
     cards.push({
