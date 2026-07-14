@@ -8,6 +8,7 @@ import { WatchlistPanel } from '../../components/WatchlistPanel'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { enrichWatchlistItemsWithVerdict, getAppMonitorAlertsFromStore, getAppWatchlistItemsFromStore, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
+import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
 
 export default async function WatchlistPage() {
   const state = await getOnboardingState()
@@ -40,8 +41,18 @@ async function loadPersonalWatchlist(ledgerPath: string | undefined): Promise<{ 
   try {
     const items = await getAppWatchlistItemsFromStore(store, 'personal-local')
     const events = await store.list()
+    const enriched = enrichWatchlistItemsWithVerdict(items, projectResearchCases(events), new Date(), projectLatestPriceSnapshots(events))
+    // Display-name backfill: legacy cases predate the entity_name stamp — fill from the SEC ticker
+    // map (cached, display-only; the stamped name always wins).
+    const names = await resolveDisplayNamesForTickers(enriched.map((item) => item.ticker))
+    for (const item of enriched) {
+      if (item.verdict !== undefined && item.verdict.entity_name === undefined && item.ticker !== undefined) {
+        const name = names.get(item.ticker.toUpperCase())
+        if (name !== undefined) item.verdict.entity_name = name
+      }
+    }
     return {
-      items: enrichWatchlistItemsWithVerdict(items, projectResearchCases(events), new Date(), projectLatestPriceSnapshots(events)),
+      items: enriched,
       alerts: await getAppMonitorAlertsFromStore(store),
     }
   } finally {

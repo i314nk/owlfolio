@@ -3,5 +3,5 @@
  * the name reads like a name. Display-only; the payload keeps the registrant's exact string.
  */
 export function titleCaseEntityName(name: string): string {
-  return name.toLowerCase().replace(/(^|[\s\-("'./])([a-z])/g, (_m, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`)
+  return name.toLowerCase().replace(/(^|[\s\-("'./&])([a-z])/g, (_m, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`)
 }

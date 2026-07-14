@@ -9,6 +9,7 @@ import { getOnboardingState } from '../../lib/onboarding'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
 import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
+import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -51,6 +52,8 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
       projectResearchCases(events).map((researchCase) => [researchCase.research_case_id, researchCase]),
     )
 
+    // Display-name backfill for legacy cases (see displayNames.ts) — the stamped name always wins.
+    const displayNames = await resolveDisplayNamesForTickers(holdings.map((holding) => holding.ticker))
     const enrichedHoldings = holdings.map((holding) => {
       // OWNER-LOCKED (2026-07-14): the row DISPLAYS from the latest non-superseded case for the
       // ticker — thresholds are provider observations, and a superseding re-run must show up here.
@@ -79,7 +82,7 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         const loadUp = (valuationCase?.valuation as { load_up_below?: number } | undefined)?.load_up_below
         if (loadUp !== undefined) enriched.loadUpBelow = loadUp
       }
-      const entityName = (valuationCase ?? linkedCase)?.entity_name
+      const entityName = (valuationCase ?? linkedCase)?.entity_name ?? (holding.ticker === undefined ? undefined : displayNames.get(holding.ticker.toUpperCase()))
       if (entityName !== undefined) enriched.entityName = entityName
       if (valuationCase !== undefined) {
         enriched.displayResearchCaseId = valuationCase.research_case_id
