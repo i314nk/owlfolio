@@ -94,7 +94,7 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 Limit to one task kind:
 
 ```bash
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 

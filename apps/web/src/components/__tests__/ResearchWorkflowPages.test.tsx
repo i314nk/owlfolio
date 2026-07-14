@@ -610,17 +610,14 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('Opened by actor')
     expect(html).toContain('Open the full analysis')
     expect(html).toContain('href="/research/rc_msft_001"')
-    expect(html).toContain('Manual fallback actions')
     expect(html).toContain('<summary')
-    expect(html).toContain('Thesis health')
+    // REVIEW RETIRED (owner, 2026-07-14): no review forms, no schedule rows — a legacy recorded
+    // thesis-health still shows as the row badge (readable forever); the drafted-review ceremony is gone.
     expect(html).toContain('HEALTHY')
-    expect(html).toContain('Action stance')
-    expect(html).toContain('HOLD')
-    expect(html).toContain('The original Buffett-Munger thesis remains intact.')
-    expect(html).toContain('Next review')
-    expect(html).toContain('2026-09-30')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review"')
-    expect(html).toContain('Run Buffett-Munger review')
+    expect(html).not.toContain('Manual fallback actions')
+    expect(html).not.toContain('Run Buffett-Munger review')
+    expect(html).not.toContain('action="/api/portfolio/holding_msft_001/review"')
+    expect(html).not.toContain('Next review')
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#047857')
   })
@@ -711,76 +708,6 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Entry-vs-market move (no research buy-below recorded) — not a valuation verdict.')
     expect(html).not.toContain('Buy below $')
   })
-
-  it('renders a pending strategy review confirmation action', () => {
-    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
-      holdings: [{
-        holding_id: 'holding_msft_001',
-        watchlist_item_id: 'watch_msft_001',
-        research_case_id: 'rc_msft_001',
-        ticker: 'MSFT',
-        strategy_id: 'buffett-munger',
-        thesis_summary: 'Watch MSFT until the margin of safety improves.',
-        shares: 3.25,
-        cost_basis_per_share: 812.4,
-        total_cost_basis: 2640.3,
-        currency: 'USD',
-        opened_at: '2026-05-31',
-        pending_review_id: 'review_holding_msft_001',
-        pending_review_thesis_health: 'HEALTHY',
-        pending_review_action_stance: 'HOLD',
-        pending_review_rationale: 'The original Buffett-Munger thesis remains intact.',
-        pending_review_next_review_at: '2026-09-30',
-        updated_at: '2026-06-30T12:00:00.000Z',
-      }],
-      mode: 'personal-local',
-    }))
-
-    expect(html).toContain('Strategy review drafted')
-    expect(html).toContain('Current confirmed thesis')
-    expect(html).toContain('No confirmed review yet')
-    expect(html).toContain('Provider-authored review draft')
-    expect(html).toContain('Pending thesis health')
-    expect(html).toContain('HEALTHY')
-    expect(html).toContain('Pending action stance')
-    expect(html).toContain('HOLD')
-    expect(html).toContain('Choose one auditable decision path')
-    expect(html).toContain('Pending review decision summary')
-    expect(html).toContain('Compare these paths quickly')
-    expect(html).toContain('href="#holding-review-path-confirm"')
-    expect(html).toContain('id="holding-review-path-confirm"')
-    expect(html).toContain('href="#holding-review-path-override"')
-    expect(html).toContain('id="holding-review-path-override"')
-    expect(html).toContain('id="holding-review-path-reject"')
-    expect(html).toContain('Apply provider draft')
-    expect(html).toContain('Applies the provider-authored thesis health, action stance, and next review date to portfolio state.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/confirm"')
-    expect(html).toContain('Apply user override')
-    expect(html).toContain('Applies your edited values instead of the provider draft and records a user-authored audit event.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/override"')
-    expect(html).toContain('Override thesis health')
-    expect(html).toContain('Override action stance')
-    expect(html).toContain('Override rationale (required)')
-    expect(html).toContain('Override evidence summary (required)')
-    expect(html).toContain('Override uncertainty (required)')
-    expect(html).toContain('Override next review date (required)')
-    // Audit-and-decide: both re-underwrite paths render the checklist as READ-ONLY marshaled findings gated
-    // by a single cognitive acknowledgement — never the old per-item author inputs.
-    expect(html).toContain('data-testid="checklist-finding-shariah_drift"')
-    expect(html).toContain('data-testid="checklist-finding-data_completeness"')
-    expect(html).toContain('name="cognitive_reflection_acknowledged"')
-    expect(html).not.toContain('checklist_note[')
-    expect(html).not.toContain('checklist_addressed[')
-    expect(html).not.toContain('Save override')
-    expect(html).toContain('Reject provider draft')
-    expect(html).toContain('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/reject"')
-    expect(html).toContain('Rejection reason (required)')
-    expect(html).toContain('Reject strategy review')
-    expect(html).not.toContain('#ecfdf5')
-    expect(html).not.toContain('#047857')
-  })
-
 
   it('surfaces conditional and blocked Shariah gate details on watchlist and holding cards', () => {
     const conditionalWatchlistHtml = renderToStaticMarkup(createElement(WatchlistPanel, {

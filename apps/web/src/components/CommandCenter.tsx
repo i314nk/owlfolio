@@ -41,7 +41,6 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
     createNeedsAttention(dashboard),
     createCommandPanel(dashboard),
     createAgentsDesk(dashboard),
-    createHoldingsAndBooks(dashboard),
     createLedgerFeed(dashboard),
   )
 }
@@ -467,56 +466,8 @@ function createAgentsDesk(dashboard: AppCommandCenter) {
 
 // ── 6. Holdings & books ───────────────────────────────────────────────────────
 
-function createHoldingsAndBooks(dashboard: AppCommandCenter) {
-  // SCALE-DOWN S2: the accounting books are removed — no accounting row.
-  const accounting = null
-  const reviews = createHoldingReviewRows(dashboard)
-
-  if (accounting === null && reviews === null) {
-    return null
-  }
-
-  return createElement(
-    'section',
-    { 'aria-label': 'Portfolio and compliance', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
-    createElement('p', { className: 'owl-cc-section-accent' }, 'Holdings & books'),
-    accounting,
-    reviews,
-  )
-}
 
 
-function createHoldingReviewRows(dashboard: AppCommandCenter) {
-  if (dashboard.holding_review_prompts.length === 0) {
-    return null
-  }
-
-  return createElement(
-    'div',
-    { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-label' }, 'Holding review schedule'),
-    createElement(
-      'div',
-      { className: 'owl-row-list' },
-      ...dashboard.holding_review_prompts.map((prompt) => createElement(
-        'div',
-        { key: prompt.holding_id, className: 'owl-row owl-row-top' },
-        createElement(
-          'div',
-          { className: 'owl-row-main' },
-          createElement('h3', { className: 'owl-row-title' }, prompt.label),
-          createElement('p', { className: 'owl-row-helper' }, `Next review: ${prompt.next_review_at} · ${formatReviewDistance(prompt.days_until_review)}`),
-        ),
-        createElement(
-          'div',
-          { className: 'owl-row-aside' },
-          createElement(StatusBadge, { tone: prompt.status === 'due' ? 'warning' : 'neutral' }, prompt.status === 'due' ? 'Due now' : 'Upcoming'),
-          createElement(OwlButtonLink, { href: `/portfolio#${prompt.holding_id}`, variant: prompt.status === 'due' ? 'danger' : 'secondary' }, `Review ${prompt.label}`),
-        ),
-      )),
-    ),
-  )
-}
 
 // ── 7. The ledger (recent activity) ───────────────────────────────────────────
 
@@ -577,8 +528,6 @@ function describeTopQueueItem(item: AppCommandCenter['approval_queue'][number]):
       }
       return `Confirm ${item.target_label ?? item.title}`
     }
-    case 'holding_review':
-      return `Review ${item.target_label ?? item.title}`
     default:
       return item.title
   }
@@ -625,8 +574,6 @@ function countsText(value: number): string {
 function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
   const cards: ActionCard[] = []
   const counts = dashboard.pipeline_counts
-  const firstDueReview = dashboard.holding_review_prompts.find((prompt) => prompt.status === 'due')
-  const firstUpcomingReview = dashboard.holding_review_prompts.find((prompt) => prompt.status === 'upcoming')
 
   if (counts.watchlist_drafts > 0) {
     cards.push({
@@ -650,51 +597,6 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
     })
   }
 
-  if (hasPendingHoldingReviewDraft(dashboard)) {
-    cards.push({
-      category: 'Pending holding review draft',
-      description: 'Confirm, override, or reject the provider-authored draft before changing confirmed portfolio state.',
-      href: '/portfolio',
-      label: 'Open holding review draft',
-      title: 'Review pending strategy review draft',
-      tone: 'warning',
-    })
-  }
-
-  if (firstDueReview !== undefined) {
-    cards.push({
-      category: 'Review schedule',
-      description: `${firstDueReview.label} is ${formatReviewDistance(firstDueReview.days_until_review)}. Run the strategy review draft before changing confirmed portfolio state.`,
-      href: `/portfolio#${firstDueReview.holding_id}`,
-      label: `Review ${firstDueReview.label}`,
-      title: 'Run due holding review',
-      tone: 'critical',
-    })
-  }
-
-
-  if (counts.open_holdings > 0) {
-    cards.push({
-      category: 'Purification reminder',
-      description: 'Review dividend, fee, and non-compliant income inputs before month-end purification close.',
-      href: '/purification',
-      label: 'Open purification ledger',
-      title: 'Check purification obligations',
-      tone: 'info',
-    })
-  }
-
-  if (cards.length === 0 && firstUpcomingReview !== undefined) {
-    cards.push({
-      category: 'Upcoming review schedule',
-      description: `${firstUpcomingReview.label} is scheduled for ${firstUpcomingReview.next_review_at} (${formatReviewDistance(firstUpcomingReview.days_until_review)}).`,
-      href: `/portfolio#${firstUpcomingReview.holding_id}`,
-      label: `Open ${firstUpcomingReview.label} holding`,
-      title: 'Prepare next holding review',
-      tone: 'info',
-    })
-  }
-
   if (cards.length === 0) {
     // This card's title carries next_recommended_action as a heading (the
     // directive above is plain text, so this is the single heading for it).
@@ -713,11 +615,6 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
   return cards
 }
 
-function hasPendingHoldingReviewDraft(dashboard: AppCommandCenter): boolean {
-  const pendingReviewDraftCount = dashboard.pipeline_counts.pending_user_actions - dashboard.pipeline_counts.watchlist_drafts
-  return pendingReviewDraftCount > 0
-    || dashboard.next_recommended_action.toLowerCase().includes('drafted strategy review')
-}
 
 function isProviderReadinessWarning(providerStatus: string): boolean {
   const status = providerStatus.toLowerCase()
@@ -758,17 +655,4 @@ function humanizeEventName(eventName: string): string {
   }
 
   return `${words[0]?.toUpperCase() ?? ''}${words.slice(1)}`
-}
-
-function formatReviewDistance(daysUntilReview: number): string {
-  if (daysUntilReview < 0) {
-    const daysOverdue = Math.abs(daysUntilReview)
-    return `${daysOverdue} ${daysOverdue === 1 ? 'day' : 'days'} overdue`
-  }
-
-  if (daysUntilReview === 0) {
-    return '0 days'
-  }
-
-  return `${daysUntilReview} ${daysUntilReview === 1 ? 'day' : 'days'}`
 }

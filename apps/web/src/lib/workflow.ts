@@ -49,16 +49,12 @@ function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_
 import {
   assertShariahGateAllowsTransition,
   checkForNewFilings,
-  confirmHoldingReviewDraft,
   confirmWatchlistDraft,
-  draftHoldingReview,
   draftThesisReReview,
   evaluateResearchCaseShariahGate,
   loadPriorThesis,
   openHoldingFromWatchlist,
-  overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
-  rejectHoldingReviewDraft,
   defaultSourceLedgerStorage,
   type CheckForNewFilingsDeps,
   type InsiderClusterTrigger,
@@ -315,19 +311,6 @@ export type RecordPersonalHoldingValuationInput = {
   price_per_share?: FormDataEntryValue | number | string | null
   currency?: FormDataEntryValue | string | null
   valued_at?: FormDataEntryValue | string | null
-}
-
-export type OverridePersonalHoldingReviewInput = {
-  thesis_health?: FormDataEntryValue | string | null
-  action_stance?: FormDataEntryValue | string | null
-  rationale?: FormDataEntryValue | string | null
-  evidence_summary?: FormDataEntryValue | string | null
-  uncertainty?: FormDataEntryValue | string | null
-  next_review_at?: FormDataEntryValue | string | null
-}
-
-export type RejectPersonalHoldingReviewInput = {
-  rejection_reason?: FormDataEntryValue | string | null
 }
 
 const pendingChecklist: AppGateChecklistItem[] = [
@@ -1991,166 +1974,6 @@ export async function recordPersonalHoldingValuation(
   }
 }
 
-export async function createPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    const holding = projectHoldings(await store.list()).find((candidate) => candidate.holding_id === holdingId)
-    if (holding === undefined) {
-      throw new Error(`Unknown holding: ${holdingId}`)
-    }
-
-    const reviewId = `review_${holding.holding_id}_${Date.now()}`
-    await assertConfiguredProviderIsReady(state)
-    const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
-    return await draftHoldingReview(store, provider, {
-      review_id: reviewId,
-      holding_id: holding.holding_id,
-      model_id: resolveModelIdForProvider(state.config),
-      causation_id: holding.latest_review_id === undefined
-        ? `evt_holding_opened_${holding.holding_id}`
-        : `evt_holding_review_confirmed_${holding.latest_review_id}`,
-      idempotency_key: `holding:${holding.holding_id}:review:${reviewId}:draft`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-export async function confirmPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  cognitiveAcknowledged = false,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    // AUDIT-AND-DECIDE (re-underwrite confirm): the SERVER marshals the business findings — one finding per
-    // business item, a PURE read of the HELD name's research-case projection — so a finding can never be
-    // authored or spoofed by the client. The human posts only their single cognitive acknowledgement. The
-    // COMPLETION-BLOCK still lives in confirmHoldingReviewDraft (throw-before-append): every business item
-    // must carry a non-empty finding AND `cognitive_acknowledged` must be true. Decision-NEUTRAL: no score/count.
-    const checklistAudit: ChecklistAudit = {
-      version: CHECKLIST_PARAMS.version,
-      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
-      cognitive_acknowledged: cognitiveAcknowledged,
-    }
-
-    return await confirmHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      checklist_audit: checklistAudit,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:confirm`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-/**
- * Resolve the research-case projection for a holding's re-underwrite so the server can marshal the business
- * findings (audit-and-decide). Prefers the holding's own linked case, falling back to the latest
- * non-superseded case for the same ticker — mirroring the portfolio loader. PURE read; no engine call.
- * Returns undefined when no case is found, in which case resolveBusinessFindings yields honest fallbacks.
- */
-async function resolveHoldingResearchCase(
-  store: EventStore,
-  holdingId: string,
-): Promise<ResearchCaseProjection | undefined> {
-  const events = await store.list()
-  const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
-  if (holding === undefined) {
-    return undefined
-  }
-  const linkedCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === holding.research_case_id)
-  if (linkedCase?.valuation?.buy_price_per_share !== undefined) {
-    return linkedCase
-  }
-  const fallback = holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)
-  return fallback ?? linkedCase
-}
-
-export async function overridePersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  input: OverridePersonalHoldingReviewInput,
-  cognitiveAcknowledged = false,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const override = parseHoldingReviewOverrideInput(input)
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    // AUDIT-AND-DECIDE (re-underwrite override): the override is the co-equal twin of confirm — it writes the
-    // SAME confirmed thesis state, so it is gated on the SAME server-marshaled audit. The SERVER marshals the
-    // business findings (a PURE read of the held name's projection); the human authors their substitute
-    // thesis fields + posts the single cognitive acknowledgement. The COMPLETION-BLOCK lives in
-    // overrideHoldingReviewDraft (throw-before-append). Gating only confirm would reopen the gap S3 closed.
-    const checklistAudit: ChecklistAudit = {
-      version: CHECKLIST_PARAMS.version,
-      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
-      cognitive_acknowledged: cognitiveAcknowledged,
-    }
-
-    return await overrideHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      thesis_health: override.thesis_health,
-      action_stance: override.action_stance,
-      rationale: override.rationale,
-      evidence_summary: override.evidence_summary,
-      uncertainty: override.uncertainty,
-      next_review_at: override.next_review_at,
-      checklist_audit: checklistAudit,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:override`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-export async function rejectPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  input: RejectPersonalHoldingReviewInput,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const rejectionReason = parseRequiredText(input.rejection_reason, 'Rejection reason')
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    return await rejectHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      rejection_reason: rejectionReason,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:reject`,
-    })
-  } finally {
-    store.close()
-  }
-}
 
 export type SetInvestableCapitalInput = {
   amount?: FormDataEntryValue | number | string | null
@@ -2273,45 +2096,7 @@ function parseHoldingValuationInput(input: RecordPersonalHoldingValuationInput, 
   }
 }
 
-function parseHoldingReviewOverrideInput(input: OverridePersonalHoldingReviewInput): {
-  thesis_health: 'HEALTHY' | 'WATCH' | 'IMPAIRED' | 'EXIT_CANDIDATE'
-  action_stance: 'HOLD' | 'ADD_ON_PULLBACK' | 'REDUCE' | 'EXIT_REVIEW_NEEDED' | 'RESEARCH_MORE'
-  rationale: string
-  evidence_summary: string
-  uncertainty: string
-  next_review_at: string
-} {
-  const thesisHealth = parseRequiredText(input.thesis_health, 'Override thesis health')
-  const actionStance = parseRequiredText(input.action_stance, 'Override action stance')
-  const nextReviewAt = parseRequiredText(input.next_review_at, 'Override next review date')
 
-  if (!['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE'].includes(thesisHealth)) {
-    throw new Error('Override thesis health is invalid')
-  }
-  if (!['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE'].includes(actionStance)) {
-    throw new Error('Override action stance is invalid')
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextReviewAt)) {
-    throw new Error('Override next review date must use YYYY-MM-DD format')
-  }
-
-  return {
-    thesis_health: thesisHealth as 'HEALTHY' | 'WATCH' | 'IMPAIRED' | 'EXIT_CANDIDATE',
-    action_stance: actionStance as 'HOLD' | 'ADD_ON_PULLBACK' | 'REDUCE' | 'EXIT_REVIEW_NEEDED' | 'RESEARCH_MORE',
-    rationale: parseRequiredText(input.rationale, 'Override rationale'),
-    evidence_summary: parseRequiredText(input.evidence_summary, 'Override evidence summary'),
-    uncertainty: parseRequiredText(input.uncertainty, 'Override uncertainty'),
-    next_review_at: nextReviewAt,
-  }
-}
-
-function parseRequiredText(value: FormDataEntryValue | string | null | undefined, label: string): string {
-  const parsed = String(value ?? '').trim()
-  if (parsed.length === 0) {
-    throw new Error(`${label} is required`)
-  }
-  return parsed
-}
 
 function parseRequiredNumber(value: FormDataEntryValue | number | string | null | undefined, label: string): number {
   const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim())

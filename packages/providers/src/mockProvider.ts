@@ -408,23 +408,6 @@ function mockInversionForTicker(ticker: string) {
   }
 }
 
-function buffettMungerHoldingReviewForTicker(ticker: string) {
-  // Grounded contract: the holding review now runs through the grounded-agent path. The mock proposes
-  // real-shaped primary sources (the harness fetches + content-hashes them) and cites the SAME verified
-  // source_ids in its judgment, so the harness cite-check verifies them and the thesis_health is emitted
-  // as grounded (the deterministic demo/test path stays in-grounding, no fail-closed degrade).
-  const groundedSources = mockSourcesForTicker(ticker)
-  return {
-    thesis_health: 'HEALTHY',
-    action_stance: 'HOLD',
-    rationale: 'The original Buffett-Munger thesis remains intact: durable moat, aligned management, Shariah-compliant operations, and no evidence of thesis drift.',
-    evidence_summary: 'Reviewed the existing research case, source ledger references, holding cost basis, and latest valuation snapshot.',
-    uncertainty: 'Needs a refreshed primary-source review after the next quarterly filing.',
-    next_review_at: '2026-09-30',
-    source_ids: groundedSources.map((s) => s.source_id),
-    proposed_sources: groundedSources,
-  } as const
-}
 
 export class MockProvider implements Provider {
   readonly provider_id = 'mock-provider'
@@ -543,8 +526,6 @@ export class MockProvider implements Provider {
     if (request.response_format.kind === 'json-schema') {
       const ticker = extractTicker(request.prompt)
       switch (request.response_format.schema_name) {
-        case 'BuffettMungerHoldingReview':
-          return buffettMungerHoldingReviewForTicker(ticker)
         case 'BuffettMungerCircleCompetence':
           return mockCircleCompetenceForTicker(ticker)
         case 'BuffettMungerQuickScreen':

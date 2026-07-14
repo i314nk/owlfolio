@@ -4,7 +4,6 @@ import { dirname, join, parse } from 'node:path'
 
 import { type EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
@@ -26,7 +25,6 @@ import {
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
 import { defaultUnconfiguredAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
-import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { checkForNewFilings, type CheckForNewFilingsDeps } from '@owlfolio/workflow/reReviewTrigger'
 import { draftThesisReReview, type DraftThesisReReviewDeps } from '@owlfolio/workflow/thesisReReview'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
@@ -170,10 +168,6 @@ const WORKER_ACTOR_ID = 'owlfolio-worker'
 const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000
 
 /** thesis_health values that indicate the thesis is broken and warrant a full reanalysis */
-const THESIS_BROKEN_HEALTH: ReadonlySet<ThesisHealth> = new Set<ThesisHealth>(['IMPAIRED', 'EXIT_CANDIDATE'])
-const HOLDING_REVIEW_TIMEOUT_MS = 120_000
-const HOLDING_REVIEW_MAX_COST_USD = 0.25
-const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
 const SELL_REVIEW_APPROVAL_GATE = 'sell_review_requires_user_authoring'
 const WATCHLIST_REMOVAL_APPROVAL_GATE = 'watchlist_removal_requires_user_confirmation'
@@ -454,7 +448,6 @@ function providerRunEvent<TPayload extends Record<string, unknown>>(
 // Concrete cron strings for each friendly cadence value.
 // The daily/weekly expressions match the existing per-task defaults.
 const CRON_DAILY_WATCHLIST = '0 9 * * 1-5'
-const CRON_DAILY_HOLDING_REVIEW = '0 10 * * 1-5'
 const CRON_DAILY_VALUATION = '0 7 * * 1-5'
 const CRON_WEEKLY = '0 8 * * 1'
 const CRON_MONTHLY = '0 6 1 * *'
@@ -488,8 +481,9 @@ function cadenceToCron(cadence: CadenceWithOff, dailyCron: string): { enabled: b
 function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskPayload[] {
   const cfg = mergeAutomationSettings(automation)
   const watchlistCron = cadenceToCron(cfg.watchlist_monitoring.cadence, CRON_DAILY_WATCHLIST)
-  // thesis_review drives holding_review_draft + review_reminder
-  const thesisReviewCron = cadenceToCron(cfg.thesis_review.cadence, CRON_DAILY_HOLDING_REVIEW)
+  // REVIEW RETIRED (owner, 2026-07-14): thesis_review now drives ONLY re_review_check — the
+  // quarterly grounded check-in vs new filings. The provider-drafted holding review + its reminder
+  // are gone (the check-in, the 10-K full-re-run prompt, and the zone board cover the duty).
   // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
   const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
@@ -506,20 +500,6 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       task_kind: 're_review_check',
       cadence: CRON_QUARTERLY,
       enabled: cfg.thesis_review.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
-      scheduled_task_id: 'task_review_reminders_daily',
-      task_kind: 'review_reminder',
-      // review_reminder follows thesis_review cadence — it's the reminder counterpart
-      cadence: thesisReviewCron.cadence,
-      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -569,21 +549,6 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       enabled: cfg.purification.enabled && purificationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
-      scheduled_task_id: 'task_holding_review_drafts_daily',
-      task_kind: 'holding_review_draft',
-      cadence: thesisReviewCron.cadence,
-      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
-      max_cost_usd: HOLDING_REVIEW_MAX_COST_USD,
       safety: {
         mock_safe: true,
         auto_approve_investment_actions: false,
@@ -706,33 +671,6 @@ function labelForWatchlistItem(item: ReturnType<typeof projectWatchlist>[number]
   return item.ticker ?? item.company_id ?? item.watchlist_item_id
 }
 
-async function runReviewReminderTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: RunScheduledTasksOptions,
-): Promise<TaskResult> {
-  const events = await store.list()
-  const asOf = options.as_of ?? currentDate()
-  const summary = projectCommandCenterSummary(events, { as_of: asOf })
-  const holdings = projectHoldings(events)
-  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
-  const confirmedWatchlistItems = projectWatchlist(events).filter(
-    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
-  )
-  const duePrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'due')
-  const upcomingPrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'upcoming')
-  const observations = [
-    ...duePrompts.map((prompt) => `holding ${prompt.label} is due for review`),
-    ...upcomingPrompts.map((prompt) => `holding ${prompt.label} review is upcoming on ${prompt.next_review_at}`),
-    ...confirmedWatchlistItems.map((item) => `watchlist ${labelForWatchlistItem(item)} should be reviewed for buy-zone/thesis changes; opening a holding requires user approval`),
-  ]
-
-  return {
-    result_summary: `review_reminder dry-run: ${duePrompts.length} due holding review(s), ${upcomingPrompts.length} upcoming holding review(s), ${confirmedWatchlistItems.length} confirmed watchlist review reminder(s); no investment action taken`,
-    observations,
-    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE, OPEN_HOLDING_APPROVAL_GATE],
-    human_approval_required: observations.length > 0,
-  }
-}
 
 /**
  * Forecast-resolution task (lifecycle-spec-v3 Module 10 / judgment Mechanism 4).
@@ -1567,74 +1505,7 @@ function findOpenShariahGrace(
   return latest
 }
 
-function reviewIdFor(holdingId: string, asOf: string): string {
-  return `review_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
-}
 
-async function runHoldingReviewDraftTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: TaskHandlerOptions,
-): Promise<TaskResult> {
-  if (options.provider === undefined || options.provider_readiness === undefined) {
-    throw new Error('holding_review_draft requires a certified provider readiness check before creating proposal events')
-  }
-  assertProviderReadyForExecution(options.provider, options.provider_readiness)
-
-  const events = await store.list()
-  const asOf = options.as_of ?? currentDate()
-  const dueHoldings = projectHoldings(events).filter((holding) => {
-    if (holding.pending_review_id !== undefined) {
-      return false
-    }
-    return holding.next_review_at !== undefined && holding.next_review_at <= asOf
-  })
-  const proposalEventIds: string[] = []
-  const observations: string[] = []
-  const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
-  let escalationEventsAppended = 0
-
-  for (const holding of dueHoldings) {
-    const draft = await draftHoldingReview(store, options.provider, {
-      holding_id: holding.holding_id,
-      review_id: reviewIdFor(holding.holding_id, asOf),
-      model_id: modelId,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      idempotency_key: `holding-review-draft:${holding.holding_id}:${asOf}`,
-    })
-    proposalEventIds.push(draft.event_id)
-    observations.push(`${holding.ticker ?? holding.company_id ?? holding.holding_id} holding review draft proposal created; confirmation requires user approval`)
-
-    // Escalation: when thesis is IMPAIRED or EXIT_CANDIDATE, enqueue a new versioned
-    // full swarm reanalysis (draft only — the human still decides).
-    if (THESIS_BROKEN_HEALTH.has(draft.thesis_health)) {
-      const ticker = holding.ticker
-      if (ticker !== undefined && ticker.length > 0) {
-        const escalationResult = await maybeEnqueueEscalationReanalysis(store, {
-          ticker,
-          holding,
-          reviewDraftEventId: draft.event_id,
-          thesisHealth: draft.thesis_health,
-          scheduledTaskRunId: options.scheduled_task_run_id,
-          ...(options.now === undefined ? {} : { now: options.now }),
-          ...(options.automation?.research_engine_enabled === undefined
-            ? {}
-            : { researchEngineEnabled: options.automation.research_engine_enabled }),
-        })
-        observations.push(escalationResult.observation)
-        escalationEventsAppended += escalationResult.eventsAppended
-      }
-    }
-  }
-
-  return {
-    result_summary: `holding_review_draft dry-run: ${proposalEventIds.length} holding review draft proposal(s) created; no holding review confirmation or portfolio action taken`,
-    observations,
-    ...(proposalEventIds.length === 0 ? {} : { proposal_event_ids: proposalEventIds }),
-    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE],
-    human_approval_required: proposalEventIds.length > 0,
-    events_appended: proposalEventIds.length + escalationEventsAppended,
-  }
-}
 
 /** Grounded re-reviews per tick — a hard provider-spend cap; overflow is named in observations. */
 const MAX_RE_REVIEWS_PER_TICK = 3
@@ -1771,7 +1642,7 @@ type EscalationOptions = {
   ticker: string
   /** Structural subset — a projected holding satisfies it; the re-review path passes the same shape. */
   holding: { holding_id: string; company_id?: string | undefined; strategy_id?: string | undefined }
-  /** The event that detected the break (holding_review_drafted OR research_case_re_review_recorded). */
+  /** The event that detected the break (research_case_re_review_recorded; legacy holding_review_drafted). */
   reviewDraftEventId: string
   thesisHealth: string
   scheduledTaskRunId: string
@@ -1795,7 +1666,7 @@ async function maybeEnqueueEscalationReanalysis(
     }
   }
 
-  // Re-read events (include the holding_review_drafted just appended) for dedup.
+  // Re-read events for dedup (legacy holding_review_drafted escalations still count).
   const currentEvents = await store.list()
 
   // Dedup guard: if there is already an unclaimed research_run_requested for this ticker,
@@ -2193,9 +2064,6 @@ async function runTaskHandler(
     return runDiscovery13fTask(store, options)
   }
 
-  if (task.task_kind === 'review_reminder') {
-    return runReviewReminderTask(store, options)
-  }
 
   if (task.task_kind === 'watchlist_monitor') {
     return runWatchlistMonitorTask(store, options)
@@ -2209,9 +2077,6 @@ async function runTaskHandler(
     return runShariahRescreenTask(store, options)
   }
 
-  if (task.task_kind === 'holding_review_draft') {
-    return runHoldingReviewDraftTask(store, options)
-  }
 
   if (task.task_kind === 're_review_check') {
     return runReReviewCheckTask(store, options)

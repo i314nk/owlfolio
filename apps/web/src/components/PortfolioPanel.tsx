@@ -2,11 +2,9 @@ import { createElement, Fragment, type ReactNode } from 'react'
 
 
 import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
-import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
-import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -44,7 +42,6 @@ export type PortfolioHolding = AppHolding & {
    * business item reads its read-only marshaled finding (audit-and-decide). Covers ALL 11 business items
    * (qualitative/absent fallbacks included); cognitive items are absent here.
    */
-  reviewBusinessFindings?: Record<string, string>
 }
 
 export type PortfolioPanelProps = {
@@ -55,40 +52,12 @@ export type PortfolioPanelProps = {
 }
 
 
-const inputStyle = {
-  background: 'var(--owl-color-panel-elevated)',
-  border: '1px solid rgba(148, 163, 184, 0.24)',
-  borderRadius: '0.65rem',
-  color: '#f7f8ff',
-  font: 'inherit',
-  padding: '0.6rem 0.75rem',
-}
-
 const decisionPanelStyle = {
   border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '0.85rem',
   display: 'grid',
   gap: '0.75rem',
   padding: '1rem',
-}
-
-const reviewActionShellStyle = {
-  border: '1px solid rgba(148, 163, 184, 0.2)',
-  borderRadius: '0.85rem',
-  display: 'grid',
-  gap: '0.7rem',
-  padding: '0.9rem 1rem',
-}
-
-const decisionQuickLinkStyle = {
-  background: 'var(--owl-color-panel)',
-  border: '1px solid rgba(148, 163, 184, 0.24)',
-  borderRadius: '0.75rem',
-  color: 'var(--owl-color-muted)',
-  display: 'inline-flex',
-  gap: '0.4rem',
-  padding: '0.55rem 0.72rem',
-  textDecoration: 'none',
 }
 
 /**
@@ -238,7 +207,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
   const priceMove = holding.latest_price_per_share !== undefined && holding.cost_basis_per_share > 0
     ? ((holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share) * 100
     : undefined
-  const needsAttention = holding.pending_review_id !== undefined || alerts.some((alert) => alert.severity === 'urgent')
+  const needsAttention = alerts.some((alert) => alert.severity === 'urgent')
   const displayCaseId = holding.displayResearchCaseId ?? holding.research_case_id
   const tickerEl = displayCaseId !== undefined
     ? createElement('a', {
@@ -258,7 +227,9 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       : null,
     createElement('span', { key: 'spacer', style: { flex: 1 } }),
     ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
-    createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Review drafted' : holding.thesis_health ?? 'Review pending'),
+    // REVIEW RETIRED (owner, 2026-07-14): no review badge — the valuation chip + alerts carry the
+    // signal. A legacy recorded thesis-health still shows (readable forever), just never "pending".
+    ...(holding.thesis_health === undefined ? [] : [createElement(StatusBadge, { tone: 'success' }, holding.thesis_health)]),
   )
 
   return createElement(
@@ -296,24 +267,17 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
             createElement(OwlButtonLink, { href: `/research/${displayCaseId}`, variant: 'primary' }, 'Open the full analysis'),
             createElement(ReReviewButton, { caseId: displayCaseId }),
           )]),
-      // The thesis anchor + the user's own review record — the figures a sell advisory hangs on.
+      // The thesis anchor — the figures a sell advisory hangs on. REVIEW RETIRED (owner, 2026-07-14):
+      // the drafted review + attestation ceremony are gone; the check-in (quarterly), the 10-K
+      // full-re-run prompt (annual), and the zone board (price) carry the duty. Legacy review
+      // events remain readable in the audit timeline.
       createElement(
         'div',
         { style: { display: 'grid', gap: '0.2rem' } },
         createDetail('Your entry price', formatMoney(holding.cost_basis_per_share, holding.currency)),
         createDetail('Opened', holding.opened_at),
-        ...(holding.thesis_health === undefined ? [] : [createDetail('Thesis health', holding.thesis_health)]),
-        ...(holding.action_stance === undefined ? [] : [createDetail('Action stance', holding.action_stance)]),
-        ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
-        ...(holding.latest_review_rationale === undefined ? [] : [createDetail('Review rationale', holding.latest_review_rationale)]),
       ),
       createHoldingAlerts(alerts),
-      ...(mode === 'personal-local'
-        ? [
-            ...(holding.pending_review_id === undefined ? [] : [createReviewForm(holding)]),
-            createManualFallbackActions(holding),
-          ]
-        : []),
     ),
   )
 }
@@ -322,217 +286,9 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
 
 
 
-function createReviewForm(holding: PortfolioHolding) {
-  if (holding.pending_review_id !== undefined) {
-    const currentThesisCopy = holding.thesis_health === undefined
-      ? 'No confirmed review yet — rejecting this draft leaves thesis review pending.'
-      : `Current thesis health: ${holding.thesis_health}. Current action stance: ${holding.action_stance ?? 'Not set'}. Rejecting this draft leaves these values unchanged.`
 
-    const normalizedPendingReviewDate = normalizeDateForInput(holding.pending_review_next_review_at)
-    const normalizedLatestReviewedAt = holding.latest_reviewed_at === undefined ? 'Not reviewed' : normalizeDateForDisplay(holding.latest_reviewed_at)
 
-    return createElement(
-      'div',
-      {
-        style: {
-          borderTop: '1px solid rgba(148, 163, 184, 0.16)',
-          display: 'grid',
-          gap: '0.9rem',
-          marginTop: '1rem',
-          paddingTop: '1rem',
-        },
-      },
-      createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Strategy review drafted'),
-      createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Choose one auditable decision path for this provider-authored Buffett-Munger review before it becomes portfolio state.'),
-      createElement(
-        'div',
-        {
-          style: {
-            ...reviewActionShellStyle,
-            background: 'var(--owl-color-panel)',
-            position: 'sticky',
-            top: '0.85rem',
-            zIndex: 10,
-          },
-        },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Pending review decision summary'),
-        createElement(
-          'p',
-          {
-            style: {
-              color: 'var(--owl-color-muted)',
-              margin: '0.15rem 0 0',
-              maxWidth: '82ch',
-            },
-          },
-          'Compare these paths quickly: provider draft keeps the AI recommendation, override captures your own thesis values, and reject keeps existing confirmed state. Sticky quick-links jump to each form.',
-        ),
-        createElement(
-          'div',
-          {
-            style: {
-              display: 'grid',
-              gap: '0.55rem',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',
-              marginTop: '0.4rem',
-            },
-          },
-          createElement(
-            'a',
-            {
-              href: '#holding-review-path-confirm',
-              style: decisionQuickLinkStyle,
-            },
-            'Apply provider draft',
-          ),
-          createElement(
-            'a',
-            {
-              href: '#holding-review-path-override',
-              style: decisionQuickLinkStyle,
-            },
-            'Apply user override',
-          ),
-          createElement(
-            'a',
-            {
-              href: '#holding-review-path-reject',
-              style: decisionQuickLinkStyle,
-            },
-            'Reject provider draft',
-          ),
-        ),
-      ),
-      createElement(
-        'div',
-        {
-          style: {
-            alignItems: 'start',
-            display: 'grid',
-            gap: '0.75rem',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
-          },
-        },
-        createElement(
-          'section',
-          { id: 'review-comparison-confirmed', style: { ...decisionPanelStyle, background: 'var(--owl-color-panel)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Current confirmed thesis'),
-          createElement('p', { className: 'owl-body', style: { margin: 0 } }, currentThesisCopy),
-        ),
-        createElement(
-          'section',
-          { id: 'review-comparison-draft', style: { ...decisionPanelStyle, background: 'rgba(251, 191, 36, 0.1)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Provider-authored review draft'),
-          createDetail('Pending thesis health', holding.pending_review_thesis_health ?? 'Unknown'),
-          createDetail('Pending action stance', holding.pending_review_action_stance ?? 'Unknown'),
-          createDetail('Pending review rationale', holding.pending_review_rationale ?? 'No rationale recorded'),
-          createDetail('Pending next review', holding.pending_review_next_review_at ?? 'Unknown'),
-          createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.2rem 0 0' } }, `Last reviewed stamp: ${normalizedLatestReviewedAt}`),
-        ),
-        createElement(
-          'section',
-          { id: 'review-comparison-bounds', style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.08)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Audit boundary rules'),
-          createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Overrides require all four required fields below and produce an explicit user-authored audit event; reject keeps current confirmed thesis and clears the pending draft.'),
-          createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0', fontSize: 'var(--owl-text-sm)' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
-        ),
-      ),
-      createElement(HoldingReviewChecklistConfirm, {
-        holdingId: holding.holding_id,
-        reviewId: holding.pending_review_id,
-        businessFindings: holding.reviewBusinessFindings ?? {},
-      }),
-      createElement(HoldingReviewOverrideForm, {
-        holdingId: holding.holding_id,
-        reviewId: holding.pending_review_id,
-        defaultThesisHealth: holding.pending_review_thesis_health ?? 'WATCH',
-        defaultActionStance: holding.pending_review_action_stance ?? 'RESEARCH_MORE',
-        defaultNextReviewAt: normalizedPendingReviewDate,
-        businessFindings: holding.reviewBusinessFindings ?? {},
-      }),
-      createElement(
-        'form',
-        {
-          id: 'holding-review-path-reject',
-          action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/reject`,
-          method: 'post',
-          style: { ...decisionPanelStyle, background: 'rgba(239, 68, 68, 0.1)' },
-        },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Reject provider draft'),
-        createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.'),
-        createReviewTextarea('Rejection reason (required)', 'rejection_reason', 'Reject this draft and wait for fresher evidence.'),
-        createSubmitButton('Reject strategy review', '#b91c1c'),
-      ),
-    )
-  }
 
-  return createElement(
-    'form',
-    {
-      action: `/api/portfolio/${holding.holding_id}/review`,
-      method: 'post',
-      style: {
-        borderTop: '1px solid rgba(148, 163, 184, 0.16)',
-        display: 'grid',
-        gap: '0.75rem',
-        marginTop: '1rem',
-        paddingTop: '1rem',
-      },
-    },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Strategy-driven holding review'),
-    createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Ask Owlfolio to draft a Buffett-Munger thesis-health review for this holding.'),
-    createSubmitButton('Run Buffett-Munger review', 'var(--owl-color-accent)'),
-  )
-}
-
-function createManualFallbackActions(holding: PortfolioHolding) {
-  return createElement(
-    'details',
-    {
-      style: {
-        borderTop: '1px solid rgba(148, 163, 184, 0.16)',
-        marginTop: '1rem',
-        paddingTop: '1rem',
-      },
-    },
-    createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 900 } }, 'Manual fallback actions'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.65rem 0 0' } }, 'Use these only when the provider review automation cannot supply a sourced draft. Submitted reviews still create auditable ledger events.'),
-    ...(holding.pending_review_id === undefined ? [createReviewForm(holding)] : []),
-  )
-}
-
-function createSubmitButton(label: string, background: string) {
-  return createElement(
-    'button',
-    {
-      type: 'submit',
-      style: {
-        background,
-        border: 0,
-        borderRadius: '0.75rem',
-        color: '#ffffff',
-        cursor: 'pointer',
-        fontWeight: 800,
-        padding: '0.75rem 1rem',
-      },
-    },
-    label,
-  )
-}
-
-function createReviewTextarea(label: string, name: string, defaultValue: string) {
-  return createElement(
-    'label',
-    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-    label,
-    createElement('textarea', {
-      name,
-      required: true,
-      defaultValue,
-      style: { ...inputStyle, minHeight: '5rem' },
-    }),
-  )
-}
 
 
 
@@ -629,46 +385,4 @@ function formatMoney(value: number, currency: string): string {
     currency,
     style: 'currency',
   }).format(value)
-}
-
-
-
-function normalizeDateForInput(value: string | undefined): string {
-  if (value === undefined) {
-    return new Date().toISOString().slice(0, 10)
-  }
-
-  const trimmed = value.trim()
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
-    return trimmed.slice(0, 10)
-  }
-
-  const parsed = new Date(trimmed)
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10)
-  }
-
-  return new Date().toISOString().slice(0, 10)
-}
-
-function normalizeDateForDisplay(value: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
-    return value.slice(0, 10)
-  }
-
-  const parsed = new Date(value)
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10)
-  }
-
-  return value
 }

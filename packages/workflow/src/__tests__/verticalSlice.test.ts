@@ -5,12 +5,6 @@ import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseP
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import { openHoldingFromWatchlist, recordHoldingValuationSnapshot } from '../holdingWorkflow'
-import {
-  confirmHoldingReviewDraft,
-  draftHoldingReview,
-  overrideHoldingReviewDraft,
-  rejectHoldingReviewDraft,
-} from '../holdingReviewWorkflow'
 import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, runDemoBuffettMungerAnalysis, draftDecision } from '../researchWorkflow'
 import { confirmWatchlistDraft } from '../watchlistWorkflow'
@@ -84,58 +78,8 @@ describe('v0.2 vertical research workflow', () => {
       actor_id: 'user_local',
       idempotency_key: 'holding:holding_cost_001:valuation:2026-06-01:v1',
     })
-    const reviewDraft = await draftHoldingReview(store, provider, {
-      review_id: 'review_holding_cost_001_2026_06_30',
-      holding_id: holding.holding_id,
-      model_id: 'mock-buffett-munger-demo',
-      causation_id: valuation.event_id,
-      idempotency_key: 'holding:holding_cost_001:review:2026-06-30:v1',
-    })
-    const reviewConfirmation = await confirmHoldingReviewDraft(store, {
-      review_id: reviewDraft.review_id,
-      holding_id: holding.holding_id,
-      causation_id: reviewDraft.event_id,
-      actor_id: 'user_local',
-      checklist_audit: COMPLETE_AUDIT,
-      idempotency_key: 'holding:holding_cost_001:review:2026-06-30:confirm:v1',
-    })
-    const secondReviewDraft = await draftHoldingReview(store, provider, {
-      review_id: 'review_holding_cost_001_2026_12_31',
-      holding_id: holding.holding_id,
-      model_id: 'mock-buffett-munger-demo',
-      causation_id: reviewConfirmation.event_id,
-      idempotency_key: 'holding:holding_cost_001:review:2026-12-31:v1',
-    })
-    const reviewOverride = await overrideHoldingReviewDraft(store, {
-      review_id: secondReviewDraft.review_id,
-      holding_id: holding.holding_id,
-      causation_id: secondReviewDraft.event_id,
-      actor_id: 'user_local',
-      thesis_health: 'WATCH',
-      action_stance: 'RESEARCH_MORE',
-      rationale: 'User override: moat remains attractive but valuation/concentration require more evidence.',
-      evidence_summary: 'Reviewed latest valuation snapshot and original watchlist thesis.',
-      uncertainty: 'Need updated debt and Shariah ratio review before increasing exposure.',
-      next_review_at: '2026-10-31',
-      checklist_audit: COMPLETE_AUDIT,
-      idempotency_key: 'holding:holding_cost_001:review:2026-12-31:override:v1',
-    })
-    const rejectedReviewDraft = await draftHoldingReview(store, provider, {
-      review_id: 'review_holding_cost_001_2027_01_31',
-      holding_id: holding.holding_id,
-      model_id: 'mock-buffett-munger-demo',
-      causation_id: reviewOverride.event_id,
-      idempotency_key: 'holding:holding_cost_001:review:2027-01-31:v1',
-    })
-    const reviewRejection = await rejectHoldingReviewDraft(store, {
-      review_id: rejectedReviewDraft.review_id,
-      holding_id: holding.holding_id,
-      causation_id: rejectedReviewDraft.event_id,
-      actor_id: 'user_local',
-      rejection_reason: 'Rejecting stale draft after manual override; wait for fresh evidence.',
-      idempotency_key: 'holding:holding_cost_001:review:2027-01-31:reject:v1',
-    })
-
+    // REVIEW RETIRED (owner, 2026-07-14): the drafted holding review + attestation are gone —
+    // the vertical slice ends at the held thesis; check-ins/10-K re-runs are covered elsewhere.
     const events = await store.list()
     const projectedCases = projectResearchCases(events)
     const projectedWatchlist = projectWatchlist(events)
@@ -172,54 +116,6 @@ describe('v0.2 vertical research workflow', () => {
       valued_by_actor_type: 'user',
       valued_by_actor_id: 'user_local',
     })
-    expect(reviewDraft).toMatchObject({
-      review_id: 'review_holding_cost_001_2026_06_30',
-      holding_id: 'holding_cost_001',
-      ticker: 'COST',
-      strategy_id: 'buffett-munger',
-      thesis_health: 'HEALTHY',
-      action_stance: 'HOLD',
-      user_approved: false,
-      reviewed_by_actor_type: 'provider',
-      reviewed_by_actor_id: 'mock-provider',
-      next_review_at: '2026-09-30',
-    })
-    expect(reviewConfirmation).toMatchObject({
-      review_id: 'review_holding_cost_001_2026_06_30',
-      holding_id: 'holding_cost_001',
-      thesis_health: 'HEALTHY',
-      action_stance: 'HOLD',
-      user_approved: true,
-      confirmed_by_actor_type: 'user',
-      confirmed_by_actor_id: 'user_local',
-      next_review_at: '2026-09-30',
-    })
-    expect(reviewOverride).toMatchObject({
-      review_id: 'review_holding_cost_001_2026_12_31',
-      holding_id: 'holding_cost_001',
-      event_type: 'holding_review_overridden',
-      actor_type: 'user',
-      thesis_health: 'WATCH',
-      action_stance: 'RESEARCH_MORE',
-      rationale: 'User override: moat remains attractive but valuation/concentration require more evidence.',
-      evidence_summary: 'Reviewed latest valuation snapshot and original watchlist thesis.',
-      uncertainty: 'Need updated debt and Shariah ratio review before increasing exposure.',
-      user_approved: true,
-      user_overrode_provider: true,
-      overridden_by_actor_type: 'user',
-      overridden_by_actor_id: 'user_local',
-      next_review_at: '2026-10-31',
-    })
-    expect(reviewRejection).toMatchObject({
-      review_id: 'review_holding_cost_001_2027_01_31',
-      holding_id: 'holding_cost_001',
-      event_type: 'holding_review_rejected',
-      actor_type: 'user',
-      user_approved: false,
-      rejected_by_actor_type: 'user',
-      rejected_by_actor_id: 'user_local',
-      rejection_reason: 'Rejecting stale draft after manual override; wait for fresh evidence.',
-    })
     expect(projectedCases[0]).toMatchObject({ research_case_id: 'rc_cost_001', stage: 'holding', investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT', user_approved: true })
     expect(projectedWatchlist[0]).toMatchObject({ watchlist_item_id: 'watch_cost_001', user_approved: true, created_by_actor_type: 'user', created_by_actor_id: 'user_local', confirmed_by_actor_type: 'user', confirmed_by_actor_id: 'user_local' })
     expect(projectedHoldings[0]).toMatchObject({
@@ -236,18 +132,10 @@ describe('v0.2 vertical research workflow', () => {
       unrealized_gain_loss: 284.7,
       unrealized_gain_loss_percent: 10.78,
       portfolio_weight: 100,
-      latest_review_id: 'review_holding_cost_001_2026_12_31',
-      thesis_health: 'WATCH',
-      action_stance: 'RESEARCH_MORE',
-      latest_review_rationale: 'User override: moat remains attractive but valuation/concentration require more evidence.',
-      latest_review_evidence_summary: 'Reviewed latest valuation snapshot and original watchlist thesis.',
-      latest_review_uncertainty: 'Need updated debt and Shariah ratio review before increasing exposure.',
-      next_review_at: '2026-10-31',
     })
     expect(projectedHoldings[0]?.pending_review_id).toBeUndefined()
     expect(events.some((event) => event.actor_type === 'provider' && event.event_type.startsWith('watchlist_'))).toBe(false)
     expect(events.some((event) => event.actor_type === 'provider' && ['holding_opened', 'holding_valuation_recorded'].includes(event.event_type))).toBe(false)
-    expect(events.some((event) => event.actor_type === 'provider' && event.event_type === 'holding_review_drafted')).toBe(true)
   })
 
   it('rejects invalid user-entered holding lot economics', async () => {
@@ -320,29 +208,4 @@ describe('v0.2 vertical research workflow', () => {
     })).rejects.toThrow('Valuation currency must match holding currency')
   })
 
-  it('rejects decisions for stale holding review drafts when a newer draft is pending', async () => {
-    const store = new InMemoryEventStore()
-    const provider = new MockProvider()
-    const holding = await openCostHolding(store)
-    const firstDraft = await draftHoldingReview(store, provider, {
-      review_id: 'review_holding_cost_001_first',
-      holding_id: holding.holding_id,
-      model_id: 'mock-buffett-munger-demo',
-      causation_id: holding.event_id,
-    })
-    await draftHoldingReview(store, provider, {
-      review_id: 'review_holding_cost_001_second',
-      holding_id: holding.holding_id,
-      model_id: 'mock-buffett-munger-demo',
-      causation_id: firstDraft.event_id,
-    })
-
-    await expect(confirmHoldingReviewDraft(store, {
-      review_id: firstDraft.review_id,
-      holding_id: holding.holding_id,
-      causation_id: firstDraft.event_id,
-      actor_id: 'user_local',
-      checklist_audit: COMPLETE_AUDIT,
-    })).rejects.toThrow('Holding review draft is not the latest pending draft')
-  })
 })

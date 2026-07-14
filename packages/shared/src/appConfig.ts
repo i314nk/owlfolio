@@ -119,6 +119,7 @@ export type AutomationSettings = {
   /** Approval pause for the deep dive — applied BEHIND the cheap gates, before lane spend. */
   deep_dive_approval: 'automatic' | 'review'
   watchlist_monitoring: { enabled: boolean; cadence: AutomationCadenceWatchlist }
+  /** REVIEW RETIRED (2026-07-14): drives ONLY the quarterly re_review_check (the grounded check-in). */
   thesis_review: { enabled: boolean; cadence: AutomationCadenceThesisReview }
   reanalysis: { cadence: AutomationCadenceReanalysis }
   purification: { enabled: boolean; cadence: AutomationCadencePurification }

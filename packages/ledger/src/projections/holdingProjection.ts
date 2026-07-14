@@ -343,6 +343,9 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       continue
     }
 
+    // REVIEW RETIRED (owner, 2026-07-14): the holding-review PRODUCERS are gone (drafts, confirm/
+    // override/reject routes, worker tasks). These readers stay — legacy review events remain
+    // readable forever (thesis_health etc. still project for old ledgers).
     if (event.event_type === 'holding_review_drafted') {
       const holdingId = getString(event.payload, 'holding_id') ?? event.correlation_id
       if (holdingId === undefined) {

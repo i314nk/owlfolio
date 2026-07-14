@@ -9,7 +9,6 @@ import { getOnboardingState } from '../../lib/onboarding'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
 import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
-import { resolveBusinessFindings } from '../../lib/checklistEvidence'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -63,11 +62,6 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
       const buyBelow = valuationCase?.valuation?.buy_price_per_share
 
       const enriched: PortfolioHolding = { ...holding }
-      // Marshal the re-underwrite business findings as a PURE read of the held name's research-case
-      // projection (the holding's linked case, with the valuation fallback). No engine call. The forms
-      // render these read-only (audit-and-decide); the server independently recomputes them at sign-off.
-      const findingsCase = valuationCase ?? linkedCase
-      enriched.reviewBusinessFindings = resolveBusinessFindings(findingsCase)
       if (buyBelow !== undefined) {
         enriched.buyBelowPricePerShare = buyBelow
         const moatClass = valuationCase?.valuation?.moat_class

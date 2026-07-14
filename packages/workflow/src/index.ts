@@ -1,7 +1,6 @@
 export * from './researchWorkflow'
 export * from './watchlistWorkflow'
 export * from './holdingWorkflow'
-export * from './holdingReviewWorkflow'
 export * from './shariahGateWorkflow'
 export * from './workflowContract'
 export * from './sourceLedger'

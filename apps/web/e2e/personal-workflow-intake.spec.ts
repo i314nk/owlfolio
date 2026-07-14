@@ -2,13 +2,6 @@ import { expect, test } from '@playwright/test'
 
 import { initWorkflow } from './helpers'
 
-function isoDateDaysFromToday(daysFromToday: number): string {
-  const today = new Date()
-  return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + daysFromToday))
-    .toISOString()
-    .slice(0, 10)
-}
-
 test.beforeEach(async ({ request }) => {
   const response = await request.post('/api/testing/reset')
   expect(response.ok()).toBe(true)
@@ -22,8 +15,6 @@ test('personal-local mode can create the first research case from the command ce
       browserErrors.push(message.text())
     }
   })
-
-  const nextReviewDate = isoDateDaysFromToday(153)
 
   await page.goto('/')
   const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
@@ -179,105 +170,16 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Opened: 2026-05-31')).toBeVisible()
   await expect(msftHolding.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
-  // SCALE-DOWN S5: the manual valuation form + money books are retired — no valuation steps.
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Strategy review drafted').first()).toBeVisible()
-  await expect(page.getByText('Choose one auditable decision path')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Apply provider draft' })).toBeVisible()
-  await expect(page.getByText('Applies the provider-authored thesis health, action stance, and next review date to portfolio state.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Apply user override' })).toBeVisible()
-  await expect(page.getByText('Applies your edited values instead of the provider draft and records a user-authored audit event.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Reject provider draft' })).toBeVisible()
-  await expect(page.getByText('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')).toBeVisible()
-  await page.goto('/')
-  await expect(page.getByText('Confirm the drafted strategy review for MSFT')).toBeVisible()
-  await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('1', { exact: true })).toBeVisible()
-  await expect(page.getByText('Approval queue')).toBeVisible()
-  await expect(page.getByText('Holding review decisions')).toBeVisible()
-  await expect(page.getByText('MSFT strategy review draft')).toBeVisible()
-  await expect(page.getByText('Provider proposes thesis health HEALTHY, action stance HOLD, next review 2026-09-30.')).toBeVisible()
-  await expect(page.getByRole('link', { name: /apply provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-  await expect(page.getByRole('link', { name: /reject provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-  await expect(page.getByRole('link', { name: /apply user override/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-
-  await page.goto('/portfolio')
-
-  // Audit-and-decide re-underwrite (confirm): affirming the provider draft is gated on a SINGLE
-  // cognitive-reflection acknowledgement. Scope to the confirm form (action …/confirm) so it doesn't
-  // touch the sibling override form's acknowledgement.
-  const confirmForm = page.locator('form[action$="/confirm"]')
-  await confirmForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
-  const applyProviderDraft = page.getByRole('button', { name: /apply provider draft/i })
-  await expect(applyProviderDraft).toBeEnabled()
-  await applyProviderDraft.click()
-
-  await expect(page).toHaveURL('/portfolio')
-  // The POST redirects back to /portfolio, so the URL matches on the OLD document too — wait for the
-  // post-action summary badge (only on the fresh document) before expanding the row.
-  await expect(msftHolding.getByText('HEALTHY', { exact: true }).first()).toBeVisible()
-  await page.locator('details[data-holding-row="MSFT"] > summary').click()
-  await expect(page.getByText('Thesis health: HEALTHY')).toBeVisible()
-  await expect(page.getByText('Action stance: HOLD')).toBeVisible()
-  await expect(page.getByText('Next review: 2026-09-30')).toBeVisible()
-  await expect(page.getByRole('button', { name: /apply provider draft/i })).toHaveCount(0)
-
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await page.getByLabel('Override thesis health').selectOption('WATCH')
-  await page.getByLabel('Override action stance').selectOption('RESEARCH_MORE')
-  await page.getByLabel('Override rationale').fill('User override: valuation requires another evidence pass before adding.')
-  await page.getByLabel('Override evidence summary').fill('Compared provider draft to the manual valuation snapshot and original thesis.')
-  await page.getByLabel('Override uncertainty').fill('Need updated Shariah ratio review and concentration check.')
-  await page.getByLabel('Override next review date').fill(nextReviewDate)
-
-  // Audit-and-decide re-underwrite (override): the human authors their own thesis fields (filled above)
-  // AND checks the SINGLE cognitive-reflection acknowledgement. Scope to the override form (action
-  // …/override) so it doesn't touch the sibling confirm form's acknowledgement.
-  const overrideForm = page.locator('form[action$="/override"]')
-  await overrideForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
-  const applyUserOverride = page.getByRole('button', { name: /apply user override/i })
-  await expect(applyUserOverride).toBeEnabled()
-  await applyUserOverride.click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(msftHolding.getByText('WATCH', { exact: true }).first()).toBeVisible()
-  await page.locator('details[data-holding-row="MSFT"] > summary').click()
-  await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
-  await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()
-  await expect(page.getByText('User override: valuation requires another evidence pass before adding.')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /apply user override/i })).toHaveCount(0)
-
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Strategy review drafted').first()).toBeVisible()
-  await page.getByLabel('Rejection reason').fill('Reject stale draft after override; wait for new evidence.')
-  await page.getByRole('button', { name: /reject strategy review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(msftHolding.getByText('WATCH', { exact: true }).first()).toBeVisible()
-  await page.locator('details[data-holding-row="MSFT"] > summary').click()
-  await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
-  await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /reject strategy review/i })).toHaveCount(0)
+  // REVIEW RETIRED (owner, 2026-07-14): the drafted Buffett-Munger review + its confirm/override/
+  // reject ceremony and the review schedule are GONE — the quarterly check-in, the 10-K full-re-run
+  // prompt, and the zone board carry the duty. The row exposes the check-in; no review forms exist.
+  await expect(page.getByRole('button', { name: /run buffett-munger review/i })).toHaveCount(0)
+  await expect(page.getByText('Manual fallback actions')).toHaveCount(0)
+  await expect(msftHolding.getByTestId('rereview-button')).toBeVisible()
 
   await page.goto('/')
-  await expect(page.getByText(`Next scheduled strategy review for MSFT is ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByText('Holding review schedule')).toBeVisible()
-  await expect(page.getByText('Upcoming')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByText(/· \d+ days/)).toBeVisible()
-  await expect(page.getByRole('link', { name: /review msft/i }).first()).toHaveAttribute('href', /\/portfolio#holding_msft_/)
+  await expect(page.getByText('Holding review schedule')).toHaveCount(0)
+  await expect(page.getByText('Check in held names against new filings (quarterly cadence)').first()).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
@@ -291,7 +193,7 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
   await expect(page.locator('li').filter({ hasText: 'research_case_created' }).first()).toBeVisible()
-  await expect(page.locator('li').filter({ hasText: /holding_review_rejected|holding_review_overridden/ }).first()).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'holding_opened' }).first()).toBeVisible()
 
   await expect(browserErrors).toEqual([])
 })

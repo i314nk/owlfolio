@@ -1,7 +1,6 @@
 import {
   projectCommandCenterSummary,
   type CommandCenterApprovalQueueItem,
-  type CommandCenterHoldingReviewPrompt,
   type CommandCenterRecentActivity,
 } from '@owlfolio/ledger/projections/commandCenterProjection'
 import { projectMonitorAlerts, type MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
@@ -51,7 +50,6 @@ export type AppCommandCenter = {
   pipeline_counts: PipelineCounts
   next_recommended_action: string
   approval_queue: CommandCenterApprovalQueueItem[]
-  holding_review_prompts: CommandCenterHoldingReviewPrompt[]
   recent_activity: CommandCenterRecentActivity[]
   /** Open agent observations + human-decision drafts (NOT executed) — the "needs your attention" rail. */
   monitor_alerts: MonitorAlert[]
@@ -124,7 +122,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       },
       next_recommended_action: 'Connect a provider to set up your personal-local workflow',
       approval_queue: [],
-      holding_review_prompts: [],
       recent_activity: [{ event_id: 'placeholder:not-set-up-yet', label: 'Not set up yet' }],
       monitor_alerts: [],
       discovery_signals: [],
@@ -150,7 +147,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       },
       next_recommended_action: 'Complete onboarding and initialize the personal local ledger',
       approval_queue: [],
-      holding_review_prompts: [],
       recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
       monitor_alerts: [],
       discovery_signals: [],
@@ -178,7 +174,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         ? 'Open the selected-strategy research cockpit'
         : summary.next_recommended_action,
       approval_queue: summary.approval_queue,
-      holding_review_prompts: summary.holding_review_prompts,
       recent_activity: summary.recent_activity.length === 0
         ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
         : summary.recent_activity,
