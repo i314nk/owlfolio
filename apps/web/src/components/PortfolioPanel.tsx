@@ -285,6 +285,65 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
         createDetail('Opened', holding.opened_at),
       ),
       createHoldingAlerts(alerts),
+      createCloseForm(holding),
+    ),
+  )
+}
+
+/**
+ * Close the holding — the human-authored, irreversible exit (holding_closed). Collapsed behind its
+ * own <details>: the position leaves the portfolio, its watchlist item returns to plain watching,
+ * and the raw events (+ any post-mortem) remain the audit record. Machine actors cannot author this.
+ */
+function createCloseForm(holding: PortfolioHolding) {
+  const inputStyle = { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' }
+  const labelStyle = { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', fontWeight: 700, gap: '0.25rem' }
+  const REASONS: { value: string; label: string }[] = [
+    { value: 'valuation_inverted', label: 'Valuation inverted (price far above value)' },
+    { value: 'thesis_broken', label: 'Thesis broken' },
+    { value: 'better_opportunity_under_constraint', label: 'Better opportunity (under the cash constraint)' },
+    { value: 'original_mistake', label: 'Original mistake' },
+    { value: 'minimum_hold_released', label: 'Minimum-hold guard released' },
+    { value: 'unresolvable_shariah_breach', label: 'Unresolvable Shariah breach' },
+  ]
+  return createElement(
+    'details',
+    { style: { borderTop: '1px solid rgba(148, 163, 184, 0.16)', marginTop: '0.4rem', paddingTop: '0.6rem' } },
+    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Close holding (record the exit)'),
+    createElement(
+      'form',
+      { action: `/api/portfolio/${holding.holding_id}/close`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },
+      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'Records the exit you already executed at your broker — Owlfolio never trades. The position leaves the portfolio; the name returns to the watchlist board.'),
+      createElement(
+        'label',
+        { style: labelStyle },
+        'Exit price per share',
+        createElement('input', { type: 'number', name: 'exit_price_per_share', step: '0.01', min: '0', required: true, style: inputStyle }),
+      ),
+      createElement(
+        'label',
+        { style: labelStyle },
+        'Closed date',
+        createElement('input', { type: 'date', name: 'closed_at', style: inputStyle }),
+      ),
+      createElement(
+        'label',
+        { style: labelStyle },
+        'Sell-discipline reason',
+        createElement(
+          'select',
+          { name: 'reason_code', required: true, defaultValue: '', style: inputStyle },
+          createElement('option', { value: '', disabled: true }, 'Pick the reason for the exit'),
+          ...REASONS.map((reason) => createElement('option', { key: reason.value, value: reason.value }, reason.label)),
+        ),
+      ),
+      createElement(
+        'label',
+        { style: labelStyle },
+        'Note (optional)',
+        createElement('input', { type: 'text', name: 'message', placeholder: 'Recorded in the ledger beside the exit', style: inputStyle }),
+      ),
+      createElement('button', { type: 'submit', className: 'owl-form-button', style: { background: '#b91c1c', border: 0, borderRadius: '0.75rem', color: '#ffffff', cursor: 'pointer', fontWeight: 800, justifySelf: 'start', padding: '0.6rem 0.9rem' } }, 'Record the exit'),
     ),
   )
 }

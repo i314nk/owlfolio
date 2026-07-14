@@ -76,8 +76,13 @@ function zoneSort(a: AppWatchlistItem, b: AppWatchlistItem): number {
 }
 
 export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: WatchlistPanelProps) {
+  // ONE HOME PER NAME (owner, 2026-07-14): a HELD name lives on the portfolio — it leaves the
+  // watchlist board while its holding is open (the item itself survives in the ledger and returns
+  // to plain watching when the holding closes).
+  const watching = items.filter((item) => item.holding_id === undefined)
+  const heldCount = items.length - watching.length
   const sectionsForBand = (band: ZoneBand) => {
-    const bandItems = items.filter((item) => bandFor(item) === band).sort(zoneSort)
+    const bandItems = watching.filter((item) => bandFor(item) === band).sort(zoneSort)
     if (bandItems.length === 0) {
       return []
     }
@@ -102,9 +107,9 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: 
       description: 'Provider-proposed candidates — nothing enters your portfolio without your explicit confirmation.',
     }),
     createElement('hr', { className: 'owl-rule' }),
-    createLedgerLine(items),
-    ...(items.length === 0
-      ? [createEmptyState()]
+    createLedgerLine(watching, heldCount),
+    ...(watching.length === 0
+      ? [createEmptyState(heldCount)]
       : BAND_ORDER.flatMap((band) => sectionsForBand(band))),
   )
 }
@@ -162,8 +167,8 @@ function createWatchlistAlerts(alerts: MonitorAlert[]) {
 
 // ── Vital signs ───────────────────────────────────────────────────────────────
 
-function createLedgerLine(items: AppWatchlistItem[]) {
-  const awaiting = items.filter((item) => !item.user_approved && item.holding_id === undefined).length
+function createLedgerLine(items: AppWatchlistItem[], heldCount: number) {
+  const awaiting = items.filter((item) => !item.user_approved).length
   const confirmed = items.filter((item) => item.user_approved).length
   const gateClear = items.filter((item) => item.shariah_gate_allowed === true).length
 
@@ -176,6 +181,8 @@ function createLedgerLine(items: AppWatchlistItem[]) {
     },
     { figureClass: 'owl-ledger-figure-emerald', label: 'Confirmed by you', value: String(confirmed) },
     { figureClass: 'owl-ledger-figure-emerald', label: 'Shariah gate clear', value: String(gateClear) },
+    // Held names live on the PORTFOLIO — one home per name.
+    { figureClass: 'owl-ledger-figure-emerald', label: 'Held — see portfolio', value: String(heldCount) },
   ]
 
   return createElement(
@@ -190,7 +197,7 @@ function createLedgerLine(items: AppWatchlistItem[]) {
   )
 }
 
-function createEmptyState() {
+function createEmptyState(heldCount = 0) {
   return createElement(
     'section',
     { 'aria-label': 'Empty watchlist', className: 'owl-section-card' },
@@ -199,7 +206,9 @@ function createEmptyState() {
     createElement(
       'p',
       { className: 'owl-body', style: { margin: 0 } },
-      'No watchlist items yet. Create a research case first.',
+      heldCount > 0
+        ? `No names in the watching state — ${heldCount} held ${heldCount === 1 ? 'name lives' : 'names live'} on the portfolio.`
+        : 'No watchlist items yet. Create a research case first.',
     ),
   )
 }
@@ -251,8 +260,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
     createElement(
       StatusBadge,
-      { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
-      item.holding_id !== undefined ? 'Held' : item.user_approved ? 'Confirmed' : 'Legacy draft',
+      { tone: item.user_approved ? 'success' : 'warning' },
+      item.user_approved ? 'Confirmed' : 'Legacy draft',
     ),
   )
 
@@ -295,6 +304,37 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
       createWatchlistAlerts(alerts),
       openHoldingForm,
+      createRemoveForm(item),
+    ),
+  )
+}
+
+/**
+ * Remove from the watchlist — the human-authored prune (watchlist_item_pruned). Collapsed behind
+ * its own <details> so the destructive action never sits one accidental click away.
+ */
+function createRemoveForm(item: AppWatchlistItem) {
+  return createElement(
+    'details',
+    { style: { borderTop: '1px solid rgba(148, 163, 184, 0.16)', marginTop: '0.4rem', paddingTop: '0.6rem' } },
+    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Remove from watchlist'),
+    createElement(
+      'form',
+      { action: `/api/watchlist/${item.watchlist_item_id}/remove`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },
+      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'Stops tracking this name (the research case and the audit trail stay). Re-admit it from the dossier any time.'),
+      createElement(
+        'label',
+        { style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', fontWeight: 700, gap: '0.25rem' } },
+        'Reason',
+        createElement('input', {
+          type: 'text',
+          name: 'reason',
+          defaultValue: '',
+          placeholder: 'Why this name leaves the board (recorded in the ledger)',
+          style: { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' },
+        }),
+      ),
+      createElement('button', { type: 'submit', className: 'owl-form-button', style: { background: '#b91c1c', border: 0, borderRadius: '0.75rem', color: '#ffffff', cursor: 'pointer', fontWeight: 800, justifySelf: 'start', padding: '0.6rem 0.9rem' } }, 'Remove from watchlist'),
     ),
   )
 }

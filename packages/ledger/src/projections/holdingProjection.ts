@@ -249,7 +249,10 @@ function applyString(
   }
 }
 
-export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): HoldingProjection[] {
+export function projectHoldings(
+  events: LedgerEventEnvelope<unknown>[],
+  options: { include_closed?: boolean } = {},
+): HoldingProjection[] {
   const holdings = new Map<string, HoldingProjection>()
   const shariahGateDecisions = projectShariahGateDecisions(events)
 
@@ -258,6 +261,16 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       continue
     }
 
+    // The human-authored close (holding_closed; legacy holding_exited) removes the position from
+    // every active view — the raw events + the post-mortem remain the audit record. Fold order means
+    // a later re-open (a new holding_opened on the same aggregate) re-creates it. include_closed
+    // retains the entity for HISTORY consumers (the name-lifecycle exit fold reads the sold lineage).
+    if (event.event_type === 'holding_closed' || event.event_type === 'holding_exited') {
+      if (options.include_closed !== true) {
+        holdings.delete(event.aggregate_id)
+      }
+      continue
+    }
     if (event.event_type === 'holding_opened') {
       const holdingId = getString(event.payload, 'holding_id') ?? event.aggregate_id
       const watchlistItemId = getString(event.payload, 'watchlist_item_id')

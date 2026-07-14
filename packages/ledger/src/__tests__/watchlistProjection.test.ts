@@ -236,3 +236,37 @@ describe('projectWatchlist audit-and-decide sign-off (checklist_audit + thesis p
     expect(watchlist[0]?.thesis_amended).toBeUndefined()
   })
 })
+
+describe('projectWatchlist — the human-authored prune removes the item from active views', () => {
+  const draft = (id: string): LedgerEventEnvelope<unknown> => ({
+    event_id: `evt_created_${id}`,
+    event_type: 'watchlist_draft_created',
+    aggregate_type: 'watchlist_item',
+    aggregate_id: id,
+    correlation_id: 'rc_v_001',
+    actor_type: 'user',
+    actor_id: 'user_local',
+    payload: { watchlist_item_id: id, research_case_id: 'rc_v_001', ticker: 'V', user_approved: true },
+    source_ids: [],
+    created_at: '2026-07-01T00:00:00.000Z',
+    schema_version: 1,
+  } as LedgerEventEnvelope<unknown>)
+
+  it('drops a pruned item (the raw events remain the audit record)', () => {
+    const prune: LedgerEventEnvelope<unknown> = {
+      event_id: 'evt_watchlist_item_pruned_w_v_001',
+      event_type: 'watchlist_item_pruned',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: 'w_v_001',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: { watchlist_item_id: 'w_v_001', ticker: 'V', pruned_at: '2026-07-14', reason: 'No longer tracking', is_execution: true, requires_user_authoring: true },
+      source_ids: [],
+      created_at: '2026-07-14T00:00:00.000Z',
+      schema_version: 1,
+    } as LedgerEventEnvelope<unknown>
+    expect(projectWatchlist([draft('w_v_001'), prune])).toEqual([])
+    // The other item is untouched.
+    expect(projectWatchlist([draft('w_v_001'), draft('w_ko_001'), prune]).map((i) => i.watchlist_item_id)).toEqual(['w_ko_001'])
+  })
+})

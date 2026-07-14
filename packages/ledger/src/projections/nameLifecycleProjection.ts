@@ -247,8 +247,10 @@ function projectWatchedFalsifierAlerts(events: LedgerEventEnvelope<unknown>[]): 
 
 export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): NameLifecycleProjection[] {
   const researchCases = projectResearchCases(events)
-  const watchlist = projectWatchlist(events)
-  const holdings = projectHoldings(events)
+  // HISTORY view: the lifecycle folds pruned watches + sold holdings into EXIT facts, so it needs
+  // the retained entities (the active-view default drops them).
+  const watchlist = projectWatchlist(events, { include_pruned: true })
+  const holdings = projectHoldings(events, { include_closed: true })
   const watchedFalsifierAlerts = projectWatchedFalsifierAlerts(events)
 
   const caseById = new Map<string, ResearchCaseProjection>()

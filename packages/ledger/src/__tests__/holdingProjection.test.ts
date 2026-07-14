@@ -463,3 +463,45 @@ describe('projectHoldings', () => {
     expect(holdings[0]).not.toHaveProperty('latest_valuation_caveat')
   })
 })
+
+describe('projectHoldings — the human-authored close removes the holding from active views', () => {
+  it('drops a closed holding (the raw events remain the audit record)', () => {
+    const close: LedgerEventEnvelope<unknown> = {
+      event_id: 'evt_holding_closed_holding_cost_001',
+      event_type: 'holding_closed',
+      aggregate_type: 'holding',
+      aggregate_id: 'holding_cost_001',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        holding_id: 'holding_cost_001',
+        closed_at: '2026-07-14',
+        exit_price_per_share: 950,
+        reason_code: 'valuation_inverted',
+        exit_provenance: 'sold',
+        is_execution: true,
+        requires_user_authoring: true,
+      },
+      source_ids: [],
+      created_at: '2026-07-14T00:00:00.000Z',
+      schema_version: 1,
+    } as LedgerEventEnvelope<unknown>
+    expect(projectHoldings([openedHolding, close])).toEqual([])
+  })
+
+  it('drops a holding exited via the legacy holding_exited event', () => {
+    const exited: LedgerEventEnvelope<unknown> = {
+      event_id: 'evt_holding_exited_holding_cost_001',
+      event_type: 'holding_exited',
+      aggregate_type: 'holding',
+      aggregate_id: 'holding_cost_001',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: { holding_id: 'holding_cost_001', exited_at: '2026-07-14' },
+      source_ids: [],
+      created_at: '2026-07-14T00:00:00.000Z',
+      schema_version: 1,
+    } as LedgerEventEnvelope<unknown>
+    expect(projectHoldings([openedHolding, exited])).toEqual([])
+  })
+})

@@ -154,7 +154,10 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('button', { name: /record initial holding/i }).click()
 
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.locator('details[data-watchlist-row="MSFT"]').getByText('Held', { exact: true })).toBeVisible()
+  // ONE HOME PER NAME: the held name leaves the watchlist board (its home is the portfolio now);
+  // the ledger line points there.
+  await expect(page.locator('details[data-watchlist-row="MSFT"]')).toHaveCount(0)
+  await expect(page.locator('article').filter({ hasText: 'Held — see portfolio' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
@@ -194,6 +197,35 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
   await expect(page.locator('li').filter({ hasText: 'research_case_created' }).first()).toBeVisible()
   await expect(page.locator('li').filter({ hasText: 'holding_opened' }).first()).toBeVisible()
+
+  // ── Close the holding (the human-authored exit) — the position leaves the portfolio and the name
+  // returns to plain watching on the board.
+  await page.goto('/portfolio')
+  await page.locator('details[data-holding-row="MSFT"] > summary').click()
+  await page.getByText('Close holding (record the exit)').click()
+  await page.getByLabel('Exit price per share').fill('905.10')
+  await page.getByLabel('Sell-discipline reason').selectOption('valuation_inverted')
+  await page.getByRole('button', { name: /record the exit/i }).click()
+  await expect(page).toHaveURL('/portfolio')
+  await expect(page.getByRole('heading', { name: /no holdings are open yet/i })).toBeVisible()
+
+  await page.goto('/watchlist')
+  const msftRowAfterClose = page.locator('details[data-watchlist-row="MSFT"]')
+  await expect(msftRowAfterClose).toBeVisible()
+  await expect(msftRowAfterClose.getByText('Confirmed', { exact: true })).toBeVisible()
+
+  // ── Remove the name from the watchlist (the human-authored prune) — the board empties; the
+  // research case + the audit trail survive.
+  await msftRowAfterClose.locator('> summary').click()
+  await page.getByText('Remove from watchlist', { exact: true }).first().click()
+  await page.getByLabel('Reason').fill('Cycle complete — no longer tracking in the e2e flow.')
+  await page.getByRole('button', { name: /remove from watchlist/i }).click()
+  await expect(page).toHaveURL('/watchlist')
+  await expect(page.locator('details[data-watchlist-row="MSFT"]')).toHaveCount(0)
+
+  await page.goto('/audit')
+  await expect(page.locator('li').filter({ hasText: 'holding_closed' }).first()).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'watchlist_item_pruned' }).first()).toBeVisible()
 
   await expect(browserErrors).toEqual([])
 })

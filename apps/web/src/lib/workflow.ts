@@ -49,11 +49,13 @@ function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_
 import {
   assertShariahGateAllowsTransition,
   checkForNewFilings,
+  closeHolding,
   confirmWatchlistDraft,
   draftThesisReReview,
   evaluateResearchCaseShariahGate,
   loadPriorThesis,
   openHoldingFromWatchlist,
+  pruneWatchlistItem,
   recordHoldingValuationSnapshot,
   defaultSourceLedgerStorage,
   type CheckForNewFilingsDeps,
@@ -2243,6 +2245,97 @@ function strategyLabelFor(item: Pick<ResearchCaseProjection, 'strategy_id' | 'st
 
 function sortPipelineItems(items: AppResearchPipelineItem[]): AppResearchPipelineItem[] {
   return [...items].sort((left, right) => left.label.localeCompare(right.label))
+}
+
+/**
+ * Remove a name from the watchlist (the human-authored prune — watchlist_item_pruned). The item
+ * leaves every active view; the raw events remain the audit record. A held name cannot be pruned —
+ * close the holding first (the position is the stronger commitment).
+ */
+export async function removePersonalWatchlistItem(
+  state: OnboardingState,
+  watchlistItemId: string,
+  input: { reason?: unknown } = {},
+) {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const reason = typeof input.reason === 'string' && input.reason.trim().length > 0
+    ? input.reason.trim()
+    : 'Removed from the watchlist by the user.'
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const item = buildPersonalWatchlistItems(events).find((candidate) => candidate.watchlist_item_id === watchlistItemId)
+    if (item === undefined) {
+      throw new Error(`Unknown watchlist item: ${watchlistItemId}`)
+    }
+    if (item.holding_id !== undefined) {
+      throw new Error(`Watchlist item is held: close the holding before removing ${watchlistItemId}`)
+    }
+    return await pruneWatchlistItem(store, {
+      watchlist_item_id: watchlistItemId,
+      ticker: item.ticker ?? item.company_id ?? watchlistItemId,
+      ...(item.research_case_id === undefined ? {} : { research_case_id: item.research_case_id }),
+      reason,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      idempotency_key: `watchlist:${watchlistItemId}:prune:v1`,
+    })
+  } finally {
+    store.close()
+  }
+}
+
+const CLOSE_REASON_CODES = new Set(['thesis_broken', 'valuation_inverted', 'better_opportunity_under_constraint', 'original_mistake', 'minimum_hold_released', 'unresolvable_shariah_breach'])
+
+/**
+ * Close a holding (the human-authored, irreversible exit — holding_closed). The position leaves
+ * every active view (and its watchlist item returns to plain watching); the raw events + any
+ * post-mortem remain the audit record.
+ */
+export async function closePersonalHolding(
+  state: OnboardingState,
+  holdingId: string,
+  input: { exit_price_per_share?: unknown; closed_at?: unknown; reason_code?: unknown; message?: unknown } = {},
+) {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const exitPrice = Number(input.exit_price_per_share)
+  if (!Number.isFinite(exitPrice) || exitPrice < 0) {
+    throw new Error('Exit price per share must be a non-negative number')
+  }
+  const reasonCode = typeof input.reason_code === 'string' && CLOSE_REASON_CODES.has(input.reason_code)
+    ? input.reason_code as 'thesis_broken' | 'valuation_inverted' | 'better_opportunity_under_constraint' | 'original_mistake' | 'minimum_hold_released' | 'unresolvable_shariah_breach'
+    : undefined
+  if (reasonCode === undefined) {
+    throw new Error('Close reason is required (pick one of the sell-discipline reasons)')
+  }
+  const closedAt = typeof input.closed_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.closed_at) ? input.closed_at : undefined
+  const message = typeof input.message === 'string' && input.message.trim().length > 0 ? input.message.trim() : undefined
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
+    if (holding === undefined) {
+      throw new Error(`Unknown holding: ${holdingId}`)
+    }
+    return await closeHolding(store, {
+      holding_id: holdingId,
+      exit_price_per_share: exitPrice,
+      reason_code: reasonCode,
+      ...(closedAt === undefined ? {} : { closed_at: closedAt }),
+      ...(message === undefined ? {} : { message }),
+      actor_type: 'user',
+      actor_id: 'user_local',
+      idempotency_key: `holding:${holdingId}:close:v1`,
+    })
+  } finally {
+    store.close()
+  }
 }
 
 function buildPersonalWatchlistItems(events: Awaited<ReturnType<EventStore['list']>>): AppWatchlistItem[] {

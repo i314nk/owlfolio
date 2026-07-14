@@ -196,7 +196,10 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('color:#f7f8ff')
     expect(personalDraftHtml).not.toContain('Record initial holding')
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
-    expect(personalHeldHtml).toContain('>Held<')
+    // ONE HOME PER NAME (2026-07-14): a held name leaves the watchlist BOARD entirely — no row,
+    // no open-holding form; the ledger line points at the portfolio.
+    expect(personalHeldHtml).not.toContain('data-watchlist-row=')
+    expect(personalHeldHtml).toContain('Held — see portfolio')
     expect(personalHeldHtml).not.toContain('Record initial holding')
     expect(personalHeldHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
   })
