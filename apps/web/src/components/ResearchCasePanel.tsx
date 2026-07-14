@@ -982,6 +982,11 @@ function createReReviewPanel(researchCase: AppResearchCase) {
         style: { color: tone, fontFamily: 'var(--owl-font-mono)', fontWeight: 800, marginLeft: '0.6rem', letterSpacing: '0.05em' },
       }, reReview.assessment),
     ),
+    // 10-K cadence: a new annual report resets the numbers — the check-in is the wrong tool for it.
+    reReview.new_annual_filing === undefined
+      ? null
+      : createElement('p', { 'data-testid': 're-review-annual-filing', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: '0.5rem 0' } },
+          `Annual report filed (${reReview.new_annual_filing.form}, ${reReview.new_annual_filing.filed}) — a full re-analysis is recommended: use "Re-run on current engine" above. The check-in diff below covers only the interim filings.`),
     reReview.re_review_ungrounded === true
       ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Unverified: ${reReview.ungrounded_reason ?? 'the pass could not cite-verify its evidence (fail-closed).'}`)
       : null,

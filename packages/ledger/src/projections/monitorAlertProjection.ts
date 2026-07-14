@@ -334,6 +334,36 @@ function reReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<stri
   }]
 }
 
+/**
+ * Annual filing detected (research_case_annual_filing_detected — 10-K cadence, owner-approved
+ * 2026-07-14): a new ANNUAL report resets everything the valuation stands on (FCF, the moat tests,
+ * the Shariah ratios), so the check-in is the wrong tool — the FULL re-analysis is recommended.
+ * An observation with a one-click superseding re-run beside it — never an auto-run (the spend stays
+ * user-authored). Cleared by supersession (see projectMonitorAlerts).
+ */
+function annualFilingAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
+  const researchCaseId = getString(payload, 'research_case_id') ?? event.aggregate_id
+  const ticker = getString(payload, 'ticker')
+  const form = getString(payload, 'form') ?? 'annual report'
+  const filed = getString(payload, 'filed')
+  const label = ticker ?? researchCaseId
+  return [{
+    id: `annual_filing_${researchCaseId}_${filed ?? event.event_id}`,
+    kind: 'annual_rerun',
+    subject: {
+      ...(ticker === undefined ? {} : { ticker }),
+      research_case_id: researchCaseId,
+    },
+    severity: 'attention',
+    headline: `${label}: annual report filed (${form}${filed === undefined ? '' : `, ${filed}`})`,
+    detail: 'A new annual report resets the numbers this analysis stands on (FCF, the moat tests, the Shariah ratios) — a full re-analysis is recommended. One click supersedes this case; the check-in diff is the wrong tool for an annual reset. You author the run.',
+    recorded_at: event.created_at,
+    is_observation: true,
+    is_draft: false,
+    human_action: { label: 'Open dossier', href: `/research/${researchCaseId}` },
+  }]
+}
+
 function sellReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
   const holdingId = getString(payload, 'holding_id') ?? event.aggregate_id
   const ticker = getString(payload, 'ticker')
@@ -397,6 +427,16 @@ export function projectMonitorAlerts(
   }
 
   // Build raw alerts, keyed by (subject, kind); the latest recorded event wins.
+  // A case superseded by a newer run is a completed re-analysis: its case-scoped prompts
+  // (annual-filing "re-run recommended") are done — clear them. Event-type-agnostic: any payload
+  // carrying supersedes_research_case_id marks its target superseded.
+  const supersededCaseIds = new Set<string>()
+  for (const event of events) {
+    if (!isRecord(event.payload)) continue
+    const superseded = getString(event.payload, 'supersedes_research_case_id')
+    if (superseded !== undefined) supersededCaseIds.add(superseded)
+  }
+
   const latest = new Map<string, RawAlert>()
   for (const event of events) {
     if (!isRecord(event.payload)) {
@@ -419,6 +459,9 @@ export function projectMonitorAlerts(
       case 'research_case_re_review_recorded':
         produced = reReviewAlert(event, event.payload)
         break
+      case 'research_case_annual_filing_detected':
+        produced = annualFilingAlert(event, event.payload)
+        break
       default:
         continue
     }
@@ -440,6 +483,9 @@ export function projectMonitorAlerts(
         return false
       }
       if (alert.subject.holding_id !== undefined && resolvedHoldingIds.has(alert.subject.holding_id)) {
+        return false
+      }
+      if (alert.kind === 'annual_rerun' && alert.subject.research_case_id !== undefined && supersededCaseIds.has(alert.subject.research_case_id)) {
         return false
       }
       return true

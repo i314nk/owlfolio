@@ -5,6 +5,7 @@ import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } f
 import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
+import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
@@ -115,7 +116,7 @@ export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [] 
     createElement('hr', { className: 'owl-rule' }),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
-      : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alert.subject.holding_id === holding.holding_id)))),
+      : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alertMatchesHolding(alert, holding))))),
   )
 }
 
@@ -125,6 +126,20 @@ export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [] 
  * DIVEST-REQUIRED / SELL-REVIEW drafts (proposals, never executed), and the annual re-run flag. Each
  * carries the spec's caveat in its detail; nothing here advances state.
  */
+/**
+ * An alert belongs on a holding row when it names the holding — or, for case-scoped alerts with no
+ * holding id (annual-filing / thesis-re-review observations), when it names the held ticker or the
+ * holding's displayed/admitted case.
+ */
+function alertMatchesHolding(alert: MonitorAlert, holding: PortfolioHolding): boolean {
+  if (alert.subject.holding_id !== undefined) return alert.subject.holding_id === holding.holding_id
+  if (alert.subject.watchlist_item_id !== undefined) return false
+  if (alert.subject.research_case_id !== undefined) {
+    return alert.subject.research_case_id === holding.displayResearchCaseId || alert.subject.research_case_id === holding.research_case_id
+  }
+  return alert.subject.ticker !== undefined && alert.subject.ticker === holding.ticker
+}
+
 function createHoldingAlerts(alerts: MonitorAlert[]) {
   if (alerts.length === 0) {
     return null
@@ -149,6 +164,10 @@ function createHoldingAlerts(alerts: MonitorAlert[]) {
         ),
         createElement('p', { className: 'owl-row-title' }, alert.headline),
         createElement('p', { className: 'owl-row-helper' }, alert.detail),
+        // The annual-filing alert carries the ONE-CLICK full re-analysis (confirm-gated, never automatic).
+        alert.kind === 'annual_rerun' && alert.subject.research_case_id !== undefined && alert.subject.ticker !== undefined
+          ? createElement(RerunAnalysisButton, { caseId: alert.subject.research_case_id, ticker: alert.subject.ticker })
+          : null,
       ),
     )),
   )

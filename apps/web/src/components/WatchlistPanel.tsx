@@ -3,6 +3,7 @@ import { createElement, Fragment } from 'react'
 import { OwlButtonLink, OwlValuationChip, RouteHeader } from './designSystem'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
+import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
 
@@ -86,7 +87,7 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: 
         { key: `band-${band}`, 'aria-label': `${meta.title} candidates`, 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
         createElement('p', { className: 'owl-section-accent' }, `${meta.title} · ${bandItems.length}`),
         createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, meta.note),
-        ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id), band)),
+        ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alertMatchesItem(alert, item)), band)),
       ),
     ]
   }
@@ -108,9 +109,24 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: 
 }
 
 /**
+ * An alert belongs on a row when it names the row's watchlist item — or, for case-scoped alerts
+ * that carry no item id (annual-filing / thesis-re-review observations), when it names the row's
+ * ticker or its displayed/admitted case.
+ */
+function alertMatchesItem(alert: MonitorAlert, item: AppWatchlistItem): boolean {
+  if (alert.subject.watchlist_item_id !== undefined) return alert.subject.watchlist_item_id === item.watchlist_item_id
+  if (alert.subject.holding_id !== undefined) return false
+  if (alert.subject.research_case_id !== undefined) {
+    return alert.subject.research_case_id === item.display_research_case_id || alert.subject.research_case_id === item.research_case_id
+  }
+  return alert.subject.ticker !== undefined && alert.subject.ticker === item.ticker
+}
+
+/**
  * Inline agent observations for one watchlist item — buy-window, re-run-needed staleness, Shariah
- * re-screen. Each is an observation, never a recommendation to buy; opening a holding stays a user
- * decision below.
+ * re-screen, annual-filing re-analysis prompts. Each is an observation, never a recommendation to
+ * buy; opening a holding stays a user decision below. The annual-filing alert carries the ONE-CLICK
+ * full re-analysis beside it (a confirm-gated user action — never automatic).
  */
 function createWatchlistAlerts(alerts: MonitorAlert[]) {
   if (alerts.length === 0) {
@@ -135,6 +151,9 @@ function createWatchlistAlerts(alerts: MonitorAlert[]) {
         ),
         createElement('p', { className: 'owl-row-title' }, alert.headline),
         createElement('p', { className: 'owl-row-helper' }, alert.detail),
+        alert.kind === 'annual_rerun' && alert.subject.research_case_id !== undefined && alert.subject.ticker !== undefined
+          ? createElement(RerunAnalysisButton, { caseId: alert.subject.research_case_id, ticker: alert.subject.ticker })
+          : null,
       ),
     )),
   )

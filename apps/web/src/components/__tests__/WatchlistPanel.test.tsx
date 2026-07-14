@@ -174,6 +174,50 @@ describe('WatchlistPanel zone board', () => {
   })
 })
 
+describe('WatchlistPanel annual-filing alert (10-K cadence)', () => {
+  it('surfaces a ticker-scoped annual_rerun alert on the row with the one-click full re-analysis', () => {
+    const html = renderToStaticMarkup(createElement(WatchlistPanel, {
+      items: [item({ watchlist_item_id: 'w_ann', ticker: 'V', verdict: { proposed_buy_below: 154 } })],
+      mode: 'personal-local',
+      alerts: [{
+        id: 'annual_filing_case_w_ann_2026-11-13',
+        kind: 'annual_rerun',
+        subject: { ticker: 'V', research_case_id: 'case_w_ann' },
+        severity: 'attention',
+        headline: 'V: annual report filed (10-K, 2026-11-13)',
+        detail: 'A new annual report resets the numbers this analysis stands on — a full re-analysis is recommended.',
+        recorded_at: '2026-11-20T00:00:00.000Z',
+        is_observation: true,
+        is_draft: false,
+        human_action: { label: 'Open dossier', href: '/research/case_w_ann' },
+      }],
+    }))
+    expect(html).toContain('annual report filed')
+    expect(html).toContain('data-testid="rerun-analysis-button"')
+    expect(html).toContain('Run full re-analysis')
+  })
+
+  it('does not bleed a different ticker\'s annual alert onto the row', () => {
+    const html = renderToStaticMarkup(createElement(WatchlistPanel, {
+      items: [item({ watchlist_item_id: 'w_other', ticker: 'KO', verdict: { proposed_buy_below: 50 } })],
+      mode: 'personal-local',
+      alerts: [{
+        id: 'annual_filing_rc_v_2026-11-13',
+        kind: 'annual_rerun',
+        subject: { ticker: 'V', research_case_id: 'rc_v' },
+        severity: 'attention',
+        headline: 'V: annual report filed (10-K, 2026-11-13)',
+        detail: 'x',
+        recorded_at: '2026-11-20T00:00:00.000Z',
+        is_observation: true,
+        is_draft: false,
+        human_action: { label: 'Open dossier', href: '/research/rc_v' },
+      }],
+    }))
+    expect(html).not.toContain('annual report filed')
+  })
+})
+
 describe('WatchlistPanel re-review launch', () => {
   it('renders the on-demand re-review launch per candidate with a research case', () => {
     const html = render([item({ watchlist_item_id: 'w_rr', ticker: 'AAA', verdict: { state: 'WATCH', proposed_buy_below: 50 } })])

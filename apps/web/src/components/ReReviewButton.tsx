@@ -43,6 +43,12 @@ export async function submitReReview(
     const insiderNote = cluster === undefined
       ? ''
       : ` Insider-selling cluster (STRONG): ${cluster.distinct_sellers ?? 0} insiders sold ~$${Math.round(cluster.discretionary_sell_value ?? 0).toLocaleString('en-US')} recently — consider a full re-run.`
+    // 10-K cadence: a new annual report makes the FULL re-analysis the right tool — say so here too
+    // (the durable prompt is the monitor alert + the dossier card line).
+    const annual = body.new_annual_filing as { form?: string; filed?: string } | undefined
+    const annualNote = annual === undefined
+      ? ''
+      : ` Annual report filed (${annual.form ?? '10-K'}, ${annual.filed ?? ''}) — a full re-analysis is recommended.`
     const base = body.status === 'no_new_filings'
       ? (cluster === undefined
           ? 'No new filings since this decision — the check-in has nothing to compare.'
@@ -50,7 +56,7 @@ export async function submitReReview(
       : body.status === 'no_prior_corpus'
         ? 'No persisted source corpus for this case (it predates ledger persistence) — the honest refresh is a full re-run.'
         : 'Could not resolve SEC filings for this ticker right now — try again later.'
-    return { ok: true, note: `${base}${insiderNote}` }
+    return { ok: true, note: `${base}${insiderNote}${annualNote}` }
   } catch (caughtError) {
     return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the check-in' }
   }

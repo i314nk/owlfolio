@@ -752,6 +752,8 @@ export type ResearchCaseReReviewProjection = {
   prior_thesis_summary?: string
   new_filings: { form: string; filed: string; url: string; weight: string }[]
   skipped_filings: { form: string; filed: string; url: string; weight: string }[]
+  /** A new ANNUAL filing (10-K/20-F/40-F) landed since the decision — the full re-analysis is due. */
+  new_annual_filing?: { form: string; filed: string; url: string }
   re_review_ungrounded?: boolean
   ungrounded_reason?: string
   checked_at?: string
@@ -2733,6 +2735,13 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         ...(typeof p['prior_thesis_summary'] === 'string' ? { prior_thesis_summary: p['prior_thesis_summary'] } : {}),
         new_filings: filings(p['new_filings']),
         skipped_filings: filings(p['skipped_filings']),
+        ...(p['new_annual_filing'] !== null && typeof p['new_annual_filing'] === 'object'
+          ? { new_annual_filing: {
+              form: String((p['new_annual_filing'] as Record<string, unknown>)['form'] ?? ''),
+              filed: String((p['new_annual_filing'] as Record<string, unknown>)['filed'] ?? ''),
+              url: String((p['new_annual_filing'] as Record<string, unknown>)['url'] ?? ''),
+            } }
+          : {}),
         ...(p['re_review_ungrounded'] === true ? { re_review_ungrounded: true } : {}),
         ...(typeof p['ungrounded_reason'] === 'string' ? { ungrounded_reason: p['ungrounded_reason'] } : {}),
         ...(typeof p['checked_at'] === 'string' ? { checked_at: p['checked_at'] } : {}),

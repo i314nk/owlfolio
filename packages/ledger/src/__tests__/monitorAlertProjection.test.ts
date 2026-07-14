@@ -444,3 +444,46 @@ describe('projectMonitorAlerts — grouping / latest-per-subject / resolution', 
     expect(severities).toEqual(['urgent', 'attention', 'info'])
   })
 })
+
+describe('projectMonitorAlerts — annual filing detected (10-K cadence)', () => {
+  const annualEvt = (caseId = 'rc_v_1') => evt({
+    event_type: 'research_case_annual_filing_detected',
+    aggregate_type: 'research_case',
+    aggregate_id: caseId,
+    actor_type: 'system',
+    payload: {
+      research_case_id: caseId,
+      ticker: 'V',
+      form: '10-K',
+      filed: '2026-11-13',
+      url: 'https://www.sec.gov/Archives/edgar/data/1403161/new-10k.htm',
+      checked_at: '2026-11-20T00:00:00.000Z',
+      is_observation: true,
+    },
+  })
+
+  it('raises an attention annual_rerun alert recommending the full re-analysis', () => {
+    const alerts = projectMonitorAlerts([annualEvt()])
+    expect(alerts).toHaveLength(1)
+    const alert = alerts[0]!
+    expect(alert.kind).toBe('annual_rerun')
+    expect(alert.severity).toBe('attention')
+    expect(alert.subject.ticker).toBe('V')
+    expect(alert.subject.research_case_id).toBe('rc_v_1')
+    expect(alert.headline).toContain('annual report filed')
+    expect(alert.headline).toContain('10-K')
+    expect(alert.detail).toContain('full re-analysis')
+    expect(alert.is_observation).toBe(true)
+    expect(alert.human_action?.href).toBe('/research/rc_v_1')
+  })
+
+  it('clears once a superseding run exists for the case (the re-run happened)', () => {
+    const supersede = evt({
+      event_type: 'research_case_created',
+      aggregate_type: 'research_case',
+      aggregate_id: 'rc_v_2',
+      payload: { research_case_id: 'rc_v_2', ticker: 'V', supersedes_research_case_id: 'rc_v_1' },
+    })
+    expect(projectMonitorAlerts([annualEvt(), supersede])).toEqual([])
+  })
+})

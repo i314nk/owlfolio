@@ -86,7 +86,7 @@ import {
 import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
 import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
 import { runPriceRefresh, type PriceRefreshResult, type RunPriceRefreshDeps } from '@owlfolio/workflow/priceRefresh'
-import type { Fundamentals } from '@owlfolio/workflow/secEdgar'
+import type { FilingRef, Fundamentals } from '@owlfolio/workflow/secEdgar'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveModelRoleEnv } from './modelRoleEnv'
 import { buildAutoModelRoleOverrides } from './autoTierConfig'
@@ -1464,10 +1464,10 @@ export type RunReReviewDeps = {
 }
 
 export type RunReReviewOutcome =
-  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger; new_annual_filing?: FilingRef }
   | { status: 'no_recorded_thesis' }
   | { status: 'no_prior_corpus' }
-  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger; new_annual_filing?: FilingRef }
   | { status: 'fundamentals_unresolved' }
 
 /**
@@ -1530,8 +1530,44 @@ export async function runResearchCaseReReview(
     // A threshold-meeting insider-selling cluster (§3.3) is a STRONG signal in its own right — surface it
     // even when there are no new conventional filings, rather than silently reporting "no new filings".
     const insiderCluster = check.insider_cluster?.meets_threshold === true ? check.insider_cluster : undefined
+    // 10-K CADENCE (owner-approved 2026-07-14): a new ANNUAL filing resets everything the valuation
+    // stands on — the check-in is the wrong tool for it. Record a deterministic zero-spend detection
+    // OBSERVATION (idempotent per filing) so the monitor raises "full re-analysis recommended" with
+    // the one-click superseding re-run. Never auto-runs — the re-run spend stays user-authored.
+    const annual = check.new_annual_filing
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      await store.append({
+        event_id: `evt_annual_filing_${researchCaseId}_${formSlug}_${annual.filed}`,
+        event_type: 'research_case_annual_filing_detected',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        correlation_id: researchCaseId,
+        causation_id: researchCaseId,
+        actor_type: 'system',
+        actor_id: 'research_workflow',
+        payload: {
+          research_case_id: researchCaseId,
+          ticker,
+          form: annual.form,
+          filed: annual.filed,
+          url: annual.url,
+          checked_at: check.checked_at,
+          is_observation: true,
+        },
+        source_ids: [],
+        created_at: check.checked_at,
+        schema_version: 1,
+        idempotency_key: `annual_filing_${researchCaseId}_${formSlug}_${annual.filed}`,
+      })
+    }
     if (check.new_filings.length === 0) {
-      return { status: 'no_new_filings', checked_at: check.checked_at, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
+      return {
+        status: 'no_new_filings',
+        checked_at: check.checked_at,
+        ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }),
+        ...(annual === undefined ? {} : { new_annual_filing: annual }),
+      }
     }
 
     const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
@@ -1543,7 +1579,12 @@ export async function runResearchCaseReReview(
       check,
     }, deps.ground === undefined ? {} : { ground: deps.ground })
 
-    return { status: 'recorded', re_review: recorded.payload, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
+    return {
+      status: 'recorded',
+      re_review: recorded.payload,
+      ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }),
+      ...(annual === undefined ? {} : { new_annual_filing: annual }),
+    }
   } finally {
     store.close()
   }
