@@ -18,6 +18,49 @@ function researchCase(overrides: Partial<ResearchCaseProjection> & Pick<Research
   }
 }
 
+describe('ResearchLibrary — company names on the cards', () => {
+  it('renders "TICKER — Company Name" (title-cased) when the case recorded a registrant name', () => {
+    const html = renderToStaticMarkup(createElement(ResearchLibrary, {
+      cases: [{
+        research_case_id: 'rc_v_001',
+        ticker: 'V',
+        entity_name: 'VISA INC.',
+        stage: 'analysis_drafted',
+        investment_verdict: 'WATCH',
+        superseded: false,
+        archived: false,
+        version: 1,
+        updated_at: '2026-07-10T00:00:00.000Z',
+        created_at: '2026-07-10T00:00:00.000Z',
+      } as never],
+      mode: 'personal-local',
+      selectedStrategyLabel: 'Selected strategy: buffett-munger',
+    }))
+    expect(html).toContain('— Visa Inc.')
+  })
+
+  it('keeps the legacy id line when no registrant name was recorded', () => {
+    const html = renderToStaticMarkup(createElement(ResearchLibrary, {
+      cases: [{
+        research_case_id: 'rc_cost_001',
+        ticker: 'COST',
+        company_id: 'Costco Wholesale',
+        stage: 'analysis_drafted',
+        investment_verdict: 'WATCH',
+        superseded: false,
+        archived: false,
+        version: 1,
+        updated_at: '2026-07-10T00:00:00.000Z',
+        created_at: '2026-07-10T00:00:00.000Z',
+      } as never],
+      mode: 'personal-local',
+      selectedStrategyLabel: 'Selected strategy: buffett-munger',
+    }))
+    expect(html).toContain('Costco Wholesale')
+    expect(html).not.toContain('— Costco')
+  })
+})
+
 describe('ResearchLibrary', () => {
   it('renders the library header, the new-research action, and the live pipeline link', () => {
     const html = renderToStaticMarkup(

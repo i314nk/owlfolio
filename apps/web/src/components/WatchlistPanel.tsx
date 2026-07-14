@@ -6,6 +6,7 @@ import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
+import { titleCaseEntityName } from '../lib/entityName'
 
 export type WatchlistPanelProps = {
   items: AppWatchlistItem[]
@@ -347,14 +348,6 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
   )
 }
 
-
-/**
- * EDGAR registrant names arrive ALL CAPS ("VISA INC.") — title-case them for the row line so the
- * name reads like a name. Display-only; the payload keeps the registrant's exact string.
- */
-function titleCaseEntityName(name: string): string {
-  return name.toLowerCase().replace(/(^|[\s\-("'./])([a-z])/g, (_m, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`)
-}
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {

@@ -6,6 +6,7 @@ import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
+import { titleCaseEntityName } from '../lib/entityName'
 import { StatusBadge } from './StatusBadge'
 
 const HOLDING_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
@@ -377,14 +378,6 @@ function buyBelowReferenceLine(holding: PortfolioHolding, buyBelow: number): str
     parts.push(`${Math.round(holding.hurdleRate * 100)}% hurdle`)
   }
   return parts.join(' · ')
-}
-
-/**
- * EDGAR registrant names arrive ALL CAPS ("VISA INC.") — title-case them for the row line so the
- * name reads like a name. Display-only; the payload keeps the registrant's exact string.
- */
-function titleCaseEntityName(name: string): string {
-  return name.toLowerCase().replace(/(^|[\s\-("'./])([a-z])/g, (_m, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`)
 }
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
