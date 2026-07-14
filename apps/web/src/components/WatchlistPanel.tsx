@@ -247,13 +247,13 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     createElement('a', {
       href: `/research/${displayCaseId}`,
       className: 'owl-focusable',
-      style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, letterSpacing: '0.02em', textDecoration: 'none', whiteSpace: 'nowrap' },
+      style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 800, letterSpacing: '0.02em', textDecoration: 'none', whiteSpace: 'nowrap' },
     }, ticker),
     v?.entity_name !== undefined
-      ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-base)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(v.entity_name)}`)
+      ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(v.entity_name)}`)
       : null,
     figures.length > 0
-      ? createElement('span', { key: 'figures', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', whiteSpace: 'nowrap' } }, figures)
+      ? createElement('span', { key: 'figures', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', whiteSpace: 'nowrap' } }, figures)
       : null,
     createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
     zoneChip,

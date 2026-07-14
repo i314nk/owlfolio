@@ -296,7 +296,7 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
             ticker,
           ),
           researchCase.entity_name !== undefined
-            ? createElement('span', { style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-base)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(researchCase.entity_name)}`)
+            ? createElement('span', { style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(researchCase.entity_name)}`)
             : null,
         ),
         researchCase.entity_name === undefined && company !== undefined

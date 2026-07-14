@@ -214,9 +214,9 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
     ? createElement('a', {
         href: `/research/${displayCaseId}`,
         className: 'owl-focusable',
-        style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, letterSpacing: '0.02em', textDecoration: 'none', whiteSpace: 'nowrap' },
+        style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 800, letterSpacing: '0.02em', textDecoration: 'none', whiteSpace: 'nowrap' },
       }, ticker)
-    : createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, ticker)
+    : createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 800, letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, ticker)
   // "TICKER — Company Name · figures" (see WatchlistPanel): the NAME shrinks behind an ellipsis, never the figures.
   const figures = [
     `entry ${formatMoney(holding.cost_basis_per_share, holding.currency)}`,
@@ -229,9 +229,9 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
     { className: 'owl-collapsible-card-summary', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
     tickerEl,
     holding.entityName !== undefined
-      ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-base)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(holding.entityName)}`)
+      ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(holding.entityName)}`)
       : null,
-    createElement('span', { key: 'figures', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', whiteSpace: 'nowrap' } }, figures),
+    createElement('span', { key: 'figures', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', whiteSpace: 'nowrap' } }, figures),
     createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
     ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
     // REVIEW RETIRED (owner, 2026-07-14): no review badge — the valuation chip + alerts carry the
