@@ -84,6 +84,19 @@ The core design rule is **"code computes, judgment proposes"**:
 - Browser onboarding, Command Center, research cockpit, watchlist (the zone
   board), the held-thesis portfolio view, audit trail, provider status, and a
   Learn section documenting the strategy and grounding architecture.
+- **Compact boards, one home per name**: each row is one line
+  ("TICKER — Company Name · buy ≤ / now") that expands into a small decision
+  card (verdict summary + the load-up → buy → IV price ladder) and links to
+  the full analysis. The boards always display from the LATEST non-superseded
+  analysis of a ticker, with its date shown; a held name lives on the
+  portfolio only and returns to the watchlist when its holding closes.
+- **Human-authored exits**: "Remove from watchlist" and "Close holding
+  (record the exit)" — reason recorded, machine actors rejected at the ledger
+  level, raw events kept forever. Owlfolio never trades; the close records
+  the exit you executed at your broker.
+- **The 10-K cadence**: check-ins cover the year; when one detects a new
+  annual report, the boards raise "full re-analysis recommended" with a
+  one-click superseding re-run (confirm-gated — the spend stays yours).
 - The multi-agent research swarm with a hardened circle-of-competence gate
   (k-sample unanimous agreement + grounded evidence floors, tunable in
   Settings) — "outside the circle" is a recorded early exit, not a failure.
@@ -296,12 +309,12 @@ Limit a tick to one task kind:
 ```bash
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 ```
 
-Eleven task kinds exist (reviews, monitors, the Shariah re-screen, the
-held-ticker price poll, forecast resolution, 13F discovery, thesis re-review
-checks, and the research/deep-dive queues). All are one-tick and human-gated:
+Nine task kinds exist (the quarterly re-review check, the watchlist/holdings
+monitors, the Shariah re-screen, the held+watched price poll, forecast
+resolution, 13F discovery, and the cadence-engine passes). All are one-tick
+and human-gated:
 the worker records observations and drafts, and provider spend is bounded
 (e.g. the re-review sweep only spends on strong triggers, capped per tick).
 
@@ -346,8 +359,8 @@ system, or accounting firm:
   keeps no books: bookkeeping built on unverifiable manual inputs was removed
   in the 2026-07 scale-down.
 - Provider outputs are drafts/observations. User-authored transitions are
-  required for watchlist confirmations, holding opens, review overrides, and
-  any portfolio action.
+  required for watchlist confirmations, holding opens and closes, watchlist
+  removals, and any portfolio action.
 
 ---
 

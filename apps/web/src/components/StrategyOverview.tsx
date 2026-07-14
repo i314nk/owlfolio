@@ -772,24 +772,23 @@ export function StrategyOverview(): ReactNode {
       ),
     }),
 
-    // 7e. Quality & bias hygiene checklists (Phase 7) — completion-block on both sign-offs, decision-neutral.
+    // 7e. Quality & bias hygiene checklists — prompt lists + marshaled evidence (the sign-off
+    // completion-blocks were retired with review-and-promote and the holding-review retirement).
     Section({
       eyebrow: 'Quality & bias hygiene',
-      title: 'Two checklists that force the question — they never score it',
+      title: 'Two checklists that frame the question — they never score it',
       lead: createElement(
         'span',
         null,
-        'Both the admission sign-off and the re-underwrite sign-off carry two hygiene checklists. They are a ',
-        createElement('span', { style: goldText }, 'hygiene surface, not a gate'),
-        ': each FORCES you to address a known failure mode, but ',
-        createElement('span', { style: goldText }, 'never scores, tallies, or pass/fails'),
-        ' your answers — there is no pass/fail count, and a "risk present" answer never auto-rejects. The ',
+        'Two hygiene checklists ride the workflow as ',
+        createElement('span', { style: goldText }, 'prompts, not gates'),
+        ': each names a known failure mode so you address it before committing, but nothing ',
+        createElement('span', { style: goldText }, 'scores, tallies, or pass/fails'),
+        ' your answers, and a "risk present" answer never auto-rejects. The ',
         createElement('span', { style: goldText }, 'business'),
-        ' list (agent-marshaled evidence beside each item, which you still affirm) guards the investment; the ',
+        ' list is agent-marshaled: the harness attaches grounded evidence beside each item on the admit checkpoint. The ',
         createElement('span', { style: goldText }, 'cognitive'),
-        ' list (human-only — the agent never pre-fills) guards your reasoning. Both are a ',
-        createElement('span', { style: goldText }, 'completion-block'),
-        ': every item must be addressed in your own words before either sign-off goes through. The checklist informs; you and the existing gates decide. The lists below are read live from the versioned checklist config and grow as the owner adds failure modes from experience.',
+        ' list is human-only — the agent never pre-fills your reasoning checks. There is no checklist ceremony at sign-off (review-and-promote: the promote itself is the human commitment); the lists live here and on the Learn page as the standing discipline, read live from the versioned checklist config and growing as the owner adds failure modes from experience.',
       ),
       children: createElement(
         'div',
@@ -803,7 +802,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Decision-neutral by construction: the checklist lists the questions to address and refuses to let a sign-off through with an unaddressed item — it does not auto-reject, score, or rank. The human plus the existing hard gates make the decision.',
+          'Decision-neutral by construction: the checklist names the questions worth answering — it does not auto-reject, score, or rank. The human plus the existing hard gates make the decision.',
         ),
       ),
     }),

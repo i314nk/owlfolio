@@ -9,14 +9,12 @@ scheduler-shaped: cadence metadata rides the `scheduled_task_defined` events, bu
 exists yet** — nothing evaluates the cron strings; a human (or, later, a scheduler) fires each tick.
 Scheduled-task kinds:
 
-- `review_reminder`: projects due/upcoming holding-review prompts and records observations.
+- `re_review_check`: the thesis re-review sweep — diffs filings NEW since each decided case's persisted corpus (8-K item-code-weighted); strong triggers run a grounded thesis diff (`research_case_re_review_recorded`), capped per tick; medium/weak triggers are observations with zero provider spend. A BROKEN thesis on a held name escalates a versioned full-reanalysis *draft*. REVIEW RETIRED (2026-07-14): the provider-drafted holding review + its reminder are gone — this sweep, the annual-report re-run prompt, and the zone board carry the periodic-review duty; the `thesis_review` automation setting now drives only this task.
 - `watchlist_monitor` / `holdings_monitor`: deterministic buy-window / tranche / concentration / staleness monitors; append `*_monitor_alert_recorded` observation events surfaced by the monitor-alert projection.
-- `holding_review_draft`: proposal-only grounded review for due holdings; requires a provider readiness check, appends provider-authored `holding_review_drafted` events only, and a broken thesis escalates a versioned full-reanalysis *draft*.
-- `re_review_check`: the thesis re-review sweep — diffs filings NEW since each decided case's persisted corpus (8-K item-code-weighted); strong triggers run a grounded thesis diff (`research_case_re_review_recorded`), capped per tick; medium/weak triggers are observations with zero provider spend.
-- `shariah_rescreen`, `portfolio_valuation_refresh`, `purification_projection`, `forecast_resolution`, `discovery_13f`, `falsifier_check`, `re_underwrite`: deterministic/cadence passes over ledger + injected data.
+- `shariah_rescreen`, `portfolio_valuation_refresh` (the held+watched price poll — valuations retired in the scale-down), `forecast_resolution`, `discovery_13f`, `falsifier_check`, `re_underwrite`: deterministic/cadence passes over ledger + injected data.
 - `process_research_queue` / `process_deep_dive_queue`: the research-run executors, auto-spawned per run by the web app (the only automatic invocations today).
 
-The worker never auto-approves investment decisions, watchlist confirmations, holding reviews, holding opens, buys, sells, Shariah overrides, purification payments, or portfolio actions. Completed run payloads include `auto_approved_actions: 0`; live/non-dry-run task execution is skipped. Provider-backed tasks fail closed before provider/proposal events when readiness is missing, unsupported, quota-limited, reauth-required, or target-mismatched.
+The worker never auto-approves investment decisions, watchlist confirmations, holding opens or closes, watchlist removals, buys, sells, Shariah overrides, or portfolio actions (holding opens/closes and watchlist prunes are rejected for machine actors at the ledger level). Completed run payloads include `auto_approved_actions: 0`; live/non-dry-run task execution is skipped. Provider-backed tasks fail closed before provider/proposal events when readiness is missing, unsupported, quota-limited, reauth-required, or target-mismatched.
 
 ## Runtime paths
 
@@ -40,9 +38,8 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 Limit a tick to one task kind:
 
 ```bash
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
 Use an isolated test ledger:
@@ -55,18 +52,16 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 
 ## Ledger events
 
-Default task setup appends idempotent `scheduled_task_defined` events for the twelve scheduled task
-kinds (reviews, monitors, Shariah re-screen, valuation refresh, purification, forecast resolution,
-13F discovery, the falsifier/re-underwrite cadence passes, and the quarterly
-`task_re_review_check_quarterly`), each carrying its cadence cron string as metadata for the future
-scheduler.
+Default task setup appends idempotent `scheduled_task_defined` events for the nine scheduled task
+kinds (the quarterly `task_re_review_check_quarterly`, the watchlist/holdings monitors, the Shariah
+re-screen, the price poll, forecast resolution, 13F discovery, and the falsifier/re-underwrite
+cadence passes), each carrying its cadence cron string as metadata for the future scheduler. Legacy
+ledgers that still define the retired review tasks skip them quietly.
 
 Each run appends:
 
 1. `scheduled_task_run_started` with attempt metadata plus task timeout/max-cost metadata when defined
 2. `scheduled_task_run_completed` on success, with observations, result summary, proposal/provider-run ids, and approval gates when relevant
 3. `scheduled_task_run_failed` on handler failure, with attempt/max-attempts/retry-after metadata
-
-`holding_review_draft` success adds only `holding_review_drafted` proposal events (`actor_type: provider`, `user_approved: false`). It does not append `holding_review_confirmed`, `holding_review_overridden`, `holding_opened`, `watchlist_draft_confirmed`, `shariah_gate_decision_recorded`, or `purification_payment_recorded`.
 
 Read task status with `projectScheduledTasks(events)` from `@owlfolio/ledger/projections/scheduledTaskProjection`.
