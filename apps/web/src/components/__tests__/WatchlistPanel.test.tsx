@@ -121,11 +121,16 @@ describe('WatchlistPanel zone board', () => {
     expect(html).not.toContain('Sustainable band')
   })
 
-  it('renders the company name beside the ticker when the linked case recorded one', () => {
+  it('renders "TICKER — Company Name" (title-cased, ellipsis-fitted) beside the figures', () => {
     const html = render([
-      item({ watchlist_item_id: 'w_name', ticker: 'V', verdict: { proposed_buy_below: 280, entity_name: 'VISA INC.' } }),
+      item({ watchlist_item_id: 'w_name', ticker: 'V', verdict: { proposed_buy_below: 280, market_price_per_share: 349, entity_name: 'VISA INC.' } }),
     ])
-    expect(html).toContain('VISA INC.')
+    // EDGAR's ALL-CAPS registrant renders as a readable name, joined with an em dash.
+    expect(html).toContain('— Visa Inc.')
+    // The figures run is one compact mono span with · separators.
+    expect(html).toContain('buy ≤ $280.00 · now $349.00')
+    // The name shrinks behind an ellipsis so the row never wraps it.
+    expect(html).toContain('text-overflow:ellipsis')
   })
 
   it('does not render sanity-check annotations on the board (the dossier owns them)', () => {

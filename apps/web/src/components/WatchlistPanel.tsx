@@ -225,18 +225,27 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       : dist !== undefined
         ? createElement('span', { key: 'zone', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, `${dist.toFixed(0)}% ABOVE THE ZONE`)
         : null
+  // "TICKER — Company Name · figures": one identity run that shrinks (the NAME shrinks behind an
+  // ellipsis, never the figures), so the line always fits the row box.
+  const figures = [
+    ...(buyBelow === undefined ? [] : [`buy ≤ $${buyBelow.toFixed(2)}`]),
+    ...(v?.market_price_per_share === undefined ? [] : [`now $${v.market_price_per_share.toFixed(2)}`]),
+  ].join(' · ')
   const summaryLine = createElement(
     'summary',
-    { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem' } },
+    { className: 'owl-collapsible-card-summary', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
     createElement('a', {
       href: `/research/${displayCaseId}`,
       className: 'owl-focusable',
-      style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, textDecoration: 'none' },
+      style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 800, letterSpacing: '0.02em', textDecoration: 'none', whiteSpace: 'nowrap' },
     }, ticker),
-    v?.entity_name !== undefined ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, v.entity_name) : null,
-    buyBelow !== undefined ? createElement('span', { key: 'buy', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `buy ≤ $${buyBelow.toFixed(2)}`) : null,
-    v?.market_price_per_share !== undefined ? createElement('span', { key: 'px', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `now $${v.market_price_per_share.toFixed(2)}`) : null,
-    createElement('span', { key: 'spacer', style: { flex: 1 } }),
+    v?.entity_name !== undefined
+      ? createElement('span', { key: 'name', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-sm)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(v.entity_name)}`)
+      : null,
+    figures.length > 0
+      ? createElement('span', { key: 'figures', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', whiteSpace: 'nowrap' } }, figures)
+      : null,
+    createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
     zoneChip,
     ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
     createElement(
@@ -338,6 +347,14 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
   )
 }
 
+
+/**
+ * EDGAR registrant names arrive ALL CAPS ("VISA INC.") — title-case them for the row line so the
+ * name reads like a name. Display-only; the payload keeps the registrant's exact string.
+ */
+function titleCaseEntityName(name: string): string {
+  return name.toLowerCase().replace(/(^|[\s\-("'./])([a-z])/g, (_m, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`)
+}
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
