@@ -197,6 +197,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           configuredProviderId={state.config.provider.provider_id}
           {...(state.config.savings !== undefined ? { savings: state.config.savings } : {})}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
+          shariahEnabled={state.config.shariah.enabled}
         />
       </main>
     )

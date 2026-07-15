@@ -49,6 +49,8 @@ export type ResearchCasePanelProps = {
    * anchor visible. Absent → the dossier shows the frozen default and flags "not set".
    */
   savings?: SavingsSleeveConfig
+  /** SCREENING TOGGLE (owner, 2026-07-15): false hides the Shariah gate section on the dossier. */
+  shariahEnabled?: boolean
 }
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -293,7 +295,7 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings, shariahEnabled = true }: ResearchCasePanelProps) {
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -446,9 +448,17 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     // ── E3 (owner call): ONE card per pillar — the header is the summary, the verdict hint scans
     //    closed, the pillar's merged content expands. Gated pillars render the plain header. ──
     // ── FRONT GATE — Shariah (precedes Buffett's four filters; sector judgment + AAOIFI ratios) ──
-    createPillarSection('front-gate', 'Front gate — Shariah', undefined, researchCase.shariah_status, [
-      createComplianceRatioBlock(researchCase),
-    ]),
+    // SCREENING TOGGLE (owner, 2026-07-15): the gate section is REMOVED from the dossier when the
+    // run was unscreened (its own recorded DISABLED state — replaced by a one-line fail-visible
+    // label) or when the Shariah mode is currently OFF (flip it back on and screened dossiers show
+    // their recorded gate again; nothing is deleted from the ledger).
+    ...(shariahGateDisabledForRun(researchCase)
+      ? [createElement('p', { 'data-testid': 'shariah-screening-off-line', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.04em', margin: 0 } }, 'SHARIAH SCREENING WAS OFF FOR THIS RUN — the front gate did not run; nothing was screened.')]
+      : !shariahEnabled
+        ? []
+        : [createPillarSection('front-gate', 'Front gate — Shariah', undefined, researchCase.shariah_status, [
+            createComplianceRatioBlock(researchCase),
+          ])]),
     // ── PILLAR 1 — Understand the business (the circle-of-competence judgment + the one-pager) ──
     createPillarSection('pillar-1', 'Pillar 1 — Understand the business', undefined, p1Hint, [
       createCircleCompetencePanel(researchCase),
@@ -541,6 +551,12 @@ function createPillarHeader(id: string, title: string, status: string | undefine
  * merged content; the verdict/status hint sits on the right so the whole ladder scans closed). A
  * gated pillar (status text, no data) renders the plain header instead — nothing to expand.
  */
+/** True when THIS RUN recorded the gate as DISABLED (screening was off when it ran). */
+function shariahGateDisabledForRun(researchCase: AppResearchCase): boolean {
+  return researchCase.shariah_status === 'DISABLED'
+    || (researchCase.shariah_gate?.sector_status ?? '').toUpperCase() === 'DISABLED'
+}
+
 function createPillarSection(
   id: string,
   title: string,
@@ -1403,7 +1419,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
           createElement('span', null, `Quick screen result: ${researchCase.screening_result ?? 'deep_dive_candidate'}`),
         ) : null,
-        researchCase.shariah_status !== undefined ? createElement(
+        researchCase.shariah_status !== undefined && researchCase.shariah_status !== 'DISABLED' ? createElement(
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
           createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
@@ -1742,7 +1758,7 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   if (valuationValue.length > 0) points.push(['Valuation', valuationValue])
   if (moat !== undefined) points.push(['Moat', moat])
   if (mosAdequacy !== undefined) points.push(['Margin of safety', mosAdequacy])
-  if (shariah !== undefined) points.push(['Shariah', shariah])
+  if (shariah !== undefined && shariah !== 'DISABLED') points.push(['Shariah', shariah])
 
   return createElement(
     'div',
