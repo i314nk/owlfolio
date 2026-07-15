@@ -1,6 +1,8 @@
 import type { ShariahDefaults } from '@owlfolio/shared/appConfig'
 
-export type ShariahStatus = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING'
+// 'DISABLED' (2026-07-15): screening was OFF by setting when the gate fired — an explicit,
+// recorded non-verdict (allowed, but never presented as compliant).
+export type ShariahStatus = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING' | 'DISABLED'
 export type BusinessActivityAssessment = 'permissible' | 'prohibited' | 'uncertain'
 export type ShariahRequirementId = 'business_activity' | 'non_compliant_income_ratio'
 

@@ -135,3 +135,28 @@ describe('Shariah workflow gates', () => {
     expect(missing.reasons.join(' ')).toMatch(/Missing sourced evidence/)
   })
 })
+
+describe('evaluateResearchCaseShariahGate — screening OFF (the toggle, owner-approved 2026-07-15)', () => {
+  it('records an explicit DISABLED decision (allowed, reason names the setting) — never a fake pass', async () => {
+    const store = new InMemoryEventStore()
+    const decision = await evaluateResearchCaseShariahGate(store, {
+      research_case_id: 'rc_off_001',
+      target_transition: 'watchlist_promotion',
+      target_id: 'watch_off_001',
+      shariah_defaults: { enabled: false, policy_basis: 'AAOIFI', allow_conditional: true, non_compliant_income_threshold: 0.05 },
+      idempotency_key: 'shariah:rc_off_001:watchlist-promotion:watch_off_001:v1',
+    })
+    expect(decision.allowed).toBe(true)
+    expect(decision.status).toBe('DISABLED')
+    expect(decision.reasons.join(' ')).toMatch(/screening is OFF/i)
+    // The decision is still a LEDGER event — permanently labeled, auditable, never silent.
+    const events = await store.list()
+    const gate = events.find((e) => e.event_type === 'shariah_gate_decision_recorded')
+    expect(gate).toBeDefined()
+    expect((gate?.payload as Record<string, unknown>).status).toBe('DISABLED')
+    // No evaluation event — nothing was screened (no fabricated assessment).
+    expect(events.some((e) => e.event_type === 'shariah_evaluation_recorded')).toBe(false)
+    // The transition assertion passes.
+    expect(() => assertShariahGateAllowsTransition(decision)).not.toThrow()
+  })
+})

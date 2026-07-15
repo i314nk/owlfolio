@@ -4,6 +4,7 @@ import { DEFAULT_SAVINGS_SLEEVE, mergeAutomationSettings } from '@owlfolio/share
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 
 import { AutomationSettingsPanel } from '../../../components/AutomationSettingsPanel'
+import { ShariahSettingsPanel } from '../../../components/ShariahSettingsPanel'
 import { SavingsAnchorPanel } from '../../../components/SavingsAnchorPanel'
 import { RequiredReturnPanel } from '../../../components/RequiredReturnPanel'
 import { mergeValuationConfig } from '@owlfolio/shared/appConfig'
@@ -31,6 +32,9 @@ export default async function AutomationSettingsPage() {
     }),
     createElement('hr', { className: 'owl-rule' }),
     createElement(AutomationSettingsPanel, { initialAutomation: automation }),
+    createElement('hr', { className: 'owl-rule' }),
+    // The Shariah screening opt-out (owner-approved 2026-07-15): fail-visible OFF, default ON.
+    createElement(ShariahSettingsPanel, { initialEnabled: state.config.shariah.enabled }),
     createElement('hr', { className: 'owl-rule' }),
     // Phase 4 (book alignment): the flat required return — the valuation discount + active-vs-passive hurdle.
     createElement(RequiredReturnPanel, {

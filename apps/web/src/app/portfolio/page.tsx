@@ -32,6 +32,7 @@ export default async function PortfolioPage() {
         holdings={holdings}
         mode={state.config.mode}
         alerts={alerts}
+        shariahEnabled={state.config.shariah.enabled}
       />
     </main>
   )

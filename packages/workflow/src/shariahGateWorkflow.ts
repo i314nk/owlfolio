@@ -129,6 +129,41 @@ export async function evaluateResearchCaseShariahGate(
   store: WorkflowEventStore,
   command: EvaluateResearchCaseShariahGateCommand,
 ): Promise<ShariahGateDecision> {
+  // SCREENING OFF (the toggle, owner-approved 2026-07-15): the gate does not screen — it records an
+  // explicit DISABLED decision instead (allowed, reason names the setting). Never a fake pass: no
+  // evaluation event is fabricated, the chip reads GATE OFF, and the label is permanent in the
+  // ledger (re-enabling never retroactively blesses this admission).
+  if (command.shariah_defaults.enabled === false) {
+    const decisionId = gateDecisionId(command.target_transition, command.target_id)
+    const decision: ShariahGateDecision = {
+      gate_decision_id: decisionId,
+      target_transition: command.target_transition,
+      target_id: command.target_id,
+      research_case_id: command.research_case_id,
+      status: 'DISABLED',
+      allowed: true,
+      requires_user_confirmation: false,
+      reasons: ['Shariah screening is OFF by setting — this transition was not screened.'],
+      required_source_ids: [],
+      missing_evidence: [],
+      conditional_allowed: command.shariah_defaults.allow_conditional,
+    }
+    await store.append({
+      event_id: `evt_shariah_gate_decision_recorded_${decisionId}`,
+      event_type: 'shariah_gate_decision_recorded',
+      aggregate_type: 'decision',
+      aggregate_id: decisionId,
+      correlation_id: command.research_case_id,
+      actor_type: 'system',
+      payload: decision,
+      source_ids: [],
+      created_at: nowIso(),
+      schema_version: 1,
+      ...(command.idempotency_key === undefined ? {} : { idempotency_key: `${command.idempotency_key}:gate-decision` }),
+    })
+    return decision
+  }
+
   const events = await store.list()
   const analysis = latestAnalysisFor(events, command.research_case_id)
   const payload = analysis === undefined ? undefined : analysisPayload(analysis)

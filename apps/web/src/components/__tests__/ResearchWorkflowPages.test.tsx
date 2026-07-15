@@ -58,6 +58,56 @@ describe('exit purification guidance (close form)', () => {
   })
 })
 
+describe('the Shariah screening toggle (owner-approved 2026-07-15)', () => {
+  it('OFF hides the CONDITIONAL line + the exit-purification guidance (portfolio)', () => {
+    const holding = {
+      holding_id: 'holding_cond_002',
+      watchlist_item_id: 'watch_cond_002',
+      research_case_id: 'rc_cond_002',
+      ticker: 'COND',
+      strategy_id: 'buffett-munger',
+      thesis_summary: 'Held thesis.',
+      shares: 1,
+      cost_basis_per_share: 100,
+      total_cost_basis: 100,
+      currency: 'USD',
+      opened_at: '2026-06-01',
+      updated_at: '2026-06-01T00:00:00.000Z',
+      shariah_gate_decision_id: 'gate_2',
+      shariah_gate_status: 'CONDITIONAL',
+      shariah_gate_allowed: true,
+      purificationPct: 0.002,
+    } as never
+    const off = renderToStaticMarkup(createElement(PortfolioPanel, { holdings: [holding], mode: 'personal-local', shariahEnabled: false }))
+    expect(off).not.toContain('exit-purification-guidance')
+    expect(off).not.toContain('Shariah-permissible to hold, with an obligation')
+    const on = renderToStaticMarkup(createElement(PortfolioPanel, { holdings: [holding], mode: 'personal-local', shariahEnabled: true }))
+    expect(on).toContain('exit-purification-guidance')
+  })
+
+  it('OFF hides the CONDITIONAL line on the watchlist; a DISABLED gate renders the neutral GATE OFF chip (never APPROVED)', () => {
+    const base = {
+      watchlist_item_id: 'w_off_1',
+      research_case_id: 'rc_off_1',
+      ticker: 'OFF',
+      strategy_id: 'buffett-munger',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-01T00:00:00.000Z',
+      created_by_actor_type: 'user',
+      created_by_actor_id: 'user_local',
+      user_approved: true,
+    }
+    const conditionalItem = { ...base, shariah_gate_decision_id: 'g1', shariah_gate_status: 'CONDITIONAL', shariah_gate_allowed: true, verdict: { proposed_buy_below: 10 }, purification_pct: 0.01 } as never
+    const off = renderToStaticMarkup(createElement(WatchlistPanel, { items: [conditionalItem], mode: 'personal-local', shariahEnabled: false }))
+    expect(off).not.toContain('Shariah-permissible to hold, with an obligation')
+
+    const disabledGateItem = { ...base, shariah_gate_decision_id: 'g2', shariah_gate_status: 'DISABLED', shariah_gate_allowed: true, verdict: { proposed_buy_below: 10 } } as never
+    const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: [disabledGateItem], mode: 'personal-local', shariahEnabled: false }))
+    expect(html).toContain('GATE OFF')
+    expect(html).not.toContain('APPROVED')
+  })
+})
+
 describe('research and watchlist workflow pages', () => {
   it('no longer renders a separate watchlist confirmation action (Phase 8 S4: admission is one gated step)', () => {
     const draftItem: AppWatchlistItem = {

@@ -85,6 +85,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (options.define_defaults) {
       await defineDefaultScheduledTasks(store, {
         ...(runtime.config.automation !== undefined ? { automation: runtime.config.automation } : {}),
+        shariah_enabled: runtime.config.shariah.enabled,
       })
     }
 
@@ -104,6 +105,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
     // B8: user-set only — an absent field lets the engine stamp basis 'book_default' honestly.
     const userRequiredReturn = userSetRequiredReturn(runtime.config.valuation)
+    // SCREENING TOGGLE: forwarded so a worker-executed run skips the Shariah phases exactly like a
+    // web-executed one when screening is OFF.
+    const shariah_enabled = runtime.config.shariah.enabled
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
@@ -112,6 +116,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        shariah_enabled,
         ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
         // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
         // a worker-executed run pauses behind the gates exactly like an in-process one.
@@ -133,6 +138,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        shariah_enabled,
         ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))

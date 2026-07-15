@@ -90,6 +90,12 @@ The core design rule is **"code computes, judgment proposes"**:
   the full analysis. The boards always display from the LATEST non-superseded
   analysis of a ticker, with its date shown; a held name lives on the
   portfolio only and returns to the watchlist when its holding closes.
+- **Shariah screening is an opt-out** (Settings, default ON). OFF is
+  fail-visible: transition gates record explicit DISABLED decisions (never a
+  fake pass), boards show a neutral GATE OFF chip, the Shariah lanes stop
+  spending provider quota, the quarterly re-screen disables, and the
+  purification surfaces hide. Names admitted while OFF stay labeled that way
+  in the ledger forever.
 - **Human-authored exits**: "Remove from watchlist" and "Close holding
   (record the exit)" — reason recorded, machine actors rejected at the ledger
   level, raw events kept forever. Owlfolio never trades; the close records

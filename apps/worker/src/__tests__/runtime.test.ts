@@ -1557,3 +1557,21 @@ describe('worker runtime — cadence engine adapter equivalence (Task 3.2b)', ()
     expect(events.map((event) => event.event_type)).not.toContain('holding_opened')
   })
 })
+
+describe('the Shariah screening toggle — worker task definitions', () => {
+  it('shariah_enabled: false disables the quarterly shariah_rescreen task', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, { now: () => '2026-07-15T08:00:00.000Z', shariah_enabled: false })
+    const tasks = projectScheduledTasks(await store.list())
+    expect(tasks.find((t) => t.task_kind === 'shariah_rescreen')?.enabled).toBe(false)
+    // Everything else is untouched by the toggle.
+    expect(tasks.find((t) => t.task_kind === 're_review_check')?.enabled).toBe(true)
+  })
+
+  it('defaults keep the re-screen enabled (screening ON is the default)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, { now: () => '2026-07-15T08:00:00.000Z' })
+    const tasks = projectScheduledTasks(await store.list())
+    expect(tasks.find((t) => t.task_kind === 'shariah_rescreen')?.enabled).toBe(true)
+  })
+})

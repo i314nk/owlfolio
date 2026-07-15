@@ -48,6 +48,8 @@ export type PortfolioHolding = AppHolding & {
 }
 
 export type PortfolioPanelProps = {
+  /** SCREENING TOGGLE (owner, 2026-07-15): false hides the purification-rate surfaces. */
+  shariahEnabled?: boolean
   holdings: PortfolioHolding[]
   mode?: WorkflowMode
   /** Open agent observations + drafts per holding (tranche / concentration / Shariah grace / sell-review). */
@@ -76,7 +78,7 @@ const decisionPanelStyle = {
 // (ticker, YOUR entry price as the anchor, the dossier link, check-ins, sell advisories). The money
 // layer (cost basis, values, weights, returns, capital, manual valuations) is removed; the entry
 // price survives as the one manual field so sell advisories and pullback reviews have their anchor.
-export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [] }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [], shariahEnabled = true }: PortfolioPanelProps) {
   return createElement(
     Fragment,
     null,
@@ -88,7 +90,7 @@ export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [] 
     createElement('hr', { className: 'owl-rule' }),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
-      : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alertMatchesHolding(alert, holding))))),
+      : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alertMatchesHolding(alert, holding)), shariahEnabled))),
   )
 }
 
@@ -199,7 +201,7 @@ function createPortfolioEmptyState() {
   )
 }
 
-function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts: MonitorAlert[]) {
+function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts: MonitorAlert[], shariahEnabled = true) {
   const ticker = holding.ticker ?? holding.company_id ?? holding.holding_id
   const chip = holdingValuationChip(holding)
 
@@ -254,7 +256,8 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
       createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
       // CONDITIONAL explained where it bites: the held name's dividend-purification obligation.
-      createShariahConditionLine(holding),
+      // SCREENING OFF hides the purification surface (owner-locked, 2026-07-15).
+      shariahEnabled ? createShariahConditionLine(holding) : null,
       // The current return off the entry anchor — the one manual figure this page keeps.
       priceMove === undefined || holding.latest_price_per_share === undefined
         ? null
@@ -299,7 +302,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
         createDetail('Opened', holding.opened_at),
       ),
       createHoldingAlerts(alerts),
-      createCloseForm(holding),
+      createCloseForm(holding, shariahEnabled),
     ),
   )
 }
@@ -343,7 +346,7 @@ function createShariahConditionLine(holding: PortfolioHolding) {
   )
 }
 
-function createCloseForm(holding: PortfolioHolding) {
+function createCloseForm(holding: PortfolioHolding, shariahEnabled = true) {
   const inputStyle = { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' }
   const labelStyle = { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', fontWeight: 700, gap: '0.25rem' }
   const REASONS: { value: string; label: string }[] = [
@@ -365,7 +368,7 @@ function createCloseForm(holding: PortfolioHolding) {
       // EXIT PURIFICATION (owner-approved 2026-07-15): GUIDANCE, never an account — the scale-down
       // keeps no books and no share counts, so amounts are yours to compute. Shown only for
       // CONDITIONAL names. SHARIAH-OFF (queued setting): hide this block when the Shariah mode is off.
-      createExitPurificationGuidance(holding),
+      shariahEnabled ? createExitPurificationGuidance(holding) : null,
       createElement(
         'label',
         { style: labelStyle },
