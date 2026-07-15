@@ -90,12 +90,23 @@ describe('WatchlistPanel zone board', () => {
     expect(html).toContain('Open the full analysis')
   })
 
-  it('omits the ladder honestly when an anchor is missing (no partial ladders)', () => {
+  it('omits the ladder honestly when an ANCHOR is missing (no partial ladders)', () => {
     const html = render([
       item({ watchlist_item_id: 'w_partial', ticker: 'BBB', verdict: { proposed_buy_below: 100, market_price_per_share: 130 } }),
     ])
     expect(html).not.toContain('data-testid="price-ladder"')
     expect(html).toContain('Open the full analysis')
+  })
+
+  it('renders the ladder ZONES without the price marker when no snapshot exists yet (fresh promotion)', () => {
+    const html = render([
+      item({ watchlist_item_id: 'w_noprice', ticker: 'COST', verdict: { proposed_buy_below: 252.23, load_up_below: 180.17, intrinsic_value_per_share: 360.33 } }),
+    ])
+    expect(html).toContain('data-testid="price-ladder"')
+    expect(html).toContain('load up $180.17')
+    expect(html).toContain('buy $252.23')
+    expect(html).toContain('IV $360.33')
+    expect(html).not.toContain('data-testid="price-ladder-marker"')
   })
 
   it('keeps the row to the necessary figures — the detail rows live in the dossier', () => {

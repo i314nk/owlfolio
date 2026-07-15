@@ -195,6 +195,14 @@ export type AppWatchlistVerdict = {
  */
 export const WATCHLIST_STALE_AFTER_MONTHS = 12
 
+/** First non-empty trimmed string — the dossier's verdict-summary fallback chain. */
+function firstNonEmptyText(values: (string | undefined)[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value
+  }
+  return undefined
+}
+
 export function enrichWatchlistItemsWithVerdict(
   items: AppWatchlistItem[],
   cases: ResearchCaseProjection[],
@@ -217,11 +225,14 @@ export function enrichWatchlistItemsWithVerdict(
   return items.map((item) => {
     const linked = (item.ticker === undefined ? undefined : latestByTicker.get(item.ticker))
       ?? caseById.get(item.research_case_id)
+    const displayThesis = firstNonEmptyText([linked?.thesis_summary, linked?.evidence_summary, linked?.reason])
     const displayFields = {
       ...(linked?.research_case_id === undefined ? {} : { display_research_case_id: linked.research_case_id }),
       ...(linked?.investment_verdict === undefined ? {} : { latest_analysis_verdict: linked.investment_verdict }),
       ...(linked?.updated_at === undefined ? {} : { latest_analysis_at: linked.updated_at }),
-      ...(linked?.thesis_summary === undefined ? {} : { latest_analysis_thesis: linked.thesis_summary }),
+      // Mirror the dossier's verdict-summary chain (thesis → evidence → reason): the newest engine
+      // versions leave thesis_summary empty on some paths and the narrative lives downstream.
+      ...(displayThesis === undefined ? {} : { latest_analysis_thesis: displayThesis }),
     }
     const valuation = linked?.valuation
     const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share

@@ -276,6 +276,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     createElement(
       'div',
       { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.75rem', marginTop: '0.5rem' } },
+      createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
       createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.latest_analysis_thesis ?? item.thesis_summary)),
       createPriceLadderElement({
         ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
@@ -392,8 +393,8 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
   if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
-  if (thesis.length <= 280) return thesis
-  return `${thesis.slice(0, 280).trimEnd()}… (full analysis in the dossier)`
+  if (thesis.length <= 420) return thesis
+  return `${thesis.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
 }
 
 

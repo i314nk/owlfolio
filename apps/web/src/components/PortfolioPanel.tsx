@@ -249,7 +249,17 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       // The SMALL decision card, mirroring the dossier's decision card: the thesis summary + the
       // price ladder against the frozen zones, then the route to the full analysis. Provenance,
       // gate evidence, and audit IDs live in the dossier.
+      createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
       createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
+      // The current return off the entry anchor — the one manual figure this page keeps.
+      priceMove === undefined || holding.latest_price_per_share === undefined
+        ? null
+        : createElement(
+            'p',
+            { style: { color: priceMove >= 0 ? '#4ade80' : 'var(--owl-color-risk-bright, #fca5a5)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-md)', fontWeight: 800, margin: 0 } },
+            `Current return: ${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}%`,
+            createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 400 } }, `  · entry ${formatMoney(holding.cost_basis_per_share, holding.currency)} → now ${formatMoney(holding.latest_price_per_share, holding.currency)}`),
+          ),
       createPriceLadderElement({
         ...(holding.intrinsicValuePerShare === undefined ? {} : { iv: holding.intrinsicValuePerShare }),
         ...(holding.loadUpBelow === undefined ? {} : { load: holding.loadUpBelow }),
@@ -442,8 +452,8 @@ function buyBelowReferenceLine(holding: PortfolioHolding, buyBelow: number): str
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
   if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
-  if (thesis.length <= 280) return thesis
-  return `${thesis.slice(0, 280).trimEnd()}… (full analysis in the dossier)`
+  if (thesis.length <= 420) return thesis
+  return `${thesis.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
 }
 
 function formatMoney(value: number, currency: string): string {

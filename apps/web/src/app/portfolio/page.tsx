@@ -88,7 +88,10 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         enriched.displayResearchCaseId = valuationCase.research_case_id
         if (valuationCase.investment_verdict !== undefined) enriched.latestAnalysisVerdict = valuationCase.investment_verdict
         enriched.latestAnalysisAt = valuationCase.updated_at
-        if (valuationCase.thesis_summary !== undefined) enriched.latestAnalysisThesis = valuationCase.thesis_summary
+        // Mirror the dossier's verdict-summary chain (thesis → evidence → reason).
+        const displayThesis = [valuationCase.thesis_summary, valuationCase.evidence_summary, valuationCase.reason]
+          .find((text) => typeof text === 'string' && text.trim().length > 0)
+        if (displayThesis !== undefined) enriched.latestAnalysisThesis = displayThesis
       }
       return enriched
     })
