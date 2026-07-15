@@ -7,6 +7,7 @@ import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
+import { projectLatestPriceSnapshots } from '@owlfolio/ledger/projections/priceSnapshotProjection'
 
 import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
 import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
@@ -54,6 +55,11 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
 
     // Display-name backfill for legacy cases (see displayNames.ts) — the stamped name always wins.
     const displayNames = await resolveDisplayNamesForTickers(holdings.map((holding) => holding.ticker))
+    // SCALE-DOWN S2 follow-through: holding_valuation_recorded is RETIRED, so the projection's
+    // latest_price only exists on legacy holdings. The live price now comes from the poll's
+    // price_snapshot_recorded (ticker-keyed) — join the latest snapshot per held ticker, preferring
+    // it over any stale legacy valuation.
+    const priceSnapshots = projectLatestPriceSnapshots(events)
     const enrichedHoldings = holdings.map((holding) => {
       // OWNER-LOCKED (2026-07-14): the row DISPLAYS from the latest non-superseded case for the
       // ticker — thresholds are provider observations, and a superseding re-run must show up here.
@@ -81,6 +87,11 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         if (iv !== undefined) enriched.intrinsicValuePerShare = iv
         const loadUp = (valuationCase?.valuation as { load_up_below?: number } | undefined)?.load_up_below
         if (loadUp !== undefined) enriched.loadUpBelow = loadUp
+      }
+      const snapshot = holding.ticker === undefined ? undefined : priceSnapshots.get(holding.ticker)
+      if (snapshot !== undefined) {
+        enriched.latest_price_per_share = snapshot.price_per_share
+        enriched.latest_price_checked_at = snapshot.as_of
       }
       const entityName = (valuationCase ?? linkedCase)?.entity_name ?? (holding.ticker === undefined ? undefined : displayNames.get(holding.ticker.toUpperCase()))
       if (entityName !== undefined) enriched.entityName = entityName
