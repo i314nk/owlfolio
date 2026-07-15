@@ -1,11 +1,9 @@
 import { createElement } from 'react'
 
-import { DEFAULT_SAVINGS_SLEEVE, mergeAutomationSettings } from '@owlfolio/shared'
-import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { mergeAutomationSettings } from '@owlfolio/shared'
 
 import { AutomationSettingsPanel } from '../../../components/AutomationSettingsPanel'
 import { ShariahSettingsPanel } from '../../../components/ShariahSettingsPanel'
-import { SavingsAnchorPanel } from '../../../components/SavingsAnchorPanel'
 import { RequiredReturnPanel } from '../../../components/RequiredReturnPanel'
 import { mergeValuationConfig } from '@owlfolio/shared/appConfig'
 import { RouteHeader } from '../../../components/designSystem'
@@ -40,13 +38,6 @@ export default async function AutomationSettingsPage() {
     createElement(RequiredReturnPanel, {
       initialValuation: mergeValuationConfig(state.config.valuation),
       configured: state.config.valuation?.required_return_set_at !== undefined,
-    }),
-    createElement('hr', { className: 'owl-rule' }),
-    // The compliant savings anchor (F.2): the user-owned number behind the deployment hurdle + sizing.
-    createElement(SavingsAnchorPanel, {
-      initialSavings: state.config.savings ?? DEFAULT_SAVINGS_SLEEVE,
-      configured: state.config.savings?.savings_rate_set_at !== undefined,
-      equityPremium: buffettMungerStrategy.valuation.equity_premium,
     }),
   )
 }
