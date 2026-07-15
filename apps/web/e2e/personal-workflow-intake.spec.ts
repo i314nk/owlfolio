@@ -208,6 +208,9 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/portfolio')
   await page.locator('details[data-holding-row="MSFT"] > summary').click()
   await page.getByText('Close holding (record the exit)').click()
+  // The CONDITIONAL name's close form carries the exit-purification GUIDANCE (never an account).
+  await expect(page.getByTestId('exit-purification-guidance')).toBeVisible()
+  await expect(page.getByText(/GUIDANCE, NOT AN ACCOUNT/)).toBeVisible()
   await page.getByLabel('Exit price per share').fill('905.10')
   await page.getByLabel('Sell-discipline reason').selectOption('valuation_inverted')
   await page.getByRole('button', { name: /record the exit/i }).click()

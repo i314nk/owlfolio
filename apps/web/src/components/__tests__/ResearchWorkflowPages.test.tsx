@@ -8,6 +8,56 @@ import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
 import { getAppWatchlistItemsFromStore, type AppResearchCase, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
 
+describe('exit purification guidance (close form)', () => {
+  const baseHolding = {
+    holding_id: 'holding_cond_001',
+    watchlist_item_id: 'watch_cond_001',
+    research_case_id: 'rc_cond_001',
+    ticker: 'COND',
+    strategy_id: 'buffett-munger',
+    thesis_summary: 'Held thesis.',
+    shares: 1,
+    cost_basis_per_share: 100,
+    total_cost_basis: 100,
+    currency: 'USD',
+    opened_at: '2026-06-01',
+    updated_at: '2026-06-01T00:00:00.000Z',
+  }
+
+  it('renders the guidance (rate + entry anchor, no account) for a CONDITIONAL holding', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        shariah_gate_decision_id: 'gate_1',
+        shariah_gate_status: 'CONDITIONAL',
+        shariah_gate_allowed: true,
+        purificationPct: 0.002,
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).toContain('data-testid="exit-purification-guidance"')
+    expect(html).toContain('EXIT PURIFICATION — GUIDANCE, NOT AN ACCOUNT')
+    expect(html).toContain('~0.2% impermissible income')
+    expect(html).toContain('your exit price minus your entry ($100.00)')
+    // The CONDITIONAL row line also renders in the expansion.
+    expect(html).toContain('purify ~0.2% of any dividends')
+  })
+
+  it('renders NO guidance for a cleanly approved holding', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        shariah_gate_decision_id: 'gate_1',
+        shariah_gate_status: 'COMPLIANT',
+        shariah_gate_allowed: true,
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).not.toContain('exit-purification-guidance')
+    expect(html).not.toContain('Shariah-permissible to hold, with an obligation')
+  })
+})
+
 describe('research and watchlist workflow pages', () => {
   it('no longer renders a separate watchlist confirmation action (Phase 8 S4: admission is one gated step)', () => {
     const draftItem: AppWatchlistItem = {

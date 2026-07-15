@@ -309,6 +309,26 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
  * own <details>: the position leaves the portfolio, its watchlist item returns to plain watching,
  * and the raw events (+ any post-mortem) remain the audit record. Machine actors cannot author this.
  */
+/**
+ * The exit-purification note inside the close form — everything needed to do the arithmetic at the
+ * moment it applies, without Owlfolio keeping a balance. Renders only for CONDITIONAL names.
+ */
+function createExitPurificationGuidance(holding: PortfolioHolding) {
+  if ((holding.shariah_gate_status ?? '').toUpperCase() !== 'CONDITIONAL' || holding.shariah_gate_allowed !== true) return null
+  const rate = holding.purificationPct
+  const rateText = rate === undefined ? 'the rate in the dossier\u2019s Shariah section' : `~${(rate * 100).toFixed(1)}%`
+  return createElement(
+    'div',
+    { 'data-testid': 'exit-purification-guidance', style: { background: 'rgba(214, 178, 94, 0.08)', border: '1px solid rgba(214, 178, 94, 0.25)', borderRadius: '0.7rem', display: 'grid', gap: '0.35rem', padding: '0.6rem 0.8rem' } },
+    createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em', margin: 0 } }, 'EXIT PURIFICATION — GUIDANCE, NOT AN ACCOUNT'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      `This name screened CONDITIONAL (${rateText} impermissible income). On exit, common methodologies either purify that fraction of the dividends received while held, or additionally purify the same fraction of the realized gain — your gain per share is your exit price minus your entry (${formatMoney(holding.cost_basis_per_share, holding.currency)}). The arithmetic and the payment are yours; consult your own scholar for the methodology. Owlfolio records the exit only.`,
+    ),
+  )
+}
+
 /** See WatchlistPanel.createShariahConditionLine — the held-name version. */
 function createShariahConditionLine(holding: PortfolioHolding) {
   if ((holding.shariah_gate_status ?? '').toUpperCase() !== 'CONDITIONAL' || holding.shariah_gate_allowed !== true) return null
@@ -342,6 +362,10 @@ function createCloseForm(holding: PortfolioHolding) {
       'form',
       { action: `/api/portfolio/${holding.holding_id}/close`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },
       createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'Records the exit you already executed at your broker — Owlfolio never trades. The position leaves the portfolio; the name returns to the watchlist board.'),
+      // EXIT PURIFICATION (owner-approved 2026-07-15): GUIDANCE, never an account — the scale-down
+      // keeps no books and no share counts, so amounts are yours to compute. Shown only for
+      // CONDITIONAL names. SHARIAH-OFF (queued setting): hide this block when the Shariah mode is off.
+      createExitPurificationGuidance(holding),
       createElement(
         'label',
         { style: labelStyle },
