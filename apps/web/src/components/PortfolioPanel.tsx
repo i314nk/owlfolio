@@ -37,6 +37,8 @@ export type PortfolioHolding = AppHolding & {
   latestAnalysisVerdict?: string
   latestAnalysisAt?: string
   latestAnalysisThesis?: string
+  /** The harness-computed purification rate from the latest analysis (CONDITIONAL names). */
+  purificationPct?: number
   /**
    * The harness-marshaled re-underwrite findings (business itemId -> finding), a PURE read of the HELD name's
    * research-case projection resolved by the loader. Passed to the review confirm/override forms so each
@@ -251,6 +253,8 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       // gate evidence, and audit IDs live in the dossier.
       createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
       createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
+      // CONDITIONAL explained where it bites: the held name's dividend-purification obligation.
+      createShariahConditionLine(holding),
       // The current return off the entry anchor — the one manual figure this page keeps.
       priceMove === undefined || holding.latest_price_per_share === undefined
         ? null
@@ -305,6 +309,20 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
  * own <details>: the position leaves the portfolio, its watchlist item returns to plain watching,
  * and the raw events (+ any post-mortem) remain the audit record. Machine actors cannot author this.
  */
+/** See WatchlistPanel.createShariahConditionLine — the held-name version. */
+function createShariahConditionLine(holding: PortfolioHolding) {
+  if ((holding.shariah_gate_status ?? '').toUpperCase() !== 'CONDITIONAL' || holding.shariah_gate_allowed !== true) return null
+  const rate = holding.purificationPct
+  const rateText = rate === undefined
+    ? 'purification applies — the rate is in the dossier\u2019s Shariah section'
+    : `purify ~${(rate * 100).toFixed(1)}% of any dividends`
+  return createElement(
+    'p',
+    { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.03em', margin: 0 } },
+    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owlfolio keeps no books.`,
+  )
+}
+
 function createCloseForm(holding: PortfolioHolding) {
   const inputStyle = { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' }
   const labelStyle = { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', fontWeight: 700, gap: '0.25rem' }

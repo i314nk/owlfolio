@@ -147,6 +147,8 @@ export type AppWatchlistItem = WatchlistProjection & {
   latest_analysis_at?: string
   /** The latest analysis's own thesis summary — the display text (the item's copy is the admitted-on draft). */
   latest_analysis_thesis?: string
+  /** The harness-computed purification rate (= impermissible income / revenue) from the latest analysis. */
+  purification_pct?: number
 }
 
 /**
@@ -233,6 +235,7 @@ export function enrichWatchlistItemsWithVerdict(
       // Mirror the dossier's verdict-summary chain (thesis → evidence → reason): the newest engine
       // versions leave thesis_summary empty on some paths and the narrative lives downstream.
       ...(displayThesis === undefined ? {} : { latest_analysis_thesis: displayThesis }),
+      ...(linked?.shariah_financial?.purification_pct === undefined ? {} : { purification_pct: linked.shariah_financial.purification_pct }),
     }
     const valuation = linked?.valuation
     const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share

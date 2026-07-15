@@ -127,7 +127,12 @@ test('personal-local mode can create the first research case from the command ce
   const msftRow = page.locator('details[data-watchlist-row="MSFT"]')
   await expect(msftRow).toBeVisible()
   await expect(msftRow.getByRole('link', { name: 'MSFT', exact: true })).toHaveAttribute('href', `/research/${researchCaseId}`)
-  await expect(msftRow.getByText('Confirmed', { exact: true })).toBeVisible()
+  // The "Confirmed" badge is retired (every admitted name is confirmed by construction) — the
+  // Shariah chip + the CONDITIONAL explanation carry the row's signal now.
+  await expect(msftRow.getByText('CONDITIONAL', { exact: true })).toBeVisible()
+  await msftRow.locator('> summary').click()
+  await expect(msftRow.getByText(/Shariah-permissible to hold, with an obligation/)).toBeVisible()
+  await msftRow.locator('> summary').click()
   await expect(page.getByText('Draft — awaiting user confirmation')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
   await msftRow.locator('> summary').click()
@@ -212,7 +217,7 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/watchlist')
   const msftRowAfterClose = page.locator('details[data-watchlist-row="MSFT"]')
   await expect(msftRowAfterClose).toBeVisible()
-  await expect(msftRowAfterClose.getByText('Confirmed', { exact: true })).toBeVisible()
+  await expect(msftRowAfterClose.getByText('CONDITIONAL', { exact: true })).toBeVisible()
 
   // ── Remove the name from the watchlist (the human-authored prune) — the board empties; the
   // research case + the audit trail survive.

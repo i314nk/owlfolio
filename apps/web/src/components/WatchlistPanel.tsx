@@ -258,11 +258,9 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
     createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
     zoneChip,
     ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
-    createElement(
-      StatusBadge,
-      { tone: item.user_approved ? 'success' : 'warning' },
-      item.user_approved ? 'Confirmed' : 'Legacy draft',
-    ),
+    // The "Confirmed" badge is gone (owner, 2026-07-15): every admitted name is confirmed by
+    // construction, so it carried no signal. Only the legacy-artifact warning remains meaningful.
+    ...(item.user_approved ? [] : [createElement(StatusBadge, { tone: 'warning' }, 'Legacy draft')]),
   )
 
   // The expanded body — the SMALL decision card, mirroring the dossier's decision card: the verdict
@@ -284,6 +282,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
         ...(buyBelow === undefined ? {} : { buy: buyBelow }),
         ...(v?.market_price_per_share === undefined ? {} : { livePrice: v.market_price_per_share }),
       }),
+      // CONDITIONAL explained at the point of contact: what the amber chip obliges you to do.
+      createShariahConditionLine(item),
       // Provenance: WHICH analysis these figures come from — and, when the latest run produced no
       // thresholds, say so instead of silently keeping old numbers.
       v === undefined && item.latest_analysis_verdict !== undefined
@@ -341,6 +341,24 @@ function createRemoveForm(item: AppWatchlistItem) {
 }
 
 
+
+/**
+ * The one-line meaning of the amber CONDITIONAL chip: allowed to hold, with an obligation attached —
+ * named here with the harness-computed purification rate when the latest analysis carries one.
+ * APPROVED/BLOCKED need no line (the chip says it all); details stay in the dossier.
+ */
+function createShariahConditionLine(item: AppWatchlistItem) {
+  if ((item.shariah_gate_status ?? '').toUpperCase() !== 'CONDITIONAL' || item.shariah_gate_allowed !== true) return null
+  const rate = item.purification_pct
+  const rateText = rate === undefined
+    ? 'purification applies — the rate is in the dossier\u2019s Shariah section'
+    : `purify ~${(rate * 100).toFixed(1)}% of any dividends`
+  return createElement(
+    'p',
+    { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.03em', margin: 0 } },
+    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owlfolio keeps no books.`,
+  )
+}
 
 function shariahChip(item: AppWatchlistItem) {
   if (item.shariah_gate_decision_id === undefined) {

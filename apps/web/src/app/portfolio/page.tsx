@@ -93,6 +93,8 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         enriched.latest_price_per_share = snapshot.price_per_share
         enriched.latest_price_checked_at = snapshot.as_of
       }
+      const purificationPct = (valuationCase ?? linkedCase)?.shariah_financial?.purification_pct
+      if (purificationPct !== undefined) enriched.purificationPct = purificationPct
       const entityName = (valuationCase ?? linkedCase)?.entity_name ?? (holding.ticker === undefined ? undefined : displayNames.get(holding.ticker.toUpperCase()))
       if (entityName !== undefined) enriched.entityName = entityName
       if (valuationCase !== undefined) {
