@@ -71,6 +71,10 @@ function summarizeEvent(event: LedgerEventEnvelope<unknown>): string {
   }
 
   if (event.event_type === 'shariah_gate_judged') {
+    // SCREENING OFF: a DISABLED gate is a recorded non-verdict — never presented as an OPEN pass.
+    if (event.payload['status'] === 'DISABLED' || event.payload['sector_status'] === 'DISABLED') {
+      return 'Shariah gate: OFF by setting (not screened)'
+    }
     return `Shariah gate judged: ${event.payload['allowed'] === true ? 'OPEN' : 'CLOSED'} (${getString(event.payload, 'sector_status') ?? 'undetermined'})`
   }
 

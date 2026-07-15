@@ -426,6 +426,8 @@ const TIMELINE_LABELS: Record<string, (payload: Record<string, unknown>) => stri
   research_run_claimed: () => 'research_run_claimed',
   research_run_failed: () => 'research_run_failed',
   shariah_gate_judged: (payload) => {
+    // SCREENING OFF: a DISABLED gate is a recorded non-verdict — never presented as an OPEN pass.
+    if (payload['status'] === 'DISABLED' || payload['sector_status'] === 'DISABLED') return 'shariah_gate_judged · GATE OFF (not screened)'
     const allowed = payload['allowed']
     if (allowed === true) return 'shariah_gate_judged · OPEN gate'
     if (allowed === false) return 'shariah_gate_judged · CLOSED gate'

@@ -112,6 +112,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
     const progress = resolveRunProgress({
       stage: researchCase.stage,
       specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
+      shariahGateDisabled: (researchCase.shariah_gate?.sector_status ?? '').toUpperCase() === 'DISABLED',
     })
     if (progress.inProgress) {
       return (

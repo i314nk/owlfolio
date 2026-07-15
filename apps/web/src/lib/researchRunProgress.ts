@@ -26,6 +26,8 @@ export type RunProgress = {
   currentStage: ResearchRunStageKey | 'done'
   stages: RunProgressStage[]
   lanes: { completed: number; total: number }
+  /** True when THIS RUN's gate recorded DISABLED (screening off) — drives the honest intro prose. */
+  shariahGateDisabled: boolean
 }
 
 export type ResolveRunProgressInput = {
@@ -35,6 +37,13 @@ export type ResolveRunProgressInput = {
   specialistFindingCount?: number
   /** True when a `research_run_failed` event exists for the case. */
   failed?: boolean
+  /**
+   * SCREENING OFF (the toggle): true when THIS RUN's gate event recorded status DISABLED — read from
+   * the case's own ledger state (projected shariah_gate.sector_status), never the current setting, so
+   * a run screened while ON keeps its gate step even if the setting later flips. The stage renders as
+   * an explicit "off by setting — skipped" line, never a ✓ passed.
+   */
+  shariahGateDisabled?: boolean
 }
 
 /**
@@ -54,12 +63,14 @@ const STAGE_ORDER: readonly ResearchRunStageKey[] = [
   'decision',
 ] as const
 
-function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: number }): string {
+function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: number }, shariahGateDisabled = false): string {
   switch (key) {
     case 'queued':
       return 'Queued — fetching filings'
     case 'shariah_gate':
-      return 'Shariah gate — grounded sector + AAOIFI read'
+      return shariahGateDisabled
+        ? 'Shariah gate — off by setting (not screened)'
+        : 'Shariah gate — grounded sector + AAOIFI read'
     case 'circle':
       return 'Circle of competence'
     case 'deep_dive':
@@ -124,7 +135,13 @@ function mapStageToCurrent(stage: ResearchCaseStage | undefined): ResearchRunSta
 function buildStages(
   currentStage: ResearchRunStageKey | 'done',
   lanes: { completed: number; total: number },
+  shariahGateDisabled = false,
 ): RunProgressStage[] {
+  // A DISABLED gate never reads as passed: its step renders 'pending' (the skipped visual) with the
+  // "off by setting" label — a ✓ would claim a screen that did not run.
+  const gateState = (defaultState: RunProgressStageState): RunProgressStageState =>
+    shariahGateDisabled ? 'pending' : defaultState
+
   if (currentStage === 'done') {
     // Terminal. A circle SET-ASIDE (or a Shariah-gate closure) jumps to a terminal stage WITHOUT running the
     // deep dive, so mark the deep_dive/synthesis steps 'pending' (skipped) — not 'done' — when no lane ever
@@ -132,14 +149,15 @@ function buildStages(
     const deepDiveRan = lanes.completed > 0
     return STAGE_ORDER.map((key) => {
       const skipped = (key === 'deep_dive' || key === 'synthesis') && !deepDiveRan
-      return { key, label: labelFor(key, lanes), state: skipped ? 'pending' : 'done' }
+      const state = skipped ? 'pending' : 'done'
+      return { key, label: labelFor(key, lanes, shariahGateDisabled), state: key === 'shariah_gate' ? gateState(state) : state }
     })
   }
 
   const currentIndex = STAGE_ORDER.indexOf(currentStage)
   return STAGE_ORDER.map((key, index) => {
     const state: RunProgressStageState = index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending'
-    return { key, label: labelFor(key, lanes), state }
+    return { key, label: labelFor(key, lanes, shariahGateDisabled), state: key === 'shariah_gate' ? gateState(state) : state }
   })
 }
 
@@ -165,7 +183,8 @@ export function resolveRunProgress(input: ResolveRunProgressInput): RunProgress 
     failed,
     awaitingApproval,
     currentStage,
-    stages: buildStages(currentStage, lanes),
+    stages: buildStages(currentStage, lanes, input.shariahGateDisabled === true),
+    shariahGateDisabled: input.shariahGateDisabled === true,
     lanes,
   }
 }

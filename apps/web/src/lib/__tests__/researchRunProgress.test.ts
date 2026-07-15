@@ -144,3 +144,26 @@ describe('resolveRunProgress — circle set-aside does not mislabel skipped lane
     expect(stateOf(p, 'decision')).toBe('done')
   })
 })
+
+describe('resolveRunProgress — screening OFF (the toggle)', () => {
+  it('renders the gate step as "off by setting" and NEVER a passed ✓ state', () => {
+    const progress = resolveRunProgress({ stage: 'deep_dive_started', specialistFindingCount: 2, shariahGateDisabled: true })
+    const gate = progress.stages.find((s) => s.key === 'shariah_gate')
+    expect(gate?.label).toContain('off by setting')
+    expect(gate?.state).toBe('pending')
+    expect(progress.shariahGateDisabled).toBe(true)
+  })
+
+  it('a terminal run with screening OFF still never marks the gate done', () => {
+    const progress = resolveRunProgress({ stage: 'decision_drafted', specialistFindingCount: 5, shariahGateDisabled: true })
+    const gate = progress.stages.find((s) => s.key === 'shariah_gate')
+    expect(gate?.state).toBe('pending')
+  })
+
+  it("screening ON keeps the existing behavior (the gate marks done once passed)", () => {
+    const progress = resolveRunProgress({ stage: 'deep_dive_started', specialistFindingCount: 2 })
+    const gate = progress.stages.find((s) => s.key === 'shariah_gate')
+    expect(gate?.label).toContain('grounded sector')
+    expect(gate?.state).toBe('done')
+  })
+})
