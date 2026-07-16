@@ -217,8 +217,11 @@ function matrixGridStyle(managerCount: number): CSSProperties {
   return {
     alignItems: 'center',
     display: 'grid',
-    gap: '0.15rem 0.35rem',
-    gridTemplateColumns: `minmax(10rem, 1fr) repeat(${managerCount}, minmax(1.5rem, 2rem)) minmax(6.5rem, auto)`,
+    gap: '0.15rem 0.4rem',
+    // The name column is CAPPED so the action cells sit next to the names (screenshot dogfood:
+    // 1fr let it swallow a wide window and the arrows drifted mid-screen, far from the header).
+    gridTemplateColumns: `minmax(10rem, 24rem) repeat(${managerCount}, 2.1rem) minmax(9rem, max-content)`,
+    justifyContent: 'start',
   }
 }
 
@@ -276,8 +279,14 @@ function createActionMatrixSection(
       ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No manager actions harvested yet. Run the harvest to check the latest filings.')
       : createElement(
           'div',
-          { style: { display: 'grid', gap: '0.1rem', overflowX: 'auto' } },
-          header,
+          // Bounded viewport + sticky header: the column initials stay pinned while the rows scroll,
+          // so an arrow three screens down still maps to its investor.
+          { style: { display: 'grid', gap: '0.1rem', maxHeight: '70vh', overflow: 'auto' } },
+          createElement(
+            'div',
+            { style: { background: 'var(--owl-color-panel-elevated)', paddingBottom: '0.25rem', position: 'sticky', top: 0, zIndex: 1 } },
+            header,
+          ),
           ...matrix.map((row) => createMatrixRow(row, managers, homes, candidateByTicker)),
         ),
   )
