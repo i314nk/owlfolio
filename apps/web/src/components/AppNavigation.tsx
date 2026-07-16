@@ -53,7 +53,7 @@ const navSections: NavSection[] = [
 function BrandBookMark(): ReactNode {
   return createElement(
     'svg',
-    { 'aria-hidden': true, fill: 'none', height: 20, viewBox: '0 0 24 24', width: 20, xmlns: 'http://www.w3.org/2000/svg' },
+    { 'aria-hidden': true, fill: 'none', height: 26, viewBox: '0 0 24 24', width: 26, xmlns: 'http://www.w3.org/2000/svg' },
     // The open book: two soft-curved page spreads meeting at the spine.
     createElement('path', {
       d: 'M3 6 C6 4.6 9 4.8 12 6.4 C15 4.8 18 4.6 21 6 V17.4 C18 16 15 16 12 17.6 C9 16 6 16 3 17.4 Z',
