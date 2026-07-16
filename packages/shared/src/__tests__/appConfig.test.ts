@@ -46,7 +46,7 @@ describe('defaultAutomationSettings', () => {
   it('returns the correct default shape', () => {
     const settings = defaultAutomationSettings()
     expect(settings.research_engine_enabled).toBe(true)
-    expect(settings.discovery).toEqual({ enabled: false, cadence: 'off' })
+    expect(settings.discovery).toEqual({ enabled: false, cadence: 'off', auto_research: false })
     expect(settings.deep_dive_approval).toBe('review')
     expect(settings.watchlist_monitoring).toEqual({ enabled: true, cadence: 'daily' })
     expect(settings.thesis_review).toEqual({ enabled: true, cadence: 'quarterly' })
@@ -75,7 +75,8 @@ describe('mergeAutomationSettings', () => {
     expect(merged.research_engine_enabled).toBe(false)
     // All other fields fall back to defaults
     expect(merged.watchlist_monitoring).toEqual({ enabled: true, cadence: 'daily' })
-    expect(merged.discovery).toEqual({ enabled: false, cadence: 'off' })
+    // Legacy configs lack auto_research — the merge defaults it false, never auto-spend.
+    expect(merged.discovery).toEqual({ enabled: false, cadence: 'off', auto_research: false })
     expect(merged.purification).toEqual({ enabled: true, cadence: 'quarterly' })
   })
 

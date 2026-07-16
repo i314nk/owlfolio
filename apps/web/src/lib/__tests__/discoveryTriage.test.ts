@@ -90,6 +90,65 @@ describe('discovery triage wrappers', () => {
     await expect(promoteDiscoveryCandidate(state, candidateId)).rejects.toThrow(/queued for quick screen/i)
   })
 
+  it('auto_research ON: promote also starts the research run (research_run_requested + worker spawn); the gates and the deep_dive_approval pause then run inside the run', async () => {
+    const autoState = {
+      is_initialized: true,
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        ledger_path: ledgerPath,
+        source_ledger_path: join(tempDir, 'source-ledger'),
+        automation: { discovery: { enabled: false, cadence: 'off', auto_research: true } },
+      },
+    } as never
+    await acceptDiscoveryCandidate(autoState, candidateId)
+    const spawned: unknown[] = []
+    const result = await promoteDiscoveryCandidate(autoState, candidateId, { spawn: (paths) => { spawned.push(paths) } })
+    expect(result.auto_research_error).toBeUndefined()
+    expect(result.auto_research_started).toBe(true)
+    expect(spawned).toHaveLength(1)
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      const request = events.find((e) => e.event_type === 'research_run_requested')
+      expect(request).toBeDefined()
+      expect((request?.payload as Record<string, unknown>).research_case_id).toBe(result.research_case_id)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('auto_research ON but the research engine master switch OFF: promotion succeeds, no run starts', async () => {
+    const autoState = {
+      is_initialized: true,
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        ledger_path: ledgerPath,
+        source_ledger_path: join(tempDir, 'source-ledger'),
+        automation: { research_engine_enabled: false, discovery: { enabled: false, cadence: 'off', auto_research: true } },
+      },
+    } as never
+    await acceptDiscoveryCandidate(autoState, candidateId)
+    const spawned: unknown[] = []
+    const result = await promoteDiscoveryCandidate(autoState, candidateId, { spawn: (paths) => { spawned.push(paths) } })
+    expect(result.research_case_id).toMatch(/^rc_/)
+    expect(result.auto_research_started).toBe(false)
+    expect(spawned).toHaveLength(0)
+  })
+
+  it('auto_research OFF (the default): promote records the case and WAITS — no run, no spawn', async () => {
+    await acceptDiscoveryCandidate(state, candidateId)
+    const spawned: unknown[] = []
+    const result = await promoteDiscoveryCandidate(state, candidateId, { spawn: (paths) => { spawned.push(paths) } })
+    expect(result.auto_research_started).toBe(false)
+    expect(spawned).toHaveLength(0)
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      expect((await store.list()).some((e) => e.event_type === 'research_run_requested')).toBe(false)
+    } finally {
+      store.close()
+    }
+  })
+
   it('accept then promote → promoted + returns research_case_id + creates research case', async () => {
     await acceptDiscoveryCandidate(state, candidateId)
     const { research_case_id } = await promoteDiscoveryCandidate(state, candidateId)

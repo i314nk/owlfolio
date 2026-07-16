@@ -2725,20 +2725,41 @@ export async function rejectDiscoveryCandidate(state: OnboardingState, candidate
   }
 }
 
-export async function promoteDiscoveryCandidate(state: OnboardingState, candidateId: string): Promise<{ research_case_id: string }> {
+export async function promoteDiscoveryCandidate(
+  state: OnboardingState,
+  candidateId: string,
+  deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
+): Promise<{ research_case_id: string; auto_research_started: boolean; auto_research_error?: string }> {
   const store = personalLocalStore(state)
+  let researchCaseId: string
   try {
     const candidate = projectDiscoveryCandidates(await store.list()).find((c) => c.candidate_id === candidateId)
     if (candidate === undefined) throw new Error(`Discovery candidate ${candidateId} not found`)
-    const researchCaseId = `rc_${candidate.ticker.toLowerCase()}_${Date.now()}`
+    researchCaseId = `rc_${candidate.ticker.toLowerCase()}_${Date.now()}`
     await promoteDiscoveryCandidateToResearchCase(store, {
       candidate_id: candidateId,
       research_case_id: researchCaseId,
       causation_id: `web_triage_${candidateId}`,
       actor_id: 'user_local',
     })
-    return { research_case_id: researchCaseId }
   } finally {
     store.close()
+  }
+
+  // AUTO-RESEARCH ON PROMOTION (owner, 2026-07-16, opt-in — default false): immediately start
+  // the analysis for the just-promoted case. The run passes the cheap gates first (Shariah when
+  // on + circle), and deep_dive_approval separately governs the post-gates pause. Riding the
+  // master research switch; an auto-start failure NEVER un-promotes — the case just waits, as it
+  // would with the setting off, and the error is surfaced on the result.
+  const automation = mergeAutomationSettings(state.config.automation)
+  if (!automation.discovery.auto_research || automation.research_engine_enabled === false) {
+    return { research_case_id: researchCaseId, auto_research_started: false }
+  }
+  try {
+    await startResearchRun(state, researchCaseId, deps)
+    return { research_case_id: researchCaseId, auto_research_started: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'auto research start failed'
+    return { research_case_id: researchCaseId, auto_research_started: false, auto_research_error: message }
   }
 }

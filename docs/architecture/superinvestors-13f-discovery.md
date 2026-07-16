@@ -102,6 +102,26 @@ live roster via the projection's CIK allowlist.
   XML entities in issuer names are decoded at the parser AND the display title-caser (the
   `S&amp;P` dogfood find).
 
+## From promotion to analysis (the two automation knobs)
+
+A promoted candidate becomes a research case and, by default, **waits** for the user to start
+the analysis. Two Settings → Automation knobs govern how far it proceeds on its own:
+
+1. **Auto-run analysis on promotion** (`automation.discovery.auto_research`, default OFF):
+   when ON, promoting a candidate immediately starts the research run (provider spend). The
+   run always passes the cheap gates first — the Shariah front gate (when screening is on) and
+   the circle of competence — so a failing name still dies early and cheaply. Rides the
+   research-engine master switch; an auto-start failure never un-promotes the case (it just
+   waits, and the error is surfaced).
+2. **Deep-dive approval** (`automation.deep_dive_approval`, default `review`): once the cheap
+   gates pass, `review` pauses the case at `awaiting_deep_dive_approval` for a human go-ahead
+   before the expensive deep dive; `automatic` continues straight through.
+
+So the fully-automatic path (auto_research ON + deep_dive_approval `automatic`) runs promotion
+→ gates → deep dive → drafted verdict with no clicks — while the verdict itself remains a
+DRAFT: watchlist admission, holding opens, and every other irreversible transition stay
+human-authored regardless of these knobs.
+
 ## Boundaries
 
 The page is an idea source and monitoring surface only. It never executes, recommends

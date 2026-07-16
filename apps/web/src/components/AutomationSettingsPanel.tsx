@@ -446,6 +446,18 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
+            label: 'Auto-run analysis on promotion',
+            helper: 'ON: promoting a superinvestor candidate immediately starts the research run — provider spend. The cheap gates still run first (Shariah screening when on, then the circle of competence), and the Deep-dive approval setting above decides whether the expensive deep dive continues or pauses once they pass. OFF (default): a promoted case waits for you to start the analysis.',
+          },
+          createElement(Toggle, {
+            enabled: pendingSettings.discovery.auto_research,
+            onChange: (v) => update('discovery', { ...pendingSettings.discovery, auto_research: v }),
+          }),
+        ),
+
+        createElement(
+          ControlRow,
+          {
             label: 'Research depth (advanced)',
             helper: `Max grounded tool calls (SEC filing fetches / searches) each research lane may make while gathering evidence. Higher = deeper sourcing but more cost and time; lower = faster and cheaper but shallower. Range ${RESEARCH_MAX_TOOL_CALLS_MIN}–${RESEARCH_MAX_TOOL_CALLS_MAX}; default 10.`,
           },

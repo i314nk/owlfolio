@@ -115,7 +115,18 @@ export const CIRCLE_GATE_EVIDENCE_FLOOR_MAX = 5
 
 export type AutomationSettings = {
   research_engine_enabled: boolean
-  discovery: { enabled: boolean; cadence: AutomationCadenceDiscovery }
+  discovery: {
+    enabled: boolean
+    cadence: AutomationCadenceDiscovery
+    /**
+     * AUTO-RESEARCH ON PROMOTION (owner, 2026-07-16): when true, promoting a superinvestor
+     * candidate immediately starts the research run (provider spend). The run still passes the
+     * cheap gates first (Shariah when on + circle of competence), and `deep_dive_approval`
+     * separately governs whether the expensive deep dive continues or pauses after they pass.
+     * Default false — a promoted case waits for the user to start the analysis.
+     */
+    auto_research: boolean
+  }
   /** Approval pause for the deep dive — applied BEHIND the cheap gates, before lane spend. */
   deep_dive_approval: 'automatic' | 'review'
   watchlist_monitoring: { enabled: boolean; cadence: AutomationCadenceWatchlist }
@@ -434,7 +445,7 @@ export const defaultMarketUniverseConfig = (): MarketUniverseConfig => ({
 
 export const defaultAutomationSettings = (): AutomationSettings => ({
   research_engine_enabled: true,
-  discovery: { enabled: false, cadence: 'off' },
+  discovery: { enabled: false, cadence: 'off', auto_research: false },
   deep_dive_approval: 'review',
   watchlist_monitoring: { enabled: true, cadence: 'daily' },
   thesis_review: { enabled: true, cadence: 'quarterly' },
@@ -503,7 +514,8 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
 
   return {
     research_engine_enabled: partial.research_engine_enabled ?? defaults.research_engine_enabled,
-    discovery: partial.discovery ?? defaults.discovery,
+    // Spread-merge: configs written before auto_research existed lack the key → default false.
+    discovery: { ...defaults.discovery, ...(partial.discovery ?? {}) },
     deep_dive_approval,
     watchlist_monitoring: partial.watchlist_monitoring ?? defaults.watchlist_monitoring,
     thesis_review: thesisReviewRaw ?? defaults.thesis_review,

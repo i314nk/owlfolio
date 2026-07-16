@@ -86,7 +86,7 @@ describe('POST /api/settings/automation', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.automation.discovery).toEqual({ enabled: true, cadence: 'weekly' })
+    expect(body.automation.discovery).toEqual({ enabled: true, cadence: 'weekly', auto_research: false })
   })
 
   it('persists the update so a subsequent GET reflects the new price_refresh setting', async () => {
