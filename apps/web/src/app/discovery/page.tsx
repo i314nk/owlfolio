@@ -1,7 +1,10 @@
 import { createElement } from 'react'
 
+import { projectDiscovery13f } from '@owlfolio/ledger/projections/discovery13fProjection'
 import { projectDiscoveryCandidates } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
+import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
+import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { DiscoveryPanel } from '../../components/DiscoveryPanel'
@@ -21,6 +24,11 @@ export default async function DiscoveryPage() {
     const events = await store.list()
     const candidates = projectDiscoveryCandidates(events)
     const runStatus = projectScheduledTasks(events).find((t) => t.task_kind === 'discovery_13f')
+    const { quarters, sells } = projectDiscovery13f(events)
+    const heldOrWatchedTickers = [
+      ...projectHoldings(events).flatMap((h) => (h.ticker === undefined ? [] : [h.ticker])),
+      ...projectWatchlist(events).flatMap((w) => (w.ticker === undefined ? [] : [w.ticker])),
+    ]
 
     return createElement(
       'main',
@@ -33,6 +41,9 @@ export default async function DiscoveryPage() {
       createElement(DiscoveryPanel, {
         candidates,
         ...(runStatus !== undefined ? { runStatus } : {}),
+        quarters,
+        sells,
+        heldOrWatchedTickers,
       }),
     )
   } finally {
