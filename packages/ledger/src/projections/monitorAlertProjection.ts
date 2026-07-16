@@ -1,4 +1,6 @@
 import type { LedgerEventEnvelope } from '../eventEnvelope'
+import { projectHoldings } from './holdingProjection'
+import { projectWatchlist } from './watchlistProjection'
 
 // Monitor-alerts projection.
 //
@@ -30,6 +32,7 @@ export type MonitorAlertKind =
   | 'divest_required'
   | 'sell_review'
   | 'annual_rerun'
+  | 'superinvestor_exit'
   | 'staleness'
   | 'thesis_re_review'
 
@@ -364,6 +367,45 @@ function annualFilingAlert(event: LedgerEventEnvelope<unknown>, payload: Record<
   }]
 }
 
+/**
+ * Superinvestor exit/trim of a HELD or WATCHED name (the 13F page's cross-reference, owner-approved
+ * 2026-07-16): a tracked manager unwinding a name you own or watch is the "new evidence — think
+ * again" class of event. An OBSERVATION pointing at the check-in/dossier — never a sell instruction.
+ * Only tickers in heldOrWatched raise alerts (the page shows the full sell board regardless); keyed
+ * per manager-quarter so a re-harvest never duplicates.
+ */
+function superinvestorExitAlerts(
+  event: LedgerEventEnvelope<unknown>,
+  payload: Record<string, unknown>,
+  heldOrWatchedTickers: Set<string>,
+): MonitorAlert[] {
+  if (!Array.isArray(payload['sells'])) return []
+  const managerName = getString(payload, 'manager_name') ?? 'A tracked manager'
+  const period = getString(payload, 'period') ?? ''
+  const filed = getString(payload, 'filed_date')
+  const out: MonitorAlert[] = []
+  for (const raw of payload['sells']) {
+    if (raw === null || typeof raw !== 'object') continue
+    const sell = raw as Record<string, unknown>
+    const ticker = typeof sell['ticker'] === 'string' ? sell['ticker'].toUpperCase() : undefined
+    if (ticker === undefined || !heldOrWatchedTickers.has(ticker)) continue
+    const kind = sell['signal_type'] === 'EXIT' ? 'exited' : 'meaningfully trimmed'
+    out.push({
+      id: `superinvestor_exit:${getString(payload, 'cik') ?? 'cik'}:${period}:${ticker}`,
+      kind: 'superinvestor_exit',
+      subject: { ticker },
+      severity: 'attention',
+      headline: `${ticker}: ${managerName} ${kind} the position (13F ${period}${filed === undefined ? '' : `, filed ${filed}`})`,
+      detail: 'A tracked superinvestor unwound a name you hold or watch — quarterly 13F data with up to a 45-day lag, long US equities only, and no reason given in the filing. Run the check-in vs new filings and review your own thesis; never a sell instruction.',
+      recorded_at: event.created_at,
+      is_observation: true,
+      is_draft: false,
+      human_action: { label: 'Open discovery', href: '/discovery' },
+    })
+  }
+  return out
+}
+
 function sellReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
   const holdingId = getString(payload, 'holding_id') ?? event.aggregate_id
   const ticker = getString(payload, 'ticker')
@@ -437,6 +479,13 @@ export function projectMonitorAlerts(
     if (superseded !== undefined) supersededCaseIds.add(superseded)
   }
 
+  // Held/watched tickers for the superinvestor cross-reference (live views: closed holdings and
+  // pruned watchlist items have already left these projections).
+  const heldOrWatchedTickers = new Set<string>([
+    ...projectHoldings(events).flatMap((h) => (h.ticker === undefined ? [] : [h.ticker.toUpperCase()])),
+    ...projectWatchlist(events).flatMap((w) => (w.ticker === undefined ? [] : [w.ticker.toUpperCase()])),
+  ])
+
   const latest = new Map<string, RawAlert>()
   for (const event of events) {
     if (!isRecord(event.payload)) {
@@ -461,6 +510,9 @@ export function projectMonitorAlerts(
         break
       case 'research_case_annual_filing_detected':
         produced = annualFilingAlert(event, event.payload)
+        break
+      case 'discovery_13f_quarter_recorded':
+        produced = superinvestorExitAlerts(event, event.payload, heldOrWatchedTickers)
         break
       default:
         continue

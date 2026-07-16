@@ -12,6 +12,7 @@
     "./eventStore": "./src/eventStore.ts",
     "./sqliteEventStore": "./src/sqliteEventStore.ts",
     "./projections/discoveryCandidateProjection": "./src/projections/discoveryCandidateProjection.ts",
+    "./projections/discovery13fProjection": "./src/projections/discovery13fProjection.ts",
     "./projections/monitorAlertProjection": "./src/projections/monitorAlertProjection.ts",
     "./projections/holdingProjection": "./src/projections/holdingProjection.ts",
     "./projections/accountingProjection": "./src/projections/accountingProjection.ts",

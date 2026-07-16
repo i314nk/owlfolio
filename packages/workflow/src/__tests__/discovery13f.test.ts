@@ -15,6 +15,7 @@ import {
   __resetCompanyTickersCacheForTests,
   fetchOpenFigiTickers,
   __resetCusipTickerCacheForTests,
+  detectManagerSells,
   type ManagerQuarter,
   type CompanyTickerEntry,
 } from '../discovery13f'
@@ -401,5 +402,92 @@ describe('fetchOpenFigiTickers', () => {
     await fetchOpenFigiTickers(['053015103'], { fetchImpl })
     await fetchOpenFigiTickers(['053015103'], { fetchImpl })
     expect(calls).toBe(1)
+  })
+})
+
+describe('detectManagerSells (the sell side of the QoQ diff — 13F page S1)', () => {
+  it('flags EXIT for a cusip present prior but absent this quarter (with the unwound conviction)', () => {
+    const quarter: ManagerQuarter = {
+      manager_name: 'M',
+      cik: '0000000001',
+      period: '2025Q1',
+      holdings: [
+        { issuer: 'KeepCo', cusip: 'KEEP000001', title_class: 'COM', value: 300, shares: 30, put_call: undefined },
+      ] as never,
+      prior_holdings: [
+        { issuer: 'KeepCo', cusip: 'KEEP000001', title_class: 'COM', value: 300, shares: 30, put_call: undefined },
+        { issuer: 'GoneCo', cusip: 'GONE000001', title_class: 'COM', value: 100, shares: 10, put_call: undefined },
+      ] as never,
+    }
+    const sells = detectManagerSells(quarter)
+    const exit = sells.find((s) => s.cusip === 'GONE000001')
+    expect(exit?.signal_type).toBe('EXIT')
+    expect(exit?.prior_shares).toBe(10)
+    expect(exit?.current_shares).toBe(0)
+    // GoneCo was 100 of a 400 prior book.
+    expect(exit?.prior_conviction_pct).toBeCloseTo(0.25, 6)
+    // The kept name stays quiet.
+    expect(sells.find((s) => s.cusip === 'KEEP000001')).toBeUndefined()
+  })
+
+  it('flags MEANINGFUL_TRIM when shares fall more than 25% vs prior (the buy threshold mirrored)', () => {
+    const quarter: ManagerQuarter = {
+      manager_name: 'M',
+      cik: '0000000001',
+      period: '2025Q1',
+      holdings: [
+        { issuer: 'TrimCo', cusip: 'TRIM000001', title_class: 'COM', value: 50, shares: 60, put_call: undefined },
+        { issuer: 'SmallTrimCo', cusip: 'SMALL00001', title_class: 'COM', value: 90, shares: 90, put_call: undefined },
+      ] as never,
+      prior_holdings: [
+        { issuer: 'TrimCo', cusip: 'TRIM000001', title_class: 'COM', value: 100, shares: 100, put_call: undefined },
+        { issuer: 'SmallTrimCo', cusip: 'SMALL00001', title_class: 'COM', value: 100, shares: 100, put_call: undefined },
+      ] as never,
+    }
+    const sells = detectManagerSells(quarter)
+    const trim = sells.find((s) => s.cusip === 'TRIM000001')
+    expect(trim?.signal_type).toBe('MEANINGFUL_TRIM')
+    expect(trim?.prior_shares).toBe(100)
+    expect(trim?.current_shares).toBe(60)
+    // −10% stays quiet.
+    expect(sells.find((s) => s.cusip === 'SMALL00001')).toBeUndefined()
+  })
+})
+
+describe('runDiscovery13f — quarter snapshots (13F page S1)', () => {
+  const berkshire = berkshireQuarter()
+  const deps = {
+    fetchManagerQuarters: async () => [berkshire],
+    fetchCompanyTickers: async () => tickersFixture,
+    now: () => '2025-05-15T00:00:00.000Z',
+  }
+
+  it('records one discovery_13f_quarter_recorded per manager quarter (idempotent), with top holdings + QoQ chips + sells', async () => {
+    const { store } = makeMemoryStore()
+    await runDiscovery13f(store, { ...deps, test_mode: true })
+    await runDiscovery13f(store, { ...deps, test_mode: true })
+
+    const events = (await store.list()).filter((e) => e.event_type === 'discovery_13f_quarter_recorded')
+    expect(events).toHaveLength(1)
+    const p = events[0]!.payload as Record<string, unknown>
+    expect(p.manager_name).toBe('Berkshire Hathaway')
+    expect(p.period).toBe('2025Q1')
+    expect(typeof p.total_value).toBe('number')
+    expect(typeof p.position_count).toBe('number')
+
+    const holdings = p.top_holdings as Record<string, unknown>[]
+    expect(holdings.length).toBeGreaterThan(0)
+    expect(holdings.length).toBeLessThanOrEqual(15)
+    // Sorted by value desc — Apple leads the fixture book.
+    expect(holdings[0]).toMatchObject({ cusip: '037833100', change: 'UNCHANGED' })
+    expect(typeof holdings[0]!.pct).toBe('number')
+    // Costco is a NEW position; Ally a MEANINGFUL add.
+    expect(holdings.find((h) => h.cusip === '22160K105')?.change).toBe('NEW')
+    // The snapshot resolves tickers (name-fallback in test mode) — the cross-reference alert needs them.
+    expect(holdings.find((h) => h.cusip === '22160K105')?.ticker).toBe('COST')
+    expect(holdings.find((h) => h.cusip === '02005N100')?.change).toBe('ADD')
+
+    // Sells ride the same event (the fixture book has no exits/trims → empty but PRESENT).
+    expect(Array.isArray(p.sells)).toBe(true)
   })
 })

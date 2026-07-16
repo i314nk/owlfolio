@@ -13,6 +13,7 @@ function contract(eventType: DomainEventType) {
 describe('Owlfolio v2 domain event boundary contracts', () => {
   it('freezes the event families needed by discovery, scheduler, providers, Shariah, purification, accounting, and cash lanes', () => {
     expect(domainEventContracts.map((entry) => entry.event_type)).toEqual([
+      'discovery_13f_quarter_recorded',
       'discovery_candidate_discovered',
       'discovery_candidate_queued_for_quick_screen',
       'discovery_candidate_rejected',

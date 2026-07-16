@@ -8,6 +8,7 @@ const supportedAggregateTypes = new Set<AggregateType>([
   'strategy',
   'company',
   'discovery_candidate',
+  'discovery_quarter',
   'research_case',
   'watchlist_item',
   'holding',

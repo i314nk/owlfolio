@@ -216,6 +216,10 @@ export type ManagerQuarter = {
   cik: string
   /** Reporting period label, e.g. '2025Q1' (or the filing's period-of-report date). */
   period: string
+  /** The filing's period-of-report date (as-of) — the honesty stamp beside every figure. */
+  report_date?: string
+  /** When the 13F-HR was filed (the ~45-day lag made visible). */
+  filed_date?: string
   holdings: Holding13F[]
   prior_holdings: Holding13F[]
 }
@@ -293,6 +297,8 @@ export async function fetchManager13F(
     manager_name: subs?.name ?? managerName,
     cik: cik10,
     period: quarterLabel(current.report, current.filed),
+    ...(current.report.length > 0 ? { report_date: current.report } : {}),
+    ...(current.filed.length > 0 ? { filed_date: current.filed } : {}),
     holdings: currentHoldings,
     prior_holdings: priorHoldings,
   }
@@ -365,6 +371,60 @@ export function detectManagerSignals(quarter: ManagerQuarter): ManagerSignal[] {
     }
     if (prior.shares > 0 && (h.shares - prior.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD) {
       out.push({ manager_name: quarter.manager_name, cusip: h.cusip, issuer: h.issuer, signal_type: 'MEANINGFUL_ADD', conviction_pct })
+    }
+  }
+  return out
+}
+
+/** One sell-side change for a manager quarter: an EXIT (position gone) or a MEANINGFUL_TRIM. */
+export type ManagerSell = {
+  manager_name: string
+  cusip: string
+  issuer: string
+  signal_type: 'EXIT' | 'MEANINGFUL_TRIM'
+  prior_shares: number
+  current_shares: number
+  /** The PRIOR position's share of the prior book — how much conviction was unwound. */
+  prior_conviction_pct: number
+}
+
+/**
+ * Per-manager EXIT / MEANINGFUL_TRIM sells for one quarter vs its prior quarter (the sell side of
+ * the same QoQ diff detectManagerSignals runs for buys; the 25% threshold is mirrored). 13F caveat:
+ * a position can also leave a filing via confidential treatment or a swap to a non-13F instrument —
+ * the diff reports what the filings say, nothing more.
+ */
+export function detectManagerSells(quarter: ManagerQuarter): ManagerSell[] {
+  const currentByCusip = aggregateByCusip(quarter.holdings)
+  const priorByCusip = aggregateByCusip(quarter.prior_holdings)
+  const priorTotal = totalValue([...priorByCusip.values()])
+  const out: ManagerSell[] = []
+
+  for (const prior of priorByCusip.values()) {
+    const prior_conviction_pct = priorTotal > 0 ? prior.value / priorTotal : 0
+    const current = currentByCusip.get(prior.cusip)
+    if (current === undefined) {
+      out.push({
+        manager_name: quarter.manager_name,
+        cusip: prior.cusip,
+        issuer: prior.issuer,
+        signal_type: 'EXIT',
+        prior_shares: prior.shares,
+        current_shares: 0,
+        prior_conviction_pct,
+      })
+      continue
+    }
+    if (prior.shares > 0 && (prior.shares - current.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD) {
+      out.push({
+        manager_name: quarter.manager_name,
+        cusip: prior.cusip,
+        issuer: prior.issuer,
+        signal_type: 'MEANINGFUL_TRIM',
+        prior_shares: prior.shares,
+        current_shares: current.shares,
+        prior_conviction_pct,
+      })
     }
   }
   return out
@@ -699,6 +759,81 @@ export async function runDiscovery13f(
   const cusipTickerMap = await resolveCusips(
     signals.filter((s) => !excludedCusips.has(s.cusip)).map((s) => s.cusip.toUpperCase()),
   )
+
+  // ── The 13F page's manager-quarter snapshots (owner-approved 2026-07-16) ──
+  // One idempotent event per manager+period: the top-15 holdings (with QoQ chips), book totals, and
+  // the SELL side (exits + meaningful trims). Powers the manager cards + the sells board without
+  // re-fetching EDGAR, and is what the held/watched exit alert projects from. Bounded by design:
+  // top 15 + the sells list, never the full book.
+  // Ticker resolution for the snapshots: one bounded batch over (top-15 ∪ sells) cusips, with the
+  // issuer-name fallback; unresolved stays absent (flagged by omission, never guessed).
+  const snapshotCusips = [...new Set(quarters.flatMap((quarter) => {
+    const byCusip = aggregateByCusip(quarter.holdings)
+    const top = [...byCusip.values()].sort((a, b) => b.value - a.value).slice(0, 15).map((h) => h.cusip.toUpperCase())
+    return [...top, ...detectManagerSells(quarter).map((sell) => sell.cusip.toUpperCase())]
+  }))]
+  const snapshotTickerMap = await resolveCusips(snapshotCusips)
+  const tickerFor = (cusip: string, issuer: string): string | undefined => {
+    const byCusip = snapshotTickerMap.get(cusip.toUpperCase()) ?? cusipTickerMap.get(cusip.toUpperCase())
+    if (byCusip !== undefined) return byCusip.toUpperCase()
+    const byName = resolveIssuerTicker(issuer, tickers)
+    return byName.resolution === 'matched' ? byName.ticker : undefined
+  }
+  for (const quarter of quarters) {
+    const byCusip = aggregateByCusip(quarter.holdings)
+    const priorByCusip = aggregateByCusip(quarter.prior_holdings)
+    const total = totalValue([...byCusip.values()])
+    const top = [...byCusip.values()].sort((a, b) => b.value - a.value).slice(0, 15).map((h) => {
+      const prior = priorByCusip.get(h.cusip)
+      const change = prior === undefined
+        ? 'NEW'
+        : prior.shares > 0 && (h.shares - prior.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD
+          ? 'ADD'
+          : prior.shares > 0 && (prior.shares - h.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD
+            ? 'TRIM'
+            : 'UNCHANGED'
+      return {
+        cusip: h.cusip,
+        issuer: h.issuer,
+        ...(tickerFor(h.cusip, h.issuer) === undefined ? {} : { ticker: tickerFor(h.cusip, h.issuer) }),
+        value: h.value,
+        shares: h.shares,
+        pct: total > 0 ? h.value / total : 0,
+        change,
+      }
+    })
+    const sells = detectManagerSells(quarter).map((sell) => ({
+      ...sell,
+      ...(tickerFor(sell.cusip, sell.issuer) === undefined ? {} : { ticker: tickerFor(sell.cusip, sell.issuer) }),
+    }))
+    const quarterKey = `13f-quarter:${quarter.cik}:${quarter.period}`
+    await store.append({
+      event_id: `evt_discovery_13f_quarter_${quarter.cik}_${quarter.period}`,
+      event_type: 'discovery_13f_quarter_recorded',
+      aggregate_type: 'discovery_quarter',
+      aggregate_id: `q13f_${quarter.cik}_${quarter.period}`,
+      correlation_id: `q13f_${quarter.cik}_${quarter.period}`,
+      actor_type: 'worker',
+      actor_id: DISCOVERY_ACTOR_ID,
+      payload: {
+        manager_name: quarter.manager_name,
+        cik: quarter.cik,
+        period: quarter.period,
+        ...(quarter.report_date === undefined ? {} : { report_date: quarter.report_date }),
+        ...(quarter.filed_date === undefined ? {} : { filed_date: quarter.filed_date }),
+        total_value: total,
+        position_count: byCusip.size,
+        top_holdings: top,
+        sells,
+        is_observation: true,
+      },
+      source_ids: [],
+      created_at: now(),
+      schema_version: 1,
+      idempotency_key: quarterKey,
+    })
+  }
+
 
   const existing = projectDiscoveryCandidates(await store.list())
   const existingDedupe = new Set(existing.map((c) => c.dedupe_key))

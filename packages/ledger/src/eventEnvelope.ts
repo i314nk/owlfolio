@@ -3,6 +3,8 @@ export type AggregateType =
   | 'strategy'
   | 'company'
   | 'discovery_candidate'
+  // 13F page (2026-07-16): one manager-quarter portfolio snapshot (top holdings + QoQ + sells).
+  | 'discovery_quarter'
   | 'research_case'
   | 'watchlist_item'
   | 'holding'
