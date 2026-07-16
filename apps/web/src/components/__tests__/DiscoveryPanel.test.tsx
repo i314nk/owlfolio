@@ -146,6 +146,31 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('no quarter harvested yet')
   })
 
+  it('an UNRESOLVED matrix row attaches its triage candidate by cusip; no leftover card renders', () => {
+    const spierBuy = quarter({
+      manager_name: 'Aquamarine Capital (Guy Spier)',
+      cik: '0002104187',
+      buys: [{ cusip: 'G6683N103', issuer: 'NU HLDGS LTD', signal_type: 'NEW_POSITION', conviction_pct: 0.03 }],
+    })
+    const candidates = [{
+      candidate_id: 'cand_nu', ticker: 'UNRESOLVED:G6683N103', company_name: 'NU HLDGS LTD', market: 'US',
+      strategy_id: 'buffett-munger', discovery_source: '13f_clone', status: 'discovered',
+      dedupe_key: 'nu', discovered_at: '2026-07-16', source_ids: [],
+    }, {
+      candidate_id: 'cand_orphan', ticker: 'ADP', company_name: 'AUTOMATIC DATA PROC', market: 'US',
+      strategy_id: 'buffett-munger', discovery_source: '13f_clone', status: 'discovered',
+      dedupe_key: 'adp', discovered_at: '2026-07-10', source_ids: [],
+    }] as never
+    const html = render({ quarters: [spierBuy], candidates })
+    // The unresolved row exists and carries the accept/reject triage (matched via the cusip).
+    expect(html).toContain('data-matrix-row="G6683N103"')
+    expect(html).toContain('Accept')
+    // The removed-manager orphan (ADP) gets NO surface — the card is gone (owner 2026-07-16);
+    // its candidate event remains in the ledger/audit only.
+    expect(html).not.toContain('Other pending candidates')
+    expect(html).not.toContain('ADP')
+  })
+
   it('flags lagging filers so an old book never reads as current', () => {
     const scion = quarter({ manager_name: 'Scion Asset Management (Michael Burry)', cik: '0001649339', period: '2025Q3', report_date: '2025-09-30', filed_date: '2025-11-03' })
     const html = render({ quarters: [berkshireQuarter, scion] })

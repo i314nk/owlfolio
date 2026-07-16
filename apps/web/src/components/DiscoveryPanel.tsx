@@ -113,15 +113,12 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
     : runStatus?.last_result_summary ?? 'Never run'
 
   const matrix = buildActionMatrix(quarters)
-  const matrixTickers = new Set(matrix.flatMap((row) => (row.ticker === undefined ? [] : [row.ticker.toUpperCase()])))
-  const leftoverDiscovered = discovered.filter((c) => !matrixTickers.has(c.ticker.toUpperCase()))
 
   return createElement(
     Fragment,
     null,
     createSummaryHeader(runStatusLine),
     createActionMatrixSection(matrix, quarters, discovered, homes),
-    leftoverDiscovered.length === 0 ? null : createLeftoverCandidatesSection(leftoverDiscovered),
     // Manager portfolios — compact expandable cards per tracked manager's latest quarter.
     createElement(
       'section',
@@ -249,7 +246,7 @@ function createActionMatrixSection(
   const quarterByCik = new Map(quarters.map((q) => [q.cik, q]))
   const latestPeriod = quarters.reduce((max, q) => (q.period > max ? q.period : max), '')
   const laggards = quarters.filter((q) => q.period < latestPeriod)
-  const candidateByTicker = new Map(discovered.map((c) => [c.ticker.toUpperCase(), c]))
+  const candidateByTicker = new Map(discovered.map((c) => [c.ticker.toUpperCase().replace(/^UNRESOLVED:/, ''), c]))
 
   const header = createElement(
     'div',
@@ -362,7 +359,7 @@ function createMatrixRow(
 
   // ONE HOME PER NAME: a held or watched name already has its research home — the expansion routes
   // there instead of offering admission triage (a held name must never be 'accepted for screening').
-  const candidate = row.ticker === undefined || home !== undefined ? undefined : candidateByTicker.get(row.ticker.toUpperCase())
+  const candidate = home !== undefined ? undefined : candidateByTicker.get((row.ticker ?? row.key).toUpperCase())
   const homeLine = home === undefined
     ? null
     : createElement(
@@ -393,28 +390,6 @@ function createMatrixRow(
   )
 }
 
-
-function createLeftoverCandidatesSection(leftovers: DiscoveryCandidateProjection[]) {
-  return createElement(
-    'section',
-    { 'aria-label': 'Other pending candidates', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement(
-      'details',
-      { suppressHydrationWarning: true },
-      createElement(
-        'summary',
-        { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
-        `Other pending candidates · ${leftovers.length}`,
-      ),
-      createElement(
-        'p',
-        { className: 'owl-row-helper', style: { margin: '0.5rem 0 0' } },
-        'Earlier-harvest candidates whose name is not in the current action matrix (e.g. from managers no longer tracked). Triage or leave them.',
-      ),
-      createElement('div', { className: 'owl-row-list', style: { marginTop: 'var(--owl-space-2)' } }, ...leftovers.map((c) => createCandidateCard(c))),
-    ),
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Manager cards
