@@ -2,7 +2,7 @@
 
 The old contributor-additions log for the Python/FastAPI/Claude-only branch was moved to `docs/archive/CHANGELOG_ADDITIONS.v0.1.md` and is historical only.
 
-For the active Owlfolio v2 TypeScript/pnpm alpha branch, use these current sources instead:
+For the active Owner's Manual v2 TypeScript/pnpm alpha branch, use these current sources instead:
 
 - `README.md` — current quick start, provider support, worker commands, verification gate, and alpha limitations.
 - `CLAUDE.md` — current agent/development instructions.

@@ -1,6 +1,8 @@
-# Owlfolio v2
+# Owner's Manual v2
 
-Owlfolio v2 is a TypeScript/pnpm monorepo for a local-first, web-first investment workflow system. The old Python/FastAPI/Claude-only instructions are historical and should not be used for this branch.
+Owner's Manual v2 is a TypeScript/pnpm monorepo for a local-first, web-first investment workflow system. The old Python/FastAPI/Claude-only instructions are historical and should not be used for this branch.
+
+REBRAND (owner-locked 2026-07-16): the product name is **Owner's Manual** everywhere a user reads it (UI, CLI output, README, docs). The **internal engine namespace stays `owlfolio`**: `OWLFOLIO_*` env vars, `@owlfolio/*` package scopes, `owl-*` CSS classes, ledger paths, the `strategy_id: 'buffett-munger'` ledger identifier, and the repo name — renaming those would break existing local configs and persisted events for zero user-visible gain. The CLI launcher is `owners-manual` with `owlfolio` kept as a compat alias. The default strategy's DISPLAY name is **Buffett 4-Pillar** (the persisted id stays `buffett-munger`). The app must not mention "the book" — the owner adds the credit/plug himself later.
 
 ## Current stack
 
@@ -41,9 +43,9 @@ OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$PWD/data/provider-certifications
 The web app is the primary surface; the CLI is a small inspect/diagnose/launch tool. All onboarding (mode, provider, API keys, model) lives in the browser, so the CLI is deliberately three commands. A repo-root `owlfolio` launcher runs it with no build step (it execs the workspace `tsx` on `apps/cli/src/index.ts`):
 
 ```bash
-owlfolio start      # launch the app + open the browser to http://127.0.0.1:3000 (onboarding happens there)
-owlfolio status     # mode, provider/model, readiness, and the onboarding gate (read-only, headless-safe)
-owlfolio doctor     # diagnose config, the credential file (+ 0600 perms), the ledger, and certification state
+owners-manual start      # launch the app + open the browser to http://127.0.0.1:3000 (onboarding happens there)
+owners-manual status     # mode, provider/model, readiness, and the onboarding gate (read-only, headless-safe)
+owners-manual doctor     # diagnose config, the credential file (+ 0600 perms), the ledger, and certification state
 ```
 
 Invocation forms, in order of brevity:
@@ -134,8 +136,8 @@ Known warning: Next/Turbopack may print an NFT/import-trace warning around local
 
 - Alpha is a local workflow demo and personal-local ledger slice, not a complete robo-advisor.
 - Web workflow is primary; CLI is for developer/admin operations.
-- Buffett-Munger is the default strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
-- SCALE-DOWN (owner-locked 2026-07-13): Owlfolio is a GROUNDED RESEARCH-AND-DECISION system — discovery → four-pillar research → zones/price checks → watchlist → held THESES (entry price is the one manual field). The accounting/bookkeeping half (monthly books, portfolio values, the purification obligation/payment ledger, contribution tracking, investable capital, position sizing) is REMOVED: its ground truth is unverifiable by design. Legacy events remain readable in the audit timeline.
+- Buffett 4-Pillar is the default strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
+- SCALE-DOWN (owner-locked 2026-07-13): Owner's Manual is a GROUNDED RESEARCH-AND-DECISION system — discovery → four-pillar research → zones/price checks → watchlist → held THESES (entry price is the one manual field). The accounting/bookkeeping half (monthly books, portfolio values, the purification obligation/payment ledger, contribution tracking, investable capital, position sizing) is REMOVED: its ground truth is unverifiable by design. Legacy events remain readable in the audit timeline.
 - Shariah SCREENING is first-class and fully grounded (the front gate, harness-recomputed AAOIFI ratios, and the purification RATE as dossier guidance) — but it is a local screening aid, not a professional legal/tax/Shariah ruling. The /passive page is educational only (Shariah-ETF pedagogy; nothing tracked). Screening is an OPT-OUT (Settings → Shariah screening, default ON): OFF is fail-visible — gates record explicit DISABLED decisions (never a fake pass), boards show GATE OFF, Shariah provider spend and the quarterly re-screen stop, and purification surfaces hide.
 - Broker credentials, broker sync, live trading, automatic portfolio actions, tax filing, and production-grade direct API provider parity are out of scope unless explicitly requested.
 

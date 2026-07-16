@@ -1,6 +1,6 @@
 # Future plan
 
-This is the forward-looking plan for the active Owlfolio v2 TypeScript/pnpm branch. Older Python/FastAPI/Claude-only phase notes are historical and no longer describe the active product surface.
+This is the forward-looking plan for the active Owner's Manual v2 TypeScript/pnpm branch. Older Python/FastAPI/Claude-only phase notes are historical and no longer describe the active product surface.
 
 For current release status, verification evidence, known warnings, provider support labels, and alpha boundaries, see `docs/ALPHA_READINESS.md`. For implementation architecture, see `docs/ARCHITECTURE.md`.
 
@@ -49,7 +49,7 @@ The v2 alpha establishes a local-first workflow spine:
    - Improve purification obligation calculation, evidence attachment, payment workflow, and period-close UX.
 
 6. Strategy maturity
-   - Keep Buffett-Munger as the default strategy direction until any strategy-level certification program is defined and reviewed.
+   - Keep Buffett 4-Pillar as the default strategy direction until any strategy-level certification program is defined and reviewed.
    - Gate additional strategies behind valuation rules, Shariah handling, provider role certification, and audit-policy review.
    - Treat custom strategy YAML/manual methods as advanced configuration, not the main UI path.
 

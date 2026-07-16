@@ -1,14 +1,16 @@
 <div align="center">
 
-# Owlfolio v2
+# Owner's Manual v2
 
 **A local-first investment research workflow with harness-verified grounding and a Shariah-by-design ledger.**
+
+*(Formerly Owlfolio — the internal engine namespace (`OWLFOLIO_*` env vars, `@owlfolio/*` packages, the repo name, the `owlfolio` CLI alias) intentionally keeps that name so existing configs and ledgers keep working.)*
 
 </div>
 
 > ## ⚠️ Status: alpha, under active development
 >
-> Owlfolio v2 is a personal project in **active development**. It is an **alpha**:
+> Owner's Manual v2 is a personal project in **active development**. It is an **alpha**:
 > features are incomplete, interfaces change without notice, and some documented
 > capabilities are deliberately gated off until they pass verification. It is a
 > local workflow tool — **not** a robo-advisor, a brokerage integration, tax
@@ -38,7 +40,7 @@ plus the pipeline, audit trail, the Learn docs, and the strategy overview:
 
 ## What it is
 
-Owlfolio runs a strategy-driven research workflow (default: Buffett-Munger) on
+Owner's Manual runs a strategy-driven research workflow (default: Buffett 4-Pillar) on
 your own machine, structured as **Buffett's four pillars applied in order**:
 discovery → a grounded Shariah front gate → **Pillar 1: understand the
 business** (the circle-of-competence gate answers two questions — how does
@@ -98,7 +100,7 @@ The core design rule is **"code computes, judgment proposes"**:
   in the ledger forever.
 - **Human-authored exits**: "Remove from watchlist" and "Close holding
   (record the exit)" — reason recorded, machine actors rejected at the ledger
-  level, raw events kept forever. Owlfolio never trades; the close records
+  level, raw events kept forever. Owner's Manual never trades; the close records
   the exit you executed at your broker.
 - **The 10-K cadence**: check-ins cover the year; when one detects a new
   annual report, the boards raise "full re-analysis recommended" with a
@@ -107,7 +109,7 @@ The core design rule is **"code computes, judgment proposes"**:
   (k-sample unanimous agreement + grounded evidence floors, tunable in
   Settings) — "outside the circle" is a recorded early exit, not a failure.
 - **Thesis re-review**: on demand (dossier, watchlist, and portfolio pages) or
-  via a worker tick, Owlfolio diffs the filings that appeared since a decision
+  via a worker tick, Owner's Manual diffs the filings that appeared since a decision
   against the recorded thesis and its break triggers, and records
   INTACT / WEAKENED / BROKEN — or, honestly, INCONCLUSIVE / UNVERIFIED when the
   evidence can't support a verdict. A broken thesis on a held name escalates a
@@ -127,7 +129,7 @@ The core design rule is **"code computes, judgment proposes"**:
   never a copy trade or an auto-promotion. See
   `docs/architecture/superinvestors-13f-discovery.md`. Watchlist/portfolio
   price checks ride the same human-fired worker.
-- A small read-only CLI (`owlfolio start|status|doctor`) for launch/inspect/
+- A small read-only CLI (`owners-manual start|status|doctor`; `owlfolio` compat alias) for launch/inspect/
   diagnose; all onboarding and decisions live in the browser.
 - A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
   recording observations and drafts. It never auto-approves investment
@@ -224,7 +226,7 @@ corepack pnpm dev
 browser:
 
 ```bash
-./owlfolio start
+./owners-manual start
 ```
 
 **3. Open the dashboard**
@@ -242,8 +244,8 @@ keys live in a local env file (`OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`)
 To check the install or diagnose problems:
 
 ```bash
-./owlfolio status   # mode, provider/model, readiness, onboarding gate
-./owlfolio doctor   # config, credential file permissions, ledger, certifications
+./owners-manual status   # mode, provider/model, readiness, onboarding gate
+./owners-manual doctor   # config, credential file permissions, ledger, certifications
 ```
 
 Optional — run with explicit isolated paths:
@@ -264,12 +266,12 @@ corepack pnpm dev
 apps/
   web/       Next.js web app and API routes (the primary surface)
   worker/    local one-tick scheduled-task worker (dry-run/mock-safe)
-  cli/       read-only launch/inspect/diagnose CLI (owlfolio start|status|doctor)
+  cli/       read-only launch/inspect/diagnose CLI (owners-manual start|status|doctor)
 packages/
   ledger/    append-only SQLite event store, event contracts, projections
   workflow/  research swarm, grounding, EDGAR adapters, re-review, reviews
   providers/ provider catalog, adapters, certification runner
-  strategies/ Buffett-Munger strategy policy: source policy, valuation, checklist
+  strategies/ Buffett 4-Pillar strategy policy: source policy, valuation, checklist
   shared/    app config and shared domain/provider types
   shariah/   Shariah policy helpers
 ```
@@ -286,7 +288,7 @@ Important docs:
 
 ## Provider support
 
-Owlfolio distinguishes **readiness** (a key is configured) from
+Owner's Manual distinguishes **readiness** (a key is configured) from
 **certification** (a recorded report proving the grounded research contract).
 The retired CLI/OAuth lanes (Codex CLI, Claude CLI, Gemini CLI) were removed on
 2026-06-29; the surviving providers all share one function-calling grounded
@@ -365,12 +367,12 @@ portfolio pages).
 
 ## Shariah screening limitations
 
-Owlfolio is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
+Owner's Manual is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
 system, or accounting firm:
 
 - Shariah screens are local policy/audit aids and may require human scholar review.
 - The dossier states the purification RATE as guidance ("CONDITIONAL — purify
-  ~X% of dividends"); tracking and paying it is yours. Owlfolio deliberately
+  ~X% of dividends"); tracking and paying it is yours. Owner's Manual deliberately
   keeps no books: bookkeeping built on unverifiable manual inputs was removed
   in the 2026-07 scale-down.
 - Provider outputs are drafts/observations. User-authored transitions are

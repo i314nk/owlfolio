@@ -70,7 +70,7 @@ export async function runStart(ctx: CliContext, deps: StartDeps = {}): Promise<n
   const spawnImpl = deps.spawn ?? realSpawn
   const openBrowser = deps.openBrowser ?? realOpenBrowser
 
-  ctx.out(`→ starting Owlfolio on ${APP_URL}`)
+  ctx.out(`→ starting Owner’s Manual on ${APP_URL}`)
   ctx.out('  (press Ctrl-C to stop; onboarding and setup happen in the browser)')
 
   // Fire-and-forget: open the browser once the server answers.

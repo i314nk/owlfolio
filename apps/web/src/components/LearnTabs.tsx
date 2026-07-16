@@ -144,7 +144,7 @@ function StrategyTab(): ReactNode {
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     PanelSection({
-      eyebrow: 'Buffett-Munger discipline',
+      eyebrow: 'Buffett 4-Pillar discipline',
       title: 'Quality compounders, bought when the model’s buy-below is met and its reasoning holds',
       lead: createElement(
         'span',
@@ -160,7 +160,7 @@ function StrategyTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'Value',
-      title: 'The book model — FCF forward ten years, an exit multiple, a margin of safety',
+      title: 'The valuation model — FCF forward ten years, an exit multiple, a margin of safety',
       lead: createElement(
         'span',
         null,
@@ -173,9 +173,9 @@ function StrategyTab(): ReactNode {
         ', tilted conservative), adjust for net cash, and discount everything at the flat ',
         mono(pct(VALUATION_PARAMS.required_return_default)),
         ' required return — “anything less, buy the index.” The buy threshold is ',
-        gold(`IV less a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety (rule 7)`),
+        gold(`IV less a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety`),
         '; a ',
-        gold(`${pct(VALUATION_PARAMS.load_up_margin)} discount marks the load-up zone (rule 8)`),
+        gold(`${pct(VALUATION_PARAMS.load_up_margin)} discount marks the load-up zone`),
         '. Deterministic sanity rails police absurdity internally but never block. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
@@ -201,13 +201,13 @@ function StrategyTab(): ReactNode {
           createElement('div', null, `g    = the model’s judged FCF growth, cited; sanity-flagged above ${pct(SINGLE_GROWTH_CAP)} (or ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim)`),
           createElement('div', null, `exit = the median P/FCF of the model’s NAMED comparables at year ${STAGE1_HORIZON}, tilted conservative; fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when absent/absurd`),
           createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
-          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)} (rule 7)   ·   load-up = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)} (rule 8)`),
+          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}   ·   load-up = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`),
         ),
         cardGrid([
           { key: 'r', eyebrow: 'Required return', body: createElement('span', null, 'the flat ', mono(pct(VALUATION_PARAMS.required_return_default)), ' hurdle for every business (user-settable) — no beta, no quality knob. It doubles as the active-vs-passive bar.') },
           { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s cited FCF growth; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
           { key: 'exit', eyebrow: 'Exit multiple', body: createElement('span', null, 'Anchored to NAMED comparables (each industry carries its own multiples — no fixed band): the harness checks the choice against the comps’ median and falls back to a conservative ', mono(`${VALUATION_PARAMS.exit_multiple_fallback}×`), ' only when absent or absurd.') },
-          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The thresholds are arithmetic — the model judges growth and the exit comps, never the price.') },
+          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin; load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line. The thresholds are arithmetic — the model judges growth and the exit comps, never the price.') },
         ], '200px'),
       ),
     }),
@@ -482,10 +482,10 @@ function LifecycleTab(): ReactNode {
         { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
         cardGrid([
           { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
-          { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs — the book has no ladder) — never mechanical averaging-down.' },
+          { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs) — never mechanical averaging-down.' },
           { key: 'conc', eyebrow: 'Concentration (held)', body: 'The 15% deployment cap binds new buys; a held position that APPRECIATES past a higher concentration-review threshold (~22%) raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim.' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
-          { key: 'rereview', eyebrow: 'Check-in (any decided name; the book: quarterly is the ideal rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
+          { key: 'rereview', eyebrow: 'Check-in (any decided name; quarterly rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
         ]),
         caveat(
           createElement(
@@ -545,7 +545,7 @@ function ShariahTab(): ReactNode {
     PanelSection({
       eyebrow: 'Enforced at six points',
       title: 'Shariah is a property, not a single lane',
-      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, and exit rules. A FAIL stops the case outright and is never price-overridable. The dossier states the purification RATE as guidance; Owlfolio keeps no payment books.',
+      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, and exit rules. A FAIL stops the case outright and is never price-overridable. The dossier states the purification RATE as guidance; Owner’s Manual keeps no payment books.',
       children: cardGrid([
         { key: 'sector', eyebrow: 'Sector screen', body: createElement('span', null, 'Segment-level revenue check; more than ', mono('5%'), ' impermissible core revenue screens the name out before any valuation is attempted.') },
         { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono(pct(AAOIFI_DEBT_RATIO_MAX)), ', computed by the harness from primary filings.') },
@@ -556,7 +556,7 @@ function ShariahTab(): ReactNode {
     PanelSection({
       eyebrow: 'Purification guidance',
       title: 'The rate is computed; the books are yours',
-      lead: 'SCALE-DOWN (2026-07): Owlfolio computes the purification RATE from grounded filings and states it on the dossier — it deliberately keeps no obligation/payment books, because their inputs (your actual dividends and payments) are unverifiable by design.',
+      lead: 'SCALE-DOWN (2026-07): Owner’s Manual computes the purification RATE from grounded filings and states it on the dossier — it deliberately keeps no obligation/payment books, because their inputs (your actual dividends and payments) are unverifiable by design.',
       children: bullets([
         createElement('span', { key: 1 }, gold('The rate'), ' — purification due = dividend × the computed purification % (from the harness-recomputed AAOIFI impermissible-income read). Stated on every CONDITIONAL dossier.'),
         createElement('span', { key: 2 }, gold('The discipline'), ' — track and pay it yourself (a spreadsheet does this honestly); confidently wrong purification amounts from stale inputs are worse than none.'),

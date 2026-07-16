@@ -155,7 +155,7 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
     createElement(RouteHeader, {
-      kicker: 'Owlfolio · Settings',
+      kicker: 'Owner’s Manual · Settings',
       title: 'Provider setup',
       description: 'Connect an LLM provider login or API key and choose models per tier. Keys are stored in a single local env file (server-only, masked on display) and never enter the ledger, logs, page source, or git — the ledger records only that a provider was connected.',
     }),
@@ -240,7 +240,7 @@ function renderProviderLoginsSection(rows: ProviderLoginRow[]) {
     createElement(
       'p',
       { className: 'owl-body' },
-      'Subscription / OAuth logins, equal to API keys. Owlfolio has no in-app OAuth: connect by running the login command in your terminal, then re-check readiness here. CLI-managed logins are read-only here.',
+      'Subscription / OAuth logins, equal to API keys. Owner’s Manual has no in-app OAuth: connect by running the login command in your terminal, then re-check readiness here. CLI-managed logins are read-only here.',
     ),
     refreshStatusButton('Ran a login command in your terminal? Re-check connection status.'),
     createElement('div', { className: 'owl-row-list' }, ...rows.map(renderLoginRow)),

@@ -1,14 +1,14 @@
-# Owlfolio v2 provider/model support matrix
+# Owner's Manual v2 provider/model support matrix
 
-Verified: 2026-06-03, from public provider documentation, OpenRouter model inventory, and Owlfolio phase-4 provider-surface implementation closeout. Updated 2026-06-09 for the multi-agent grounded research swarm and harness-verified source-grounding certification gate (see "Research execution model and grounding contract" below).
+Verified: 2026-06-03, from public provider documentation, OpenRouter model inventory, and Owner's Manual phase-4 provider-surface implementation closeout. Updated 2026-06-09 for the multi-agent grounded research swarm and harness-verified source-grounding certification gate (see "Research execution model and grounding contract" below).
 
-This document is a planning and certification handoff for the Owlfolio v2 provider-status UI, live certification lane, and alpha documentation. It does not certify a provider by itself. Owlfolio support labels must still be bounded by adapter implementation plus the latest certification report.
+This document is a planning and certification handoff for the Owner's Manual v2 provider-status UI, live certification lane, and alpha documentation. It does not certify a provider by itself. Owner's Manual support labels must still be bounded by adapter implementation plus the latest certification report.
 
 ## Current implementation baseline
 
 The current v2 repo has these catalog/runtime paths. **Update 2026-06-29:** the entire CLI/OAuth lane — Codex (`openai` / `openai-codex-cli`, app-server and one-shot exec), Claude CLI (`claude` / `claude-cli`), and Gemini CLI (`gemini-cli`) — was **excised**. Surviving providers are `mock-provider` plus OpenRouter and the direct API-key providers, all on the function-calling tool-loop. The `openai`/`anthropic` **vendor** ids and their models are preserved (they back `openai-api`/`anthropic-api` + OpenRouter routes); only the CLI **providers** were removed.
 
-| Owlfolio provider id | Runtime path | Current catalog label | Current certification stance |
+| Owner's Manual provider id | Runtime path | Current catalog label | Current certification stance |
 |---|---|---:|---|
 | `mock-provider` | deterministic in-process provider | `certified` | Certified for the audited local/demo vertical slice and regression tests. |
 | `openrouter` | OpenAI-compatible meta-aggregator (`OpenRouterProvider`); the default grounded-loop provider | `experimental` | Proven `runToolLoop`; routes one key to many models, so each routed model still needs its own target-specific certification report before it is trusted. Fail-closed until then. |
@@ -20,7 +20,7 @@ The current v2 repo has these catalog/runtime paths. **Update 2026-06-29:** the 
 
 ## Research execution model and grounding contract (2026-06-09)
 
-Research no longer runs as a single LLM call. The web app enqueues a `research_run_requested` event and the local worker executes a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, a concurrent per-lane specialist swarm (the Buffett-Munger lanes), and a synthesis/decision agent — each a separate provider call.
+Research no longer runs as a single LLM call. The web app enqueues a `research_run_requested` event and the local worker executes a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, a concurrent per-lane specialist swarm (the Buffett 4-Pillar lanes), and a synthesis/decision agent — each a separate provider call.
 
 Every cited source is subject to a **harness-side grounding invariant**: agents propose citations, and the harness fetches each URL (public sources only, fail-closed, SSRF-guarded) and content-hashes it. Only harness-verified sources are attached to ledger events; unverifiable ones are recorded in the source bundle as `unavailable` and excluded from findings. The mock/demo path uses a deterministic grounder (no network); real providers use the fetching grounder.
 
@@ -32,7 +32,7 @@ The provider certification's `source-grounded-research-task` enforces this same 
 
 Live harness run: 2026-06-10 (multi-agent grounded swarm + harness-verified source grounding enabled; Codex re-certified live on the real grounded-research path). Reports are persisted under `data/provider-certifications/` (gitignored runtime evidence) and surfaced by the Provider status page.
 
-| Owlfolio provider id | Latest report | Effective support | Evidence summary |
+| Owner's Manual provider id | Latest report | Effective support | Evidence summary |
 |---|---|---:|---|
 | `mock-provider` | `mock-provider.latest.json` | `certified` | Completed: 18/18 scenarios passed (both `research_draft` and `scheduled_monitoring_dry_run` roles), including the source-grounded scenario verified through the deterministic mock grounder. |
 | `claude` | `claude.latest.json` | `unsupported` | Not configured: Claude CLI readiness heartbeat timed out after 180000ms in this environment; enable Claude access or use an Anthropic API key before rerunning certification. |
@@ -43,13 +43,13 @@ Live harness run: 2026-06-10 (multi-agent grounded swarm + harness-verified sour
 
 Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified. The certification's `source-grounded-research-task` asserts the contract the product actually runs — the provider returns `proposed_sources` (real URLs) and the harness grounds them post-hoc via the same `groundProposedSources` HTTP-fetch+sha256 verification the swarm uses; the scenario passes only when at least one proposed source is genuinely fetched and content-hashed (it does **not** accept model self-attested inline citations). OpenAI Codex CLI now **passes** that grounding gate live, proving it can ground research on real fetchable sources, but its catalog support stays **experimental** because its privacy retention/ZDR posture is unverified — raising it to `certified` is a deliberate owner policy decision, not something this run is entitled to do. Claude CLI is unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports pass and their privacy/support caveats are accepted.
 
-Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
+Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owner's Manual providers.
 
 ## Expanded pluggable catalog (2026-06-09): OpenRouter meta + curated frontier candidates
 
-The catalog now lists a broader, curated set of frontier providers so Owlfolio can route to investment-grade-capable models once they are certified. Breadth is curated, not a free-for-all: only frontier reasoning + grounding-capable providers are added, and every new entry is `experimental`, fail-closed, and hidden from normal onboarding (`visible_in_onboarding: false`).
+The catalog now lists a broader, curated set of frontier providers so Owner's Manual can route to investment-grade-capable models once they are certified. Breadth is curated, not a free-for-all: only frontier reasoning + grounding-capable providers are added, and every new entry is `experimental`, fail-closed, and hidden from normal onboarding (`visible_in_onboarding: false`).
 
-| Owlfolio provider id | Surface | Default model | Catalog support | Investment-grade candidate | Status |
+| Owner's Manual provider id | Surface | Default model | Catalog support | Investment-grade candidate | Status |
 |---|---|---|---:|:--:|---|
 | `openrouter` | `openrouter-api` | `openrouter/auto` | `experimental` | yes (frontier) | Meta-aggregator: one OpenAI-compatible API key routes to many models. Adapter is a fail-closed skeleton (`OpenRouterProvider`): readiness detects `OPENROUTER_API_KEY`, but execution throws until a target-specific certification report exists. Per-routed-model certification is required; OpenRouter cannot be certified provider-wide. |
 | `deepseek` | `deepseek-api` | `deepseek-reasoner` | `experimental` | yes (frontier) | Direct API candidate; no adapter/certification yet. Capability varies per model (e.g. `deepseek-reasoner` tool-call limits). |
@@ -70,7 +70,7 @@ Readiness is still not certification: a present `OPENROUTER_API_KEY`/`DEEPSEEK_A
 
 ## Recommended support tiers
 
-| Tier | Providers | Owlfolio role | Certification rule |
+| Tier | Providers | Owner's Manual role | Certification rule |
 |---|---|---|---|
 | Certified default now | `mock-provider` | Demo, tests, e2e regression, certification harness sanity checks. | Keep certified only because behavior is deterministic and covered by tests. |
 | Certified candidate, direct API | Anthropic direct API; OpenAI direct API | Core production candidates after adapters land: structured workflow, evidence analysis, final memo, Shariah/policy review. | Must pass all certified certification scenarios before catalog support is raised above experimental. |
@@ -110,7 +110,7 @@ Readiness is still not certification: a present `OPENROUTER_API_KEY`/`DEEPSEEK_A
 | Demo/e2e | `mock-provider` | `mock-provider` | Stable deterministic audit trail. |
 | Personal-local research | `openai` Codex CLI or `claude` CLI when ready | Anthropic/OpenAI direct API after certification | Current implementation supports CLI paths; production should prefer direct API adapters. |
 | Evidence gathering | Mock fixtures in tests | Perplexity/Sonar plus optional Gemini/OpenAI search tools | Evidence/source collection should be separated from decision drafting. |
-| Structured workflow execution | Mock/Codex CLI experimental | OpenAI direct API | Owlfolio needs reliable JSON/schema/tool-state behavior. |
+| Structured workflow execution | Mock/Codex CLI experimental | OpenAI direct API | Owner's Manual needs reliable JSON/schema/tool-state behavior. |
 | Shariah/policy review | Mock fixtures until certified | Anthropic direct API primary; OpenAI/Gemini second-opinion candidates | Requires conservative source-grounded reasoning and auditable caveats. |
 | Final memo synthesis | Mock fixtures until certified | Anthropic direct API primary; OpenAI/Gemini candidates | Requires long-context synthesis and explicit uncertainty handling. |
 | Local/offline fallback | None certified | Ollama/vLLM per-model experimental | Good for dev/privacy experiments, not certified investment decisions. |
@@ -128,7 +128,7 @@ Public sources checked on 2026-06-01:
 - DeepSeek docs: models/pricing page lists OpenAI and Anthropic-compatible base URLs, JSON output, tool calls, thinking modes, 1M context for v4; reasoner docs state `deepseek-reasoner` does not support function calling.
 - Alibaba Qwen / Model Studio docs: model overview lists Qwen3.5/Qwen3 families, selected tool-calling support, long-context variants, global deployment modes, and pricing bands.
 - Ollama OpenAI compatibility docs: list `/v1/chat/completions`, streaming, JSON mode, reproducible outputs, vision, tools, and limitations such as missing `tool_choice`/logprobs in the compatibility matrix.
-- vLLM docs: OpenAI-compatible server documentation was reachable via redirect/HTML; use for local serving candidates but validate concrete served model behavior in Owlfolio's harness.
+- vLLM docs: OpenAI-compatible server documentation was reachable via redirect/HTML; use for local serving candidates but validate concrete served model behavior in Owner's Manual's harness.
 
 ## Handoff for downstream cards
 

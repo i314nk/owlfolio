@@ -34,8 +34,8 @@ describe('WatchlistPanel zone board', () => {
     expect(html).toContain('data-verdict-band="LOAD_UP"')
     expect(html).toContain('data-verdict-band="BUY_ZONE"')
     expect(html).toContain('data-verdict-band="ABOVE_ZONE"')
-    expect(html).toContain('In the load-up zone (rule 8)')
-    expect(html).toContain('In the buy zone (rule 7)')
+    expect(html).toContain('In the load-up zone')
+    expect(html).toContain('In the buy zone')
     expect(html).toContain('Above the zone — waiting')
   })
 

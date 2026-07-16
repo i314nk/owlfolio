@@ -353,7 +353,7 @@ export function StrategyOverview(): ReactNode {
       kicker: `${strategy.name} · v${strategy.version}`,
       title: 'The strategy',
       description:
-        'The method your agent follows, end to end: a concentrated, quality-value, Shariah-aware discipline in the Buffett-Munger tradition. One principle holds it together — a strict division of labour. Grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
+        'The method your agent follows, end to end: a concentrated, quality-value, Shariah-aware discipline in the Buffett 4-Pillar tradition. One principle holds it together — a strict division of labour. Grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
     }),
     createElement('hr', { className: 'owl-rule' }),
 
@@ -485,7 +485,7 @@ export function StrategyOverview(): ReactNode {
     // 5. Valuation method — the BOOK model (E2c): FCF forward 10 years + exit multiple + net cash.
     Section({
       eyebrow: 'Value',
-      title: 'Valuation — the book model: FCF, ten years, an exit multiple, a margin of safety',
+      title: 'Valuation — the model: FCF, ten years, an exit multiple, a margin of safety',
       lead: createElement(
         'span',
         null,
@@ -526,8 +526,8 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, `exit = the median P/FCF of the model’s NAMED comparables at year ${STAGE1_HORIZON}, tilted conservative; fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when absent/absurd`),
           createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  [t=1..${STAGE1_HORIZON}]  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
           createElement('div', null, `r    = the required return, flat ${pct(VALUATION_PARAMS.required_return_default)} default (Settings)`),
-          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}   (rule 7 — never less than a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety)`),
-          createElement('div', null, `load = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}   (rule 8 — a ${pct(VALUATION_PARAMS.load_up_margin)} discount marks “load up the truck”)`),
+          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)} (never less than a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety)`),
+          createElement('div', null, `load = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)} (a ${pct(VALUATION_PARAMS.load_up_margin)} discount marks “load up the truck”)`),
         ),
 
         createElement('p', { style: microLabel }, 'The model’s two judgments — everything else is arithmetic'),
@@ -544,8 +544,8 @@ export function StrategyOverview(): ReactNode {
           headings: ['Parameter', 'Value (wide & monopoly)'],
           rows: [
             [createElement('span', { style: goldText }, 'Required return (discount)'), createElement('span', { style: monoFigure }, `${pct(VALUATION_PARAMS.required_return_default)} default, user-settable`)],
-            [createElement('span', { style: goldText }, 'Buy margin (rule 7)'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.required_margin_of_safety)} below IV`)],
-            [createElement('span', { style: goldText }, 'Load-up margin (rule 8)'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.load_up_margin)} below IV`)],
+            [createElement('span', { style: goldText }, 'Buy margin'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.required_margin_of_safety)} below IV`)],
+            [createElement('span', { style: goldText }, 'Load-up margin'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.load_up_margin)} below IV`)],
           ],
         }),
         createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist — not a license to stretch the horizon or shave the margin. The thresholds are computed arithmetic (IV × 0.70 / × 0.50) — the model judges growth and the exit comps, never the price.'),
@@ -568,9 +568,9 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: monoFigure }, `$${EX_IV.toFixed(2)}`),
             ' per share → buy below ',
             createElement('span', { style: monoFigure }, `$${EX_BUY.toFixed(2)}`),
-            ' (rule 7), load up below ',
+            ', load up below ',
             createElement('span', { style: monoFigure }, `$${EX_LOAD.toFixed(2)}`),
-            ' (rule 8). When even the model’s own advisory buy price would require growth above the cap, the internal rails say so. At a 15% hurdle, buy zones are rare by design — anything less, buy the index (the passive sleeve is the default home for capital).',
+            '. When even the model’s own advisory buy price would require growth above the cap, the internal rails say so. At a 15% hurdle, buy zones are rare by design — anything less, buy the index (the passive sleeve is the default home for capital).',
           ),
         ),
       ),
@@ -587,7 +587,7 @@ export function StrategyOverview(): ReactNode {
         createElement('li', null, createElement('span', { style: goldText }, 'Within the circle of competence'), ' — a grounded model judgment sampled multiple times per run: the deep dive is entered only on a unanimous in-competence vote, each sample meeting a grounded evidence floor (cite-verified cashflow drivers and predictability breakers). Uncertain or unpredictable cashflows are set aside — a correct Buffett output, not a failure. Sample count and floors are tunable in Settings.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged FCF growth with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
-        createElement('li', null, createElement('span', { style: goldText }, 'Positive free cash flow'), ' — the book model does not price a cash-burning year; no tagged CFO means honestly unpriced (fail-closed), never a proxy.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Positive free cash flow'), ' — the model does not price a cash-burning year; no tagged CFO means honestly unpriced (fail-closed), never a proxy.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the front Shariah gate.'),
       ),
@@ -602,13 +602,13 @@ export function StrategyOverview(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'The book prescribes no position counts, no target-weight tables, and no entry ladders. It gives two zones: buy when the margin of safety is at least ',
+        'The strategy prescribes no position counts, no target-weight tables, and no entry ladders. It gives two zones: buy when the margin of safety is at least ',
         createElement('span', { style: goldText }, pct(VALUATION_PARAMS.required_margin_of_safety)),
-        ' (rule 7), and when the discount is deep — ',
+        ', and when the discount is deep — ',
         createElement('span', { style: goldText }, pct(VALUATION_PARAMS.load_up_margin)),
         ' or more — act boldly: ',
-        createElement('span', { style: goldText }, '"once you find a margin of safety, load up the truck" (rule 8)'),
-        `. The SIZE IS YOURS — Owlfolio computes the zones and states the boundaries; it does not prescribe a number. `,
+        createElement('span', { style: goldText }, '"once you find a margin of safety, load up the truck"'),
+        `. The SIZE IS YOURS — Owner’s Manual computes the zones and states the boundaries; it does not prescribe a number. `,
         createElement('span', { style: goldText }, 'You author the buys — the worker never trades.'),
         ` The ${MAX_POSITIONS}-position limit, the ${pct(MAX_POSITION_WEIGHT)} per-name cap, and the cash buffer are OUR risk rails, not book rules. Adding on the way down is thesis-gated — a falling price is re-checked, never chased. Winners run, never force-trimmed.`,
       ),
@@ -618,8 +618,8 @@ export function StrategyOverview(): ReactNode {
         Table({
           headings: ['Zone', 'Trigger', 'Posture'],
           rows: [
-            [createElement('span', { style: goldText }, 'Buy zone (rule 7)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}`), 'buy — the margin is met'],
-            [createElement('span', { style: goldText }, 'Load-up zone (rule 8)'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`), 'act boldly — load up the truck'],
+            [createElement('span', { style: goldText }, 'Buy zone'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}`), 'buy — the margin is met'],
+            [createElement('span', { style: goldText }, 'Load-up zone'), createElement('span', { style: monoFigure }, `price ≤ IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}`), 'act boldly — load up the truck'],
           ],
         }),
       ),

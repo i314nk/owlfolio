@@ -1,6 +1,6 @@
 # Pre-Release Scrub Checklist
 
-Items to clean before publishing Owlfolio as an open-source repo on GitHub.
+Items to clean before publishing Owner's Manual as an open-source repo on GitHub.
 
 **Audit date:** 2026-05-01 (updated 2026-05-08)
 **Audit result:** DONE. All scrubs applied. Git history is clean (no secrets ever committed). `.gitignore` is comprehensive.

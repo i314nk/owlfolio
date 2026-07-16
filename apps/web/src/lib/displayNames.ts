@@ -34,7 +34,7 @@ async function loadTickerNameMap(fetchImpl: typeof fetch): Promise<Map<string, s
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     const response = await fetchImpl(SEC_TICKER_MAP_URL, {
-      headers: { 'user-agent': process.env['OWLFOLIO_SEC_USER_AGENT'] ?? 'Owlfolio research (local)' },
+      headers: { 'user-agent': process.env['OWLFOLIO_SEC_USER_AGENT'] ?? 'Owner’s Manual research (local)' },
       signal: controller.signal,
     })
     clearTimeout(timer)

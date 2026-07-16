@@ -1,4 +1,4 @@
-# Owlfolio v2 research harness — internals & execution model
+# Owner's Manual v2 research harness — internals & execution model
 
 Verified: 2026-06-13, against the live code and the OpenRouter golden-set qualification run.
 
@@ -234,7 +234,7 @@ The v4 confirming re-qualify took gpt-5.5 from 1/3 (v3) to **2/3** raw: CPRT and
 cash earns interest → defensibly "conditional"). That motivated the **permissibility-pair Shariah gate**
 (§6). Re-scoring the existing reports OFFLINE against the new gate (`.data/runlogs/rescore-reports.mjs`
 — reconstructs lane outputs from the stored report, re-runs the real `scoreQualification`, NO live re-run,
-NO spend) took gpt-5.5 to **3/3 → `isModelQualified` returns qualified: true.** This is Owlfolio's first
+NO spend) took gpt-5.5 to **3/3 → `isModelQualified` returns qualified: true.** This is Owner's Manual's first
 production-qualified research model (`openrouter` / `openai/gpt-5.5`). The opus v4 run was cancelled
 mid-flight to conserve OpenRouter budget (it isn't the workhorse — narrow-moat overconservatism).
 **Codex/gpt-5.5 (subscription, no OpenRouter spend) v4 also qualified 3/3** (raw 2/3 → re-scored offline):

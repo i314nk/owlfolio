@@ -6,7 +6,7 @@
 ## Goal
 
 Give providers **agentic** (model-driven) and **live** (current-web) source retrieval, **without
-losing Owlfolio's audit guarantee**. Today only OpenRouter has a working tool loop; Claude CLI and
+losing Owner's Manual's audit guarantee**. Today only OpenRouter has a working tool loop; Claude CLI and
 the OpenAI Codex CLI are `multi-step-tool-loop: unsupported`, so they propose URLs from training
 memory and the harness verifies post-hoc. We want better fetch — but every cited source must stay
 content-hashed and ledgered.
@@ -25,7 +25,7 @@ hashes + ledgers.
 
 ## The simplest architecture: harness never searches, it only verifies
 
-Owlfolio already has a propose-then-verify path (`runGroundedAgent` grounds the model's
+Owner's Manual already has a propose-then-verify path (`runGroundedAgent` grounds the model's
 `proposed_sources` via `groundProposedSources`). Reuse it:
 
 1. **Offload discovery** → the provider's live web tool puts candidate **URLs** into the response.
@@ -62,7 +62,7 @@ too old for current events). Enforce:
 
 - `multi-step-tool-loop`: OpenRouter `adapter` (only real `runToolLoop` impl); Claude CLI
   `unsupported`; OpenAI Codex CLI `unsupported`; mock `native` (test only).
-- Owlfolio's Codex provider (`openaiCodexCliProvider.ts`) runs **one-shot**
+- Owner's Manual's Codex provider (`openaiCodexCliProvider.ts`) runs **one-shot**
   `codex exec --sandbox read-only --output-schema …` — no loop, no network, no tools. This is why it
   feels clunky/stale.
 - Hermes drives the **same `codex` binary** via **`codex app-server`** (persistent JSON-RPC-over-stdio

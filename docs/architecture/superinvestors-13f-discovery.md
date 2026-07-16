@@ -31,11 +31,11 @@ Page sections:
 
 ## Why it exists
 
-- **Grounded idea flow.** Owlfolio is a grounded research-and-decision system; ideas must come
+- **Grounded idea flow.** Owner's Manual is a grounded research-and-decision system; ideas must come
   from verifiable primary sources. 13F filings are exactly that: SEC-hosted, deterministic to
   parse, replayable. No model judgment is involved in the harvest.
 - **Cloning as a starting point, never a trade.** The Pabrai-style cloning insight is that
-  great concentrated investors publish their highest-conviction ideas quarterly. Owlfolio uses
+  great concentrated investors publish their highest-conviction ideas quarterly. Owner's Manual uses
   that as a *funnel input*: every candidate still passes the Shariah front gate, the circle of
   competence, the four-pillar deep dive, and a human-authored admission. Nothing is bought,
   promoted, or copied automatically.

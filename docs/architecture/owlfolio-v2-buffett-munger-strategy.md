@@ -1,4 +1,4 @@
-# Owlfolio v2 — Buffett-Munger strategy (Design B — Buffett-literal)
+# Owner's Manual v2 — Buffett 4-Pillar strategy (Design B — Buffett-literal)
 
 Single source of truth for parameters: `packages/strategies/src/buffettMunger.ts` and `packages/strategies/src/strategyContract.ts`. Values quoted in this document are read from those files. If a value here disagrees with the TypeScript source, the source wins.
 
@@ -8,7 +8,7 @@ Single source of truth for parameters: `packages/strategies/src/buffettMunger.ts
 
 ## 1. Overview
 
-Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. It is a **concentrated quality-value** approach, Shariah-aware first-class throughout:
+Buffett 4-Pillar is the default strategy for the Owner's Manual v2 local-use candidate. It is a **concentrated quality-value** approach, Shariah-aware first-class throughout:
 
 - **Concentrated** — up to 20 positions, maximum 15 % per position, 3 % minimum cash buffer.
 - **Quality** — investable only when the business has a durable wide economic moat and positive normalized owner earnings.
@@ -95,7 +95,7 @@ The mode is configured in the `automation` settings (app config / Settings page)
 
 ### Why deep dive is swarm-only
 
-A single-agent deep dive was evaluated and **rejected**. Holding the full Buffett-Munger multi-lane context (moat taxonomy, financials, risk, management quality, valuation, Shariah synthesis) in one model call degrades output quality. Reliability lives entirely in the parallel specialist swarm, where each agent operates with a narrow, focused context. The front gates are kept intentionally lightweight: each is a focused single-question call (sector permissibility; cashflow predictability), so each can be a single grounded agent call without quality loss. (The earlier quick screen — one call carrying both questions plus a business-quality read — was retired in the 2026-07 pipeline restructure.)
+A single-agent deep dive was evaluated and **rejected**. Holding the full Buffett 4-Pillar multi-lane context (moat taxonomy, financials, risk, management quality, valuation, Shariah synthesis) in one model call degrades output quality. Reliability lives entirely in the parallel specialist swarm, where each agent operates with a narrow, focused context. The front gates are kept intentionally lightweight: each is a focused single-question call (sector permissibility; cashflow predictability), so each can be a single grounded agent call without quality loss. (The earlier quick screen — one call carrying both questions plus a business-quality read — was retired in the 2026-07 pipeline restructure.)
 
 ---
 
@@ -290,7 +290,7 @@ Setting with `book_default` provenance until the user changes it. The interest-b
 | Concern | Location |
 |---|---|
 | Strategy contract schema (zod) | `packages/strategies/src/strategyContract.ts` |
-| Buffett-Munger contract object + helpers | `packages/strategies/src/buffettMunger.ts` |
+| Buffett 4-Pillar contract object + helpers | `packages/strategies/src/buffettMunger.ts` |
 | Gate evaluation | `packages/strategies/src/evaluateGates.ts` |
 | Contract tests | `packages/strategies/src/__tests__/buffettMunger.test.ts` |
 | Research swarm entry point | `packages/workflow/src/researchSwarm.ts` |

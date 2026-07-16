@@ -10,7 +10,7 @@ import { REQUIRED_RETURN_MAX, REQUIRED_RETURN_MIN, type ValuationConfig } from '
 
 export type RequiredReturnPanelProps = {
   initialValuation: ValuationConfig
-  /** True when the required return is USER-SET; false = the flat 15% book default is in effect. */
+  /** True when the required return is USER-SET; false = the flat 15% strategy default is in effect. */
   configured: boolean
 }
 
@@ -97,14 +97,14 @@ export function RequiredReturnPanel({ initialValuation, configured }: RequiredRe
       'p',
       { style: helperStyle },
       'The flat annual return every buy candidate must clear — the 10-year free-cash-flow projection is '
-      + 'discounted at this rate. The book default is 15%: anything less and you might as well dollar-cost-average '
+      + 'discounted at this rate. The strategy default is 15%: anything less and you might as well dollar-cost-average '
       + 'the index. The margins stay uniform on top of it: buy at ≥30% below intrinsic value, load up at ≥50%.',
     ),
     !configured
       ? createElement(
           'p',
           { style: { ...helperStyle, color: 'var(--owl-color-gold-bright)' }, 'data-testid': 'required-return-default-note' },
-          `Currently using the book default (${pct(initialValuation.required_return)}).`,
+          `Currently using the strategy default (${pct(initialValuation.required_return)}).`,
         )
       : null,
     createElement(

@@ -11,7 +11,7 @@ function makeDataSafety(overrides: Partial<DataSafetyViewModel> = {}): DataSafet
     generated_at_utc: '2026-06-05T11:23:00.000Z',
     mode: 'personal-local',
     provider_id: 'mock-provider',
-    project_dir_label: 'Owlfolio project workspace',
+    project_dir_label: 'Owner’s Manual project workspace',
     manifest_available: true,
     manifest_file_count: 7,
     included_categories: [

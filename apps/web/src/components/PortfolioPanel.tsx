@@ -85,7 +85,7 @@ export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [],
     createElement(RouteHeader, {
       kicker: 'Held theses',
       title: 'Portfolio',
-      description: `${holdings.length} held ${holdings.length === 1 ? 'thesis' : 'theses'} — tracked against new filings (check-ins) and the computed zones. Owlfolio records your entry price as the anchor; it keeps no books.`,
+      description: `${holdings.length} held ${holdings.length === 1 ? 'thesis' : 'theses'} — tracked against new filings (check-ins) and the computed zones. Owner’s Manual records your entry price as the anchor; it keeps no books.`,
     }),
     createElement('hr', { className: 'owl-rule' }),
     ...(holdings.length === 0
@@ -314,7 +314,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
  */
 /**
  * The exit-purification note inside the close form — everything needed to do the arithmetic at the
- * moment it applies, without Owlfolio keeping a balance. Renders only for CONDITIONAL names.
+ * moment it applies, without Owner’s Manual keeping a balance. Renders only for CONDITIONAL names.
  */
 function createExitPurificationGuidance(holding: PortfolioHolding) {
   if ((holding.shariah_gate_status ?? '').toUpperCase() !== 'CONDITIONAL' || holding.shariah_gate_allowed !== true) return null
@@ -327,7 +327,7 @@ function createExitPurificationGuidance(holding: PortfolioHolding) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      `This name screened CONDITIONAL (${rateText} impermissible income). On exit, common methodologies either purify that fraction of the dividends received while held, or additionally purify the same fraction of the realized gain — your gain per share is your exit price minus your entry (${formatMoney(holding.cost_basis_per_share, holding.currency)}). The arithmetic and the payment are yours; consult your own scholar for the methodology. Owlfolio records the exit only.`,
+      `This name screened CONDITIONAL (${rateText} impermissible income). On exit, common methodologies either purify that fraction of the dividends received while held, or additionally purify the same fraction of the realized gain — your gain per share is your exit price minus your entry (${formatMoney(holding.cost_basis_per_share, holding.currency)}). The arithmetic and the payment are yours; consult your own scholar for the methodology. Owner’s Manual records the exit only.`,
     ),
   )
 }
@@ -342,7 +342,7 @@ function createShariahConditionLine(holding: PortfolioHolding) {
   return createElement(
     'p',
     { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.03em', margin: 0 } },
-    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owlfolio keeps no books.`,
+    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owner’s Manual keeps no books.`,
   )
 }
 
@@ -364,7 +364,7 @@ function createCloseForm(holding: PortfolioHolding, shariahEnabled = true) {
     createElement(
       'form',
       { action: `/api/portfolio/${holding.holding_id}/close`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },
-      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'Records the exit you already executed at your broker — Owlfolio never trades. The position leaves the portfolio; the name returns to the watchlist board.'),
+      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'Records the exit you already executed at your broker — Owner’s Manual never trades. The position leaves the portfolio; the name returns to the watchlist board.'),
       // EXIT PURIFICATION (owner-approved 2026-07-15): GUIDANCE, never an account — the scale-down
       // keeps no books and no share counts, so amounts are yours to compute. Shown only for
       // CONDITIONAL names. SHARIAH-OFF (queued setting): hide this block when the Shariah mode is off.

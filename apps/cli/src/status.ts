@@ -11,7 +11,7 @@ export async function runStatus(ctx: CliContext): Promise<number> {
   const { out, cwd, env } = ctx
   const { config, is_initialized } = await getOnboardingState({ cwd, env })
 
-  out('Owlfolio')
+  out('Owner’s Manual')
   out(`  Mode:      ${config.mode}${is_initialized ? ' · initialized' : ''}`)
 
   if (config.mode === 'unconfigured') {

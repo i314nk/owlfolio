@@ -128,7 +128,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
   return createElement(
     'nav',
     {
-      'aria-label': 'Primary Owlfolio navigation',
+      'aria-label': 'Primary Owner’s Manual navigation',
       className: 'owl-nav-shell',
     },
     createElement(
@@ -141,7 +141,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
         createElement(
           'span',
           { className: 'owl-brand-copy' },
-          createElement('span', { className: 'owl-brand-title' }, 'Owlfolio'),
+          createElement('span', { className: 'owl-brand-title' }, 'Owner’s Manual'),
           createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
         ),
       ),
@@ -205,7 +205,7 @@ function renderNavSection(
 function SetupCard() {
   return createElement(
     'section',
-    { 'aria-label': 'Owlfolio setup status', className: 'owl-setup-card' },
+    { 'aria-label': 'Owner’s Manual setup status', className: 'owl-setup-card' },
     createElement('p', { className: 'owl-setup-card-kicker' }, 'Setup needed'),
     createElement('h2', { className: 'owl-setup-card-title' }, 'Start your local workspace'),
     createElement('p', { className: 'owl-setup-card-copy' }, 'Connect a local AI assistant before personal ledger workflows begin.'),

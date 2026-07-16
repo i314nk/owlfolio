@@ -178,7 +178,7 @@ export function buildDataSafetyViewModelFromManifest({
     generated_at_utc: manifest.created_at_utc,
     mode: manifest.app_config.mode,
     provider_id: manifest.app_config.provider.provider_id,
-    project_dir_label: 'Owlfolio project workspace',
+    project_dir_label: 'Owner’s Manual project workspace',
     manifest_available: true,
     manifest_file_count: manifest.files.length,
     included_categories: manifest.included_entries.map((entry) => ({

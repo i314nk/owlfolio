@@ -18,10 +18,10 @@ export type MainOverrides = {
 
 export function usage(): string {
   return [
-    'Owlfolio — local-first investment workflow',
+    'Owner’s Manual — local-first investment workflow',
     '',
     'Usage:',
-    '  owlfolio <command>',
+    '  owners-manual <command>   (compat alias: owlfolio)',
     '',
     'Commands:',
     '  start             Launch the app and open the browser (onboarding lives in the app).',

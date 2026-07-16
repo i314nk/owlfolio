@@ -47,7 +47,7 @@ export type ResolveRunProgressInput = {
 }
 
 /**
- * The five Buffett-Munger deep-dive specialist lanes (business_quality, moat, management, financial_quality,
+ * The five Buffett 4-Pillar deep-dive specialist lanes (business_quality, moat, management, financial_quality,
  * risks). Hardcoded here to keep this module a pure, dependency-light presentation helper;
  * it mirrors `buffettMungerDeepDiveLanes.length` in `@owlfolio/workflow` (kept in sync by intent).
  * Shariah runs as an always-on focused pass (not a parallel lane), so it is not counted here.

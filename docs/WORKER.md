@@ -1,4 +1,4 @@
-# Owlfolio worker
+# Owner's Manual worker
 
 The worker is a local, ledger-first process for scheduled task runtime and observability. It intentionally has no CommandCenter or UI imports: it loads runtime paths, reads/writes the ledger, and appends scheduled-task lifecycle events.
 

@@ -74,7 +74,7 @@ test('audit trail command affordance link focuses query search input', async ({ 
   await initializeWorkflow(page, request)
 
   await page
-    .getByRole('navigation', { name: /primary owlfolio navigation/i })
+    .getByRole('navigation', { name: /primary owner.s manual navigation/i })
     .getByRole('link', { name: /audit trail search/i })
     .click()
 

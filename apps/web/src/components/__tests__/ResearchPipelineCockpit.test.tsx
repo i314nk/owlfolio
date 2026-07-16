@@ -70,6 +70,6 @@ describe('ResearchPipelineCockpit', () => {
     expect(html).toContain('Quick Screen empty')
     expect(html).toContain('Default strategy: buffett-munger')
     expect(html).toContain('<details')
-    expect(html).not.toContain('Buffett-Munger certified')
+    expect(html).not.toContain('Buffett 4-Pillar certified')
   })
 })

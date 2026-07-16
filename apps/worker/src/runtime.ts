@@ -772,7 +772,7 @@ function providerExecutionMetadata(readiness: ProviderExecutionReadiness | undef
 function buildWatchlistMonitorPrompt(item: ReturnType<typeof projectWatchlist>[number]): string {
   const label = labelForWatchlistItem(item)
   return [
-    `Review ticker ${label} for Owlfolio watchlist monitoring.`,
+    `Review ticker ${label} for Owner’s Manual watchlist monitoring.`,
     'Assess buy-zone, thesis drift, valuation status, and material source updates.',
     'Do not recommend or execute any portfolio action without explicit human approval.',
   ].join(' ')
