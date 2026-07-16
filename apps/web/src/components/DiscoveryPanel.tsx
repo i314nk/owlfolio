@@ -213,6 +213,17 @@ function cellTitle(cell: MatrixCell, managerDisplay: string): string {
   return `${managerDisplay}: ${what} — ${conviction} · 13F ${cell.period}`
 }
 
+/** Alternating faint band behind the investor columns — the vertical guide the eye tracks. */
+function columnGuideStyle(index: number): CSSProperties {
+  return {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    display: 'flex',
+    justifyContent: 'center',
+    ...(index % 2 === 0 ? { background: 'rgba(148, 163, 184, 0.08)', borderRadius: '3px' } : {}),
+  }
+}
+
 function matrixGridStyle(managerCount: number): CSSProperties {
   return {
     alignItems: 'center',
@@ -243,13 +254,13 @@ function createActionMatrixSection(
     'div',
     { style: matrixGridStyle(managers.length) },
     createElement('span', { key: 'lbl', style: { ...mono2xs, color: 'var(--owl-color-quiet)', fontWeight: 400 } }, 'TICKER — COMPANY'),
-    ...managers.map((m) => {
+    ...managers.map((m, i) => {
       const q = m.cik === undefined ? undefined : quarterByCik.get(m.cik)
       return createElement(
         'span',
         {
           key: m.cik,
-          style: { ...mono2xs, color: q === undefined ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)', textAlign: 'center' },
+          style: { ...mono2xs, ...columnGuideStyle(i), color: q === undefined ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' },
           title: `${shortManagerName(m.manager_name)}${q === undefined ? ' — no filing harvested' : ` · 13F ${q.period}`}`,
         },
         investorInitials(m.manager_name),
@@ -318,15 +329,15 @@ function createMatrixRow(
       createElement('span', { style: { color: 'var(--owl-color-text)', fontWeight: 700, whiteSpace: 'nowrap' } }, row.ticker ?? 'UNRESOLVED'),
       createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, titleCaseEntityName(row.issuer)),
     ),
-    ...managers.map((m) => {
+    ...managers.map((m, i) => {
       const cell = m.cik === undefined ? undefined : row.cells.get(m.cik)
       if (cell === undefined) {
-        return createElement('span', { key: m.cik, style: { color: 'var(--owl-color-quiet)', opacity: 0.5, textAlign: 'center' } }, '·')
+        return createElement('span', { key: m.cik, style: { ...columnGuideStyle(i), color: 'var(--owl-color-quiet)', opacity: 0.5 } }, '·')
       }
       const { color, glyph } = cellColor(cell)
       return createElement(
         'span',
-        { key: m.cik, style: { color, fontWeight: 800, textAlign: 'center' }, title: cellTitle(cell, shortManagerName(m.manager_name)) },
+        { key: m.cik, style: { ...columnGuideStyle(i), color, fontWeight: 800 }, title: cellTitle(cell, shortManagerName(m.manager_name)) },
         glyph,
       )
     }),
