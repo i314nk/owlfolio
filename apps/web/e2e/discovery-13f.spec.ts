@@ -28,9 +28,8 @@ test('the 13F discovery page renders its sections with honest empty states', asy
   await expect(summary.getByText(/45 days/)).toBeVisible()
   await expect(summary.getByText(/nothing here is a buy or sell instruction/i)).toBeVisible()
 
-  // The boards, honestly empty on a fresh ledger.
-  await expect(page.getByRole('region', { name: /latest buys/i }).getByText(/no new buy signals/i)).toBeVisible()
-  await expect(page.getByRole('region', { name: /latest sells/i }).getByText(/no exits or meaningful trims/i)).toBeVisible()
+  // The action matrix, honestly empty on a fresh ledger.
+  await expect(page.getByRole('region', { name: /manager actions/i }).getByText(/no manager actions harvested yet/i)).toBeVisible()
   const managers = page.getByRole('region', { name: /manager portfolios/i })
   await expect(managers.getByText(/no manager quarters harvested yet/i)).toBeVisible()
   // Dormant filers are labeled, never faked as live books.

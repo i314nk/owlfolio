@@ -109,6 +109,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'total_value',
       'position_count',
       'top_holdings',
+      'buys',
       'sells',
       'is_observation',
     ],

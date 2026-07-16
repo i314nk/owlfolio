@@ -210,6 +210,16 @@ describe('CLONER_LIST', () => {
     expect(byCik.get('0001061768')?.manager_name).toContain('Baupost')
     expect(byCik.get('0001336528')?.manager_name).toContain('Pershing Square')
     expect(byCik.get('0002104187')?.manager_name).toContain('Aquamarine')
+    // Removed for now (owner 2026-07-16): Akre + Giverny.
+    expect(byCik.has('0001112520')).toBe(false)
+    expect(byCik.has('0001641864')).toBe(false)
+    expect(CLONER_LIST).toHaveLength(7)
+    // Every entry names the investor alongside the firm (except single-identity firms).
+    for (const m of CLONER_LIST) {
+      if (!m.manager_name.includes('Akre')) {
+        expect(m.manager_name).toMatch(/\(.+\)/)
+      }
+    }
     // Intermittent filers carry an honest staleness note so the page never fakes a live book.
     expect(byCik.get('0001649339')?.note).toMatch(/intermittent|deregist|2025Q3/i)
     expect(byCik.get('0001173334')?.note).toMatch(/2012/)
@@ -504,5 +514,13 @@ describe('runDiscovery13f — quarter snapshots (13F page S1)', () => {
 
     // Sells ride the same event (the fixture book has no exits/trims → empty but PRESENT).
     expect(Array.isArray(p.sells)).toBe(true)
+
+    // v2: per-manager BUYS ride the event too — the heat-map matrix needs per-manager conviction.
+    const buys = p.buys as Record<string, unknown>[]
+    expect(buys.find((b) => b.cusip === '22160K105')).toMatchObject({ ticker: 'COST', signal_type: 'NEW_POSITION' })
+    expect(buys.find((b) => b.cusip === '02005N100')?.signal_type).toBe('MEANINGFUL_ADD')
+    for (const b of buys) {
+      expect(typeof b.conviction_pct).toBe('number')
+    }
   })
 })

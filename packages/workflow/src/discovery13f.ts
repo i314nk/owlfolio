@@ -126,8 +126,8 @@ export const CLONER_LIST: readonly ClonerManager[] = [
   { manager_name: 'Baupost Group LLC (Seth Klarman)', cik: '0001061768' },
   { manager_name: 'Pershing Square Capital Management (Bill Ackman)', cik: '0001336528' },
   { manager_name: 'Aquamarine Capital (Guy Spier)', cik: '0002104187' },
-  { manager_name: 'Akre Capital Management LLC', cik: '0001112520' },
-  { manager_name: 'Giverny Capital Inc', cik: '0001641864' },
+  // Akre + Giverny removed 2026-07-16 (owner: 'remove them for now') — their persisted quarter
+  // events remain in the ledger as audit history; the page filters display to the live roster.
 ]
 
 // ---------------------------------------------------------------------------
@@ -303,7 +303,9 @@ export async function fetchManager13F(
   const priorHoldings = prior === undefined ? [] : (await fetchInfoTable(cikInt, prior.accession, deps)) ?? []
 
   return {
-    manager_name: subs?.name ?? managerName,
+    // The curated roster name (firm + investor) is the display truth; the SEC filer name is often
+    // a legal shell ('BAUPOST GROUP LLC/MA'). The CIK remains the identity key.
+    manager_name: managerName,
     cik: cik10,
     period: quarterLabel(current.report, current.filed),
     ...(current.report.length > 0 ? { report_date: current.report } : {}),
@@ -815,9 +817,18 @@ export async function runDiscovery13f(
       ...sell,
       ...(tickerFor(sell.cusip, sell.issuer) === undefined ? {} : { ticker: tickerFor(sell.cusip, sell.issuer) }),
     }))
-    const quarterKey = `13f-quarter:${quarter.cik}:${quarter.period}`
+    const buys = detectManagerSignals(quarter).map((signal) => ({
+      cusip: signal.cusip,
+      issuer: signal.issuer,
+      ...(tickerFor(signal.cusip, signal.issuer) === undefined ? {} : { ticker: tickerFor(signal.cusip, signal.issuer) }),
+      signal_type: signal.signal_type,
+      conviction_pct: signal.conviction_pct,
+    }))
+    // v2 (2026-07-16): the payload gained per-manager buys + curated manager names — the key bump
+    // re-emits already-recorded periods once; the projection folds same-period ties last-wins.
+    const quarterKey = `13f-quarter:${quarter.cik}:${quarter.period}:v2`
     await store.append({
-      event_id: `evt_discovery_13f_quarter_${quarter.cik}_${quarter.period}`,
+      event_id: `evt_discovery_13f_quarter_${quarter.cik}_${quarter.period}_v2`,
       event_type: 'discovery_13f_quarter_recorded',
       aggregate_type: 'discovery_quarter',
       aggregate_id: `q13f_${quarter.cik}_${quarter.period}`,
@@ -833,6 +844,7 @@ export async function runDiscovery13f(
         total_value: total,
         position_count: byCusip.size,
         top_holdings: top,
+        buys,
         sells,
         is_observation: true,
       },

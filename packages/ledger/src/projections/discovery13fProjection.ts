@@ -15,6 +15,15 @@ export type Discovery13fHolding = {
   change: 'NEW' | 'ADD' | 'TRIM' | 'UNCHANGED'
 }
 
+export type Discovery13fBuy = {
+  cusip: string
+  issuer: string
+  ticker?: string
+  signal_type: 'NEW_POSITION' | 'MEANINGFUL_ADD'
+  /** The position's share of the manager's book — the heat-map's intensity axis. */
+  conviction_pct: number
+}
+
 export type Discovery13fSell = {
   manager_name: string
   cusip: string
@@ -35,6 +44,8 @@ export type Discovery13fQuarter = {
   total_value: number
   position_count: number
   top_holdings: Discovery13fHolding[]
+  /** Per-manager buy signals (v2 payloads; [] on legacy v1 snapshots). */
+  buys: Discovery13fBuy[]
   sells: Discovery13fSell[]
   recorded_at: string
 }
@@ -86,6 +97,23 @@ function foldHolding(value: unknown): Discovery13fHolding | undefined {
   }
 }
 
+function foldBuy(value: unknown): Discovery13fBuy | undefined {
+  if (!isRecord(value)) return undefined
+  const cusip = str(value['cusip'])
+  const issuer = str(value['issuer'])
+  const signal = str(value['signal_type'])
+  const ticker = str(value['ticker'])
+  if (cusip === undefined || issuer === undefined) return undefined
+  if (signal !== 'NEW_POSITION' && signal !== 'MEANINGFUL_ADD') return undefined
+  return {
+    cusip,
+    issuer,
+    ...(ticker === undefined ? {} : { ticker }),
+    signal_type: signal,
+    conviction_pct: num(value['conviction_pct']),
+  }
+}
+
 function foldSell(value: unknown): Discovery13fSell | undefined {
   if (!isRecord(value)) return undefined
   const cusip = str(value['cusip'])
@@ -107,13 +135,26 @@ function foldSell(value: unknown): Discovery13fSell | undefined {
   }
 }
 
-export function projectDiscovery13f(events: LedgerEventEnvelope<unknown>[]): Discovery13fProjection {
+export type ProjectDiscovery13fOptions = {
+  /**
+   * Display allowlist: only quarters from these CIKs project (the live roster). Ledger events from
+   * managers removed from the roster remain the audit record but leave the active boards.
+   */
+  ciks?: readonly string[]
+}
+
+export function projectDiscovery13f(
+  events: LedgerEventEnvelope<unknown>[],
+  options: ProjectDiscovery13fOptions = {},
+): Discovery13fProjection {
   const latestByManager = new Map<string, Discovery13fQuarter>()
+  const allowed = options.ciks === undefined ? undefined : new Set(options.ciks)
 
   for (const event of events) {
     if (event.event_type !== 'discovery_13f_quarter_recorded' || !isRecord(event.payload)) continue
     const p = event.payload
     const cik = str(p['cik'])
+    if (cik !== undefined && allowed !== undefined && !allowed.has(cik)) continue
     const managerName = str(p['manager_name'])
     const period = str(p['period'])
     if (cik === undefined || managerName === undefined || period === undefined) continue
@@ -129,6 +170,7 @@ export function projectDiscovery13f(events: LedgerEventEnvelope<unknown>[]): Dis
       total_value: num(p['total_value']),
       position_count: num(p['position_count']),
       top_holdings: Array.isArray(p['top_holdings']) ? p['top_holdings'].flatMap((h) => foldHolding(h) ?? []) : [],
+      buys: Array.isArray(p['buys']) ? p['buys'].flatMap((b) => foldBuy(b) ?? []) : [],
       sells: Array.isArray(p['sells']) ? p['sells'].flatMap((s) => foldSell(s) ?? []) : [],
       recorded_at: event.created_at,
     }

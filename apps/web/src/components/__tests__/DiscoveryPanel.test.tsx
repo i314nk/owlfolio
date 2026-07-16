@@ -4,39 +4,81 @@ import { describe, expect, it } from 'vitest'
 
 import type { Discovery13fQuarter } from '@owlfolio/ledger/projections/discovery13fProjection'
 
-import { DiscoveryPanel } from '../DiscoveryPanel'
+import { buildActionMatrix, DiscoveryPanel, investorInitials } from '../DiscoveryPanel'
 
-// The 13F discovery page (owner-approved 2026-07-16): summary + honesty rails, latest buys (the
-// triage inbox), latest sells (held/watched flagged), manager portfolio cards, dormant filers
-// labeled. Render-level truth checks — the projections have their own tests.
+// The 13F discovery page (owner-approved 2026-07-16): summary + honesty rails, the manager-action
+// heat-map matrix (rows = names, columns = the tracked investors, green ▲ buys / red-amber ▼ sells,
+// held/watched flagged), manager portfolio cards, dormant filers labeled. Render-level truth
+// checks — the projections have their own tests.
 
-const berkshireQuarter: Discovery13fQuarter = {
-  manager_name: 'BERKSHIRE HATHAWAY INC',
-  cik: '0001067983',
-  period: '2026Q1',
-  report_date: '2026-03-31',
-  filed_date: '2026-05-14',
-  total_value: 300_000_000_000,
-  position_count: 40,
-  top_holdings: [
-    { cusip: '037833100', issuer: 'APPLE INC', ticker: 'AAPL', value: 60_000_000_000, shares: 300_000_000, pct: 0.2, change: 'UNCHANGED' },
-    { cusip: '22160K105', issuer: 'COSTCO WHOLESALE CORP', ticker: 'COST', value: 3_000_000_000, shares: 3_000_000, pct: 0.01, change: 'NEW' },
-  ],
-  sells: [
-    { manager_name: 'BERKSHIRE HATHAWAY INC', cusip: '02079K305', issuer: 'ALPHABET INC', ticker: 'GOOGL', signal_type: 'EXIT', prior_shares: 1, current_shares: 0, prior_conviction_pct: 0.02 },
-  ],
-  recorded_at: '2026-07-01T00:00:00.000Z',
+function quarter(over: Partial<Discovery13fQuarter>): Discovery13fQuarter {
+  return {
+    manager_name: 'Berkshire Hathaway Inc (Warren Buffett)',
+    cik: '0001067983',
+    period: '2026Q1',
+    report_date: '2026-03-31',
+    filed_date: '2026-05-14',
+    total_value: 300_000_000_000,
+    position_count: 40,
+    top_holdings: [
+      { cusip: '037833100', issuer: 'APPLE INC', ticker: 'AAPL', value: 60_000_000_000, shares: 300_000_000, pct: 0.2, change: 'UNCHANGED' },
+    ],
+    buys: [],
+    sells: [],
+    recorded_at: '2026-07-01T00:00:00.000Z',
+    ...over,
+  }
 }
+
+const berkshireQuarter = quarter({
+  buys: [{ cusip: '92826C839', issuer: 'VISA INC', ticker: 'V', signal_type: 'NEW_POSITION', conviction_pct: 0.06 }],
+  sells: [{ manager_name: 'Berkshire Hathaway Inc (Warren Buffett)', cusip: '02079K305', issuer: 'ALPHABET INC', ticker: 'GOOGL', signal_type: 'EXIT', prior_shares: 1, current_shares: 0, prior_conviction_pct: 0.02 }],
+})
+const himalayaQuarter = quarter({
+  manager_name: 'Himalaya Capital Management LLC (Li Lu)',
+  cik: '0001709323',
+  total_value: 3_000_000_000,
+  position_count: 14,
+  top_holdings: [],
+  buys: [{ cusip: '92826C839', issuer: 'VISA INC', ticker: 'V', signal_type: 'MEANINGFUL_ADD', conviction_pct: 0.01 }],
+  sells: [{ manager_name: 'Himalaya Capital Management LLC (Li Lu)', cusip: '22160K105', issuer: 'COSTCO WHOLESALE CORP', ticker: 'COST', signal_type: 'MEANINGFUL_TRIM', prior_shares: 4, current_shares: 2, prior_conviction_pct: 0.1 }],
+})
 
 function render(over: Partial<Parameters<typeof DiscoveryPanel>[0]> = {}): string {
   return renderToStaticMarkup(createElement(DiscoveryPanel, {
     candidates: [],
     quarters: [],
-    sells: [],
     heldOrWatchedTickers: [],
     ...over,
   }))
 }
+
+describe('buildActionMatrix', () => {
+  it('one row per name, one cell per manager; the most-acted names rank first', () => {
+    const matrix = buildActionMatrix([berkshireQuarter, himalayaQuarter])
+    expect(matrix.map((r) => r.key)).toEqual(['V', 'COST', 'GOOGL'])
+    const visa = matrix[0]!
+    expect(visa.buying).toBe(2)
+    expect(visa.selling).toBe(0)
+    expect(visa.cells.get('0001067983')).toMatchObject({ signal: 'NEW_POSITION', conviction_pct: 0.06 })
+    expect(visa.cells.get('0001709323')).toMatchObject({ signal: 'MEANINGFUL_ADD', period: '2026Q1' })
+    expect(matrix[1]!.cells.get('0001709323')?.signal).toBe('MEANINGFUL_TRIM')
+  })
+
+  it('an unresolved ticker keys by cusip — never guessed', () => {
+    const matrix = buildActionMatrix([quarter({ buys: [{ cusip: '922908363', issuer: 'SOME OBSCURE CORP', signal_type: 'NEW_POSITION', conviction_pct: 0.01 }] })])
+    expect(matrix[0]?.key).toBe('922908363')
+    expect(matrix[0]?.ticker).toBeUndefined()
+  })
+})
+
+describe('investorInitials', () => {
+  it('derives column initials from the investor in parentheses', () => {
+    expect(investorInitials('Scion Asset Management (Michael Burry)')).toBe('MB')
+    expect(investorInitials('Berkshire Hathaway Inc (Warren Buffett)')).toBe('WB')
+    expect(investorInitials('Himalaya Capital Management LLC (Li Lu)')).toBe('LL')
+  })
+})
 
 describe('the 13F discovery page', () => {
   it('renders the summary header with the honesty rails and honest empty states', () => {
@@ -45,22 +87,32 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('45 days')
     expect(html).toContain('long US equities only')
     expect(html).toContain('Nothing here is a buy or sell instruction')
-    expect(html).toContain('No new buy signals')
-    expect(html).toContain('No exits or meaningful trims')
+    expect(html).toContain('No manager actions harvested yet')
     expect(html).toContain('No manager quarters harvested yet')
   })
 
-  it('renders a manager card: name, book value, positions, the as-of/filed stamp, top holdings with QoQ chips, and quarter sells', () => {
-    const html = render({ quarters: [berkshireQuarter] })
-    expect(html).toContain('Berkshire Hathaway')
-    expect(html).toContain('$300.0B · 40 positions')
-    expect(html).toContain('AS OF 2026-03-31 · FILED 2026-05-14')
-    expect(html).toContain('AAPL')
-    expect(html).toContain('20.0%')
-    expect(html).toContain('NEW')
-    expect(html).toContain('Sold this quarter: GOOGL (exit)')
+  it('renders the action matrix: investor columns, ▲/▼ cells with conviction titles, rank chips, and the hold/watch flag', () => {
+    const html = render({ quarters: [berkshireQuarter, himalayaQuarter], heldOrWatchedTickers: ['COST'] })
+    // Columns: one initial per tracked investor (7 on the roster).
+    for (const initials of ['WB', 'MP', 'MB', 'LL', 'SK', 'BA', 'GS']) {
+      expect(html).toContain(`>${initials}<`)
+    }
+    expect(html).toContain('▲')
+    expect(html).toContain('▼')
+    // The cell title carries the manager, the action, and the % of book — the honest tooltip.
+    expect(html).toContain('Berkshire Hathaway (Warren Buffett): NEW position — 6.0% of the book · 13F 2026Q1')
+    expect(html).toContain('2 BUYING')
+    expect(html).toContain('1 SELLING')
+    expect(html).toContain('⚑ HOLD/WATCH')
     // No performance numbers, no live prices — filing values only.
     expect(html).not.toMatch(/return/i)
+  })
+
+  it('names the investor alongside the firm on manager cards — mapping legacy SEC filer names via the CIK', () => {
+    const legacySecName = quarter({ manager_name: 'BAUPOST GROUP LLC/MA', cik: '0001061768' })
+    const html = render({ quarters: [legacySecName] })
+    expect(html).toContain('Baupost Group (Seth Klarman)')
+    expect(html).not.toContain('BAUPOST GROUP LLC/MA')
   })
 
   it('labels the dormant/unharvested tracked managers instead of faking live books', () => {
@@ -70,29 +122,9 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('no quarter harvested yet')
   })
 
-  it('renders sell rows with EXIT/TRIM chips and flags a name the user holds or watches', () => {
-    const html = render({
-      sells: [
-        { key: 'COST', ticker: 'COST', issuer: 'COSTCO WHOLESALE CORP', signal_type: 'EXIT', managers: ['HIMALAYA CAPITAL MANAGEMENT LLC (LI LU)'], period: '2026Q1' },
-        { key: 'GOOGL', ticker: 'GOOGL', issuer: 'ALPHABET INC', signal_type: 'MEANINGFUL_TRIM', managers: ['BERKSHIRE HATHAWAY INC'], period: '2026Q1' },
-      ],
-      heldOrWatchedTickers: ['COST'],
-    })
-    // The many small buy/sell rows tile into the 3-up grid (single column wasted the screen).
-    expect(html).toContain('owl-row-grid-3')
-    expect(html).toContain('EXIT')
-    expect(html).toContain('TRIM &gt;25%')
-    expect(html).toContain('YOU HOLD/WATCH THIS')
-    expect(html).toContain('Himalaya Capital')
-    // Only the held/watched row carries the flag.
-    expect(html.split('YOU HOLD/WATCH THIS')).toHaveLength(2)
-  })
-
-  it('an unresolved sell renders UNRESOLVED with the issuer name — never a guessed ticker', () => {
-    const html = render({
-      sells: [{ key: '922908363', issuer: 'SOME OBSCURE CORP', signal_type: 'EXIT', managers: ['GIVERNY CAPITAL INC'], period: '2026Q1' }],
-    })
-    expect(html).toContain('UNRESOLVED')
-    expect(html).toContain('Some Obscure Corp')
+  it('flags lagging filers so an old book never reads as current', () => {
+    const scion = quarter({ manager_name: 'Scion Asset Management (Michael Burry)', cik: '0001649339', period: '2025Q3', report_date: '2025-09-30', filed_date: '2025-11-03' })
+    const html = render({ quarters: [berkshireQuarter, scion] })
+    expect(html).toContain('Lagging filers: Scion Asset Management (Michael Burry) (2025Q3)')
   })
 })

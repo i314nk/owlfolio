@@ -89,6 +89,37 @@ describe('projectDiscovery13f — manager quarters', () => {
   })
 })
 
+describe('projectDiscovery13f — buys + the roster allowlist (heat-map, 2026-07-16)', () => {
+  it('folds v2 per-manager buys; legacy v1 snapshots project buys: []', () => {
+    const projection = projectDiscovery13f([
+      quarterEvent({
+        buys: [
+          { cusip: '22160K105', issuer: 'COSTCO WHOLESALE CORP', ticker: 'COST', signal_type: 'NEW_POSITION', conviction_pct: 0.04 },
+          { cusip: 'bad', issuer: 'X', signal_type: 'NOT_A_SIGNAL' },
+        ],
+      }),
+      quarterEvent({ manager_name: 'Himalaya Capital', cik: '0001709323' }),  // v1-shaped: no buys key
+    ])
+    expect(projection.quarters.find((q) => q.cik === '0001067983')?.buys).toEqual([
+      { cusip: '22160K105', issuer: 'COSTCO WHOLESALE CORP', ticker: 'COST', signal_type: 'NEW_POSITION', conviction_pct: 0.04 },
+    ])
+    expect(projection.quarters.find((q) => q.cik === '0001709323')?.buys).toEqual([])
+  })
+
+  it('the ciks allowlist drops removed-roster managers from the active view (audit events untouched)', () => {
+    const sell = { manager_name: 'Akre Capital', cusip: '02079K305', issuer: 'ALPHABET INC', ticker: 'GOOGL', signal_type: 'EXIT', prior_shares: 1, current_shares: 0, prior_conviction_pct: 0.02 }
+    const events = [
+      quarterEvent({}),
+      quarterEvent({ manager_name: 'Akre Capital', cik: '0001112520', sells: [sell] }),
+    ]
+    const filtered = projectDiscovery13f(events, { ciks: ['0001067983'] })
+    expect(filtered.quarters.map((q) => q.cik)).toEqual(['0001067983'])
+    expect(filtered.sells).toEqual([])
+    // Unfiltered still projects everything — history stays reachable.
+    expect(projectDiscovery13f(events).quarters).toHaveLength(2)
+  })
+})
+
 describe('projectDiscovery13f — the aggregated SELLS board', () => {
   const berkshireSell = {
     manager_name: 'Berkshire Hathaway', cusip: '22160K105', issuer: 'COSTCO WHOLESALE CORP', ticker: 'COST',

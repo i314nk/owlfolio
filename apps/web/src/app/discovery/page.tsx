@@ -6,6 +6,7 @@ import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { CLONER_LIST } from '@owlfolio/workflow/discovery13f'
 
 import { DiscoveryPanel } from '../../components/DiscoveryPanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
@@ -24,7 +25,9 @@ export default async function DiscoveryPage() {
     const events = await store.list()
     const candidates = projectDiscoveryCandidates(events)
     const runStatus = projectScheduledTasks(events).find((t) => t.task_kind === 'discovery_13f')
-    const { quarters, sells } = projectDiscovery13f(events)
+    // Display follows the LIVE roster; quarter events from removed managers stay as audit history.
+    const rosterCiks = CLONER_LIST.flatMap((m) => (m.cik === undefined ? [] : [m.cik]))
+    const { quarters } = projectDiscovery13f(events, { ciks: rosterCiks })
     const heldOrWatchedTickers = [
       ...projectHoldings(events).flatMap((h) => (h.ticker === undefined ? [] : [h.ticker])),
       ...projectWatchlist(events).flatMap((w) => (w.ticker === undefined ? [] : [w.ticker])),
@@ -42,7 +45,6 @@ export default async function DiscoveryPage() {
         candidates,
         ...(runStatus !== undefined ? { runStatus } : {}),
         quarters,
-        sells,
         heldOrWatchedTickers,
       }),
     )

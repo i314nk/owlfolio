@@ -1,11 +1,10 @@
-import { createElement, Fragment, type ReactNode } from 'react'
+import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import {
   extractDiscoverySignal,
   type DiscoveryCandidateProjection,
 } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type {
-  Discovery13fAggregatedSell,
   Discovery13fHolding,
   Discovery13fQuarter,
 } from '@owlfolio/ledger/projections/discovery13fProjection'
@@ -24,22 +23,81 @@ export type DiscoveryPanelRunStatus = {
 export type DiscoveryPanelProps = {
   candidates: DiscoveryCandidateProjection[]
   runStatus?: DiscoveryPanelRunStatus
+  /** Roster-filtered latest quarter per manager (buys + sells ride each quarter). */
   quarters: Discovery13fQuarter[]
-  sells: Discovery13fAggregatedSell[]
-  /** Uppercased tickers currently HELD or WATCHED — flags the sell rows that touch the user's own names. */
+  /** Uppercased tickers currently HELD or WATCHED — flags the matrix rows that touch the user's own names. */
   heldOrWatchedTickers: string[]
 }
 
 const mono2xs = { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } as const
 
+type MatrixSignal = 'NEW_POSITION' | 'MEANINGFUL_ADD' | 'EXIT' | 'MEANINGFUL_TRIM'
+
+export type MatrixCell = {
+  signal: MatrixSignal
+  /** % of the manager's book (buys: current position; sells: the unwound prior position). */
+  conviction_pct: number
+  period: string
+}
+
+export type MatrixRow = {
+  key: string
+  ticker?: string
+  issuer: string
+  cells: Map<string, MatrixCell>
+  buying: number
+  selling: number
+}
+
+/**
+ * The action matrix behind the heat map (owner-approved 2026-07-16): one row per name a tracked
+ * manager acted on this quarter, one cell per manager. Buys come from v2 quarter snapshots
+ * (legacy v1 snapshots contribute sells only until the next harvest re-emits). Rows rank by how
+ * many managers acted — cluster activity floats to the top. Pure and exported for tests.
+ */
+export function buildActionMatrix(quarters: Discovery13fQuarter[]): MatrixRow[] {
+  const rows = new Map<string, MatrixRow>()
+  const rowFor = (ticker: string | undefined, cusip: string, issuer: string): MatrixRow => {
+    const key = ticker ?? cusip
+    const existing = rows.get(key)
+    if (existing !== undefined) return existing
+    const row: MatrixRow = { key, ...(ticker === undefined ? {} : { ticker }), issuer, cells: new Map(), buying: 0, selling: 0 }
+    rows.set(key, row)
+    return row
+  }
+  for (const quarter of quarters) {
+    for (const buy of quarter.buys) {
+      const row = rowFor(buy.ticker, buy.cusip, buy.issuer)
+      row.cells.set(quarter.cik, { signal: buy.signal_type, conviction_pct: buy.conviction_pct, period: quarter.period })
+      row.buying += 1
+    }
+    for (const sell of quarter.sells) {
+      const row = rowFor(sell.ticker, sell.cusip, sell.issuer)
+      row.cells.set(quarter.cik, { signal: sell.signal_type, conviction_pct: sell.prior_conviction_pct, period: quarter.period })
+      row.selling += 1
+    }
+  }
+  return [...rows.values()].sort((a, b) =>
+    (b.buying + b.selling) - (a.buying + a.selling)
+    || b.buying - a.buying
+    || a.key.localeCompare(b.key))
+}
+
+/** 'Scion Asset Management (Michael Burry)' → 'MB' — the matrix column initials. */
+export function investorInitials(managerName: string): string {
+  const investor = /\(([^)]+)\)\s*$/.exec(managerName)?.[1] ?? managerName
+  return investor.split(/\s+/).map((w) => w[0]?.toUpperCase() ?? '').join('').slice(0, 2)
+}
+
 /**
  * The 13F discovery page (owner-approved 2026-07-16): tracked value superinvestors, their latest
- * portfolios, latest buys, latest sells — an IDEA SOURCE feeding the research funnel, never a copy
- * signal. Honesty rails everywhere: quarterly filings with up to a 45-day lag ("as of <report> ·
- * filed <filed>"), long US equities only, no performance numbers, no auto-promotion, no prices.
- * Server component (createElement, no JSX); triage actions stay in the client component.
+ * portfolios, and one action heat-map matrix of their latest buys and sells — an IDEA SOURCE
+ * feeding the research funnel, never a copy signal. Honesty rails everywhere: quarterly filings
+ * with up to a 45-day lag ("as of <report> · filed <filed>"), long US equities only, no
+ * performance numbers, no auto-promotion, no prices. Server component (createElement, no JSX);
+ * triage actions stay in the client component.
  */
-export function DiscoveryPanel({ candidates, runStatus, quarters, sells, heldOrWatchedTickers }: DiscoveryPanelProps) {
+export function DiscoveryPanel({ candidates, runStatus, quarters, heldOrWatchedTickers }: DiscoveryPanelProps) {
   const discovered = candidates.filter((c) => c.status === 'discovered')
   const queued = candidates.filter((c) => c.status === 'queued_for_quick_screen')
   const resolved = candidates.filter((c) => c.status === 'rejected' || c.status === 'promoted_to_research_case')
@@ -49,42 +107,16 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, sells, heldOrW
     ? 'Running…'
     : runStatus?.last_result_summary ?? 'Never run'
 
+  const matrix = buildActionMatrix(quarters)
+  const matrixTickers = new Set(matrix.flatMap((row) => (row.ticker === undefined ? [] : [row.ticker.toUpperCase()])))
+  const leftoverDiscovered = discovered.filter((c) => !matrixTickers.has(c.ticker.toUpperCase()))
+
   return createElement(
     Fragment,
     null,
     createSummaryHeader(runStatusLine),
-    // Latest buys — the signal inbox feeding the research funnel (human-triaged, never auto-promoted).
-    createElement(
-      'section',
-      { 'aria-label': 'Latest buys', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `Latest buys · ${discovered.length}`),
-      createElement(
-        'p',
-        { className: 'owl-row-helper', style: { margin: 0 } },
-        'New or meaningfully increased positions detected in the latest filings. Each is an idea for YOUR research funnel — accept it into screening or reject it; nothing is bought or promoted automatically.',
-      ),
-      discovered.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No new buy signals. Run the harvest to check the latest filings.')
-        : createElement(
-            'div',
-            { className: 'owl-row-grid-3' },
-            ...discovered.map((c) => createCandidateCard(c)),
-          ),
-    ),
-    // Latest sells — exits and meaningful trims, with the user's own names flagged.
-    createElement(
-      'section',
-      { 'aria-label': 'Latest sells', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `Latest sells · ${sells.length}`),
-      createElement(
-        'p',
-        { className: 'owl-row-helper', style: { margin: 0 } },
-        'Positions a tracked manager exited or trimmed by more than 25% in their latest filing. The filing gives no reason — a sell can be valuation, rebalancing, or redemptions. Names you hold or watch are flagged; review your own thesis, never copy the sell.',
-      ),
-      sells.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No exits or meaningful trims in the latest harvested quarters.')
-        : createElement('div', { className: 'owl-row-grid-3' }, ...sells.map((s) => createSellRow(s, held))),
-    ),
+    createActionMatrixSection(matrix, quarters, discovered, held),
+    leftoverDiscovered.length === 0 ? null : createLeftoverCandidatesSection(leftoverDiscovered),
     // Manager portfolios — compact expandable cards per tracked manager's latest quarter.
     createElement(
       'section',
@@ -152,6 +184,190 @@ function createSummaryHeader(runStatusLine: string) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// The action heat-map matrix
+// ---------------------------------------------------------------------------
+
+const CELL_GREEN = '74, 222, 128'
+const CELL_RED = '248, 113, 113'
+const CELL_AMBER = '251, 191, 36'
+
+function cellColor(cell: MatrixCell): { color: string; glyph: string } {
+  const rgb = cell.signal === 'EXIT' ? CELL_RED : cell.signal === 'MEANINGFUL_TRIM' ? CELL_AMBER : CELL_GREEN
+  // Intensity buckets by % of the manager's book: ≥5% full, 2–5% mid, <2% faint.
+  const alpha = cell.conviction_pct >= 0.05 ? 1 : cell.conviction_pct >= 0.02 ? 0.72 : 0.45
+  return { color: `rgba(${rgb}, ${alpha})`, glyph: cell.signal === 'EXIT' || cell.signal === 'MEANINGFUL_TRIM' ? '▼' : '▲' }
+}
+
+function cellTitle(cell: MatrixCell, managerDisplay: string): string {
+  const what = cell.signal === 'NEW_POSITION' ? 'NEW position'
+    : cell.signal === 'MEANINGFUL_ADD' ? 'added >25% to the position'
+    : cell.signal === 'EXIT' ? 'EXITED the position'
+    : 'trimmed >25% of the position'
+  const conviction = `${(cell.conviction_pct * 100).toFixed(1)}% of the book${cell.signal === 'EXIT' || cell.signal === 'MEANINGFUL_TRIM' ? ' (prior quarter)' : ''}`
+  return `${managerDisplay}: ${what} — ${conviction} · 13F ${cell.period}`
+}
+
+function matrixGridStyle(managerCount: number): CSSProperties {
+  return {
+    alignItems: 'center',
+    display: 'grid',
+    gap: '0.15rem 0.35rem',
+    gridTemplateColumns: `minmax(10rem, 1fr) repeat(${managerCount}, minmax(1.5rem, 2rem)) minmax(6.5rem, auto)`,
+  }
+}
+
+function createActionMatrixSection(
+  matrix: MatrixRow[],
+  quarters: Discovery13fQuarter[],
+  discovered: DiscoveryCandidateProjection[],
+  held: Set<string>,
+) {
+  const managers = CLONER_LIST.filter((m) => m.cik !== undefined)
+  const quarterByCik = new Map(quarters.map((q) => [q.cik, q]))
+  const latestPeriod = quarters.reduce((max, q) => (q.period > max ? q.period : max), '')
+  const laggards = quarters.filter((q) => q.period < latestPeriod)
+  const candidateByTicker = new Map(discovered.map((c) => [c.ticker.toUpperCase(), c]))
+
+  const header = createElement(
+    'div',
+    { style: matrixGridStyle(managers.length) },
+    createElement('span', { key: 'lbl', style: { ...mono2xs, color: 'var(--owl-color-quiet)', fontWeight: 400 } }, 'TICKER — COMPANY'),
+    ...managers.map((m) => {
+      const q = m.cik === undefined ? undefined : quarterByCik.get(m.cik)
+      return createElement(
+        'span',
+        {
+          key: m.cik,
+          style: { ...mono2xs, color: q === undefined ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)', textAlign: 'center' },
+          title: `${shortManagerName(m.manager_name)}${q === undefined ? ' — no filing harvested' : ` · 13F ${q.period}`}`,
+        },
+        investorInitials(m.manager_name),
+      )
+    }),
+    createElement('span', { key: 'sum' }),
+  )
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Manager actions', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+    createElement('p', { className: 'owl-section-accent' }, `Manager actions · ${matrix.length} names`),
+    createElement(
+      'p',
+      { className: 'owl-row-helper', style: { margin: 0 } },
+      'Every name a tracked manager bought into, added to, trimmed, or exited in their latest filing — one column per investor, names with the most action on top. '
+      + 'Green ▲ new/add, red ▼ exit, amber ▼ trim; a deeper color means a bigger share of that manager’s book. The filing gives no reasons — an idea to research, never a copy trade.',
+    ),
+    laggards.length > 0
+      ? createElement(
+          'p',
+          { className: 'owl-row-helper', style: { margin: 0 } },
+          `Latest quarter: ${latestPeriod}. Lagging filers: ${laggards.map((q) => `${shortManagerName(q.manager_name)} (${q.period})`).join(', ')}.`,
+        )
+      : null,
+    matrix.length === 0
+      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No manager actions harvested yet. Run the harvest to check the latest filings.')
+      : createElement(
+          'div',
+          { style: { display: 'grid', gap: '0.1rem', overflowX: 'auto' } },
+          header,
+          ...matrix.map((row) => createMatrixRow(row, managers, held, candidateByTicker)),
+        ),
+  )
+}
+
+function createMatrixRow(
+  row: MatrixRow,
+  managers: typeof CLONER_LIST[number][],
+  held: Set<string>,
+  candidateByTicker: Map<string, DiscoveryCandidateProjection>,
+) {
+  const flagged = row.ticker !== undefined && held.has(row.ticker.toUpperCase())
+  const summaryChip = row.buying > 0 && row.selling > 0
+    ? createElement('span', { key: 's', style: { ...mono2xs, color: 'var(--owl-color-muted)' } }, 'MIXED')
+    : row.buying > 0
+      ? createElement('span', { key: 's', style: { ...mono2xs, color: `rgba(${CELL_GREEN}, 1)` } }, `${row.buying} BUYING`)
+      : createElement('span', { key: 's', style: { ...mono2xs, color: `rgba(${CELL_RED}, 1)` } }, `${row.selling} SELLING`)
+
+  const summary = createElement(
+    'summary',
+    { className: 'owl-focusable', style: { ...matrixGridStyle(managers.length), cursor: 'pointer', listStyle: 'none' } },
+    createElement(
+      'span',
+      { key: 'id', style: { alignItems: 'baseline', display: 'flex', gap: '0.4rem', minWidth: 0 } },
+      createElement('span', { style: { color: 'var(--owl-color-text)', fontWeight: 700, whiteSpace: 'nowrap' } }, row.ticker ?? 'UNRESOLVED'),
+      createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, titleCaseEntityName(row.issuer)),
+    ),
+    ...managers.map((m) => {
+      const cell = m.cik === undefined ? undefined : row.cells.get(m.cik)
+      if (cell === undefined) {
+        return createElement('span', { key: m.cik, style: { color: 'var(--owl-color-quiet)', opacity: 0.5, textAlign: 'center' } }, '·')
+      }
+      const { color, glyph } = cellColor(cell)
+      return createElement(
+        'span',
+        { key: m.cik, style: { color, fontWeight: 800, textAlign: 'center' }, title: cellTitle(cell, shortManagerName(m.manager_name)) },
+        glyph,
+      )
+    }),
+    createElement(
+      'span',
+      { key: 'sum', style: { display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', whiteSpace: 'nowrap' } },
+      summaryChip,
+      flagged ? createElement('span', { key: 'own', style: { ...mono2xs, color: CELL_AMBER_TEXT } }, '⚑ HOLD/WATCH') : null,
+    ),
+  )
+
+  const candidate = row.ticker === undefined ? undefined : candidateByTicker.get(row.ticker.toUpperCase())
+  const details = createElement(
+    'div',
+    { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.35rem', margin: '0.3rem 0 0.5rem' } },
+    ...managers.flatMap((m) => {
+      const cell = m.cik === undefined ? undefined : row.cells.get(m.cik)
+      if (cell === undefined) return []
+      return [createElement('p', { key: m.cik, className: 'owl-row-helper', style: { margin: 0 } }, cellTitle(cell, shortManagerName(m.manager_name)))]
+    }),
+    candidate === undefined
+      ? null
+      : createElement(DiscoveryCandidateActions, { candidateId: candidate.candidate_id, status: candidate.status }),
+  )
+
+  return createElement(
+    'details',
+    { key: row.key, 'data-matrix-row': row.ticker ?? row.key, suppressHydrationWarning: true },
+    summary,
+    details,
+  )
+}
+
+const CELL_AMBER_TEXT = `rgba(${CELL_AMBER}, 1)`
+
+function createLeftoverCandidatesSection(leftovers: DiscoveryCandidateProjection[]) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Other pending candidates', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+    createElement(
+      'details',
+      { suppressHydrationWarning: true },
+      createElement(
+        'summary',
+        { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
+        `Other pending candidates · ${leftovers.length}`,
+      ),
+      createElement(
+        'p',
+        { className: 'owl-row-helper', style: { margin: '0.5rem 0 0' } },
+        'Earlier-harvest candidates whose name is not in the current action matrix (e.g. from managers no longer tracked). Triage or leave them.',
+      ),
+      createElement('div', { className: 'owl-row-list', style: { marginTop: 'var(--owl-space-2)' } }, ...leftovers.map((c) => createCandidateCard(c))),
+    ),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Manager cards
+// ---------------------------------------------------------------------------
+
 function asOfLine(quarterOrPeriod: { period: string; report_date?: string; filed_date?: string }): string {
   const asOf = quarterOrPeriod.report_date ?? quarterOrPeriod.period
   return quarterOrPeriod.filed_date === undefined ? `as of ${asOf}` : `as of ${asOf} · filed ${quarterOrPeriod.filed_date}`
@@ -163,40 +379,10 @@ function fmtFilingValue(value: number): string {
   return `$${Math.round(value).toLocaleString('en-US')}`
 }
 
-function sellChip(signal: 'EXIT' | 'MEANINGFUL_TRIM'): ReactNode {
-  return createElement(
-    'span',
-    { key: 'sig', style: { ...mono2xs, color: signal === 'EXIT' ? 'var(--owl-color-risk-bright)' : '#fbbf24' } },
-    signal === 'EXIT' ? 'EXIT' : 'TRIM >25%',
-  )
-}
-
-function createSellRow(sell: Discovery13fAggregatedSell, held: Set<string>) {
-  const flagged = sell.ticker !== undefined && held.has(sell.ticker.toUpperCase())
-  return createElement(
-    'div',
-    { key: sell.key, className: 'owl-row owl-row-top', 'data-sell-row': sell.ticker ?? sell.key },
-    createElement(
-      'div',
-      { className: 'owl-row-main' },
-      createElement(
-        'h3',
-        { className: 'owl-row-title', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
-        createElement('span', { key: 't', style: { fontWeight: 800 } }, sell.ticker ?? 'UNRESOLVED'),
-        createElement('span', { key: 'n', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', fontWeight: 400, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(sell.issuer)}`),
-        createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
-        sellChip(sell.signal_type),
-        flagged
-          ? createElement('span', { key: 'own', style: { ...mono2xs, color: '#fbbf24' } }, 'YOU HOLD/WATCH THIS')
-          : null,
-      ),
-      createElement(
-        'p',
-        { className: 'owl-row-helper', style: { margin: 0 } },
-        `${sell.managers.map(shortManagerName).join(', ')} · 13F ${sell.period}`,
-      ),
-    ),
-  )
+/** The roster (firm + investor) name for a harvested quarter — legacy events stamped the SEC filer name. */
+function displayManagerName(quarter: Discovery13fQuarter): string {
+  const roster = CLONER_LIST.find((m) => m.cik === quarter.cik)
+  return shortManagerName(roster?.manager_name ?? quarter.manager_name)
 }
 
 function createManagerCard(quarter: Discovery13fQuarter) {
@@ -207,7 +393,7 @@ function createManagerCard(quarter: Discovery13fQuarter) {
     createElement(
       'summary',
       { className: 'owl-collapsible-card-summary', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
-      createElement('span', { key: 'name', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 800 } }, shortManagerName(quarter.manager_name)),
+      createElement('span', { key: 'name', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 800 } }, displayManagerName(quarter)),
       createElement(
         'span',
         { key: 'figures', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', whiteSpace: 'nowrap' } },

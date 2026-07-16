@@ -193,27 +193,6 @@
   gap: var(--owl-space-2);
 }
 
-/* 13F boards: dense 3-up tile grid — the buys/sells boards are many small rows, and a single
-   column wasted most of the screen. Collapses to 2 columns, then 1, as the viewport narrows. */
-.owl-row-grid-3 {
-  align-items: start;
-  display: grid;
-  gap: var(--owl-space-2);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 64rem) {
-  .owl-row-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 40rem) {
-  .owl-row-grid-3 {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* Gold mono uppercase section kicker — aliases the route kicker. */
 .owl-section-kicker {
   color: var(--owl-color-gold);
