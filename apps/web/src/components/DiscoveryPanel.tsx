@@ -231,7 +231,8 @@ function matrixGridStyle(managerCount: number): CSSProperties {
     gap: '0.15rem 0.4rem',
     // The name column is CAPPED so the action cells sit next to the names (screenshot dogfood:
     // 1fr let it swallow a wide window and the arrows drifted mid-screen, far from the header).
-    gridTemplateColumns: `minmax(10rem, 24rem) repeat(${managerCount}, 2.1rem) minmax(9rem, max-content)`,
+    // The thin second column is YOURS: ⚑ held / ⚐ watched, scannable top to bottom.
+    gridTemplateColumns: `minmax(10rem, 24rem) 2.1rem repeat(${managerCount}, 2.1rem) minmax(9rem, max-content)`,
     justifyContent: 'start',
   }
 }
@@ -254,6 +255,7 @@ function createActionMatrixSection(
     'div',
     { style: matrixGridStyle(managers.length) },
     createElement('span', { key: 'lbl', style: { ...mono2xs, color: 'var(--owl-color-quiet)', fontWeight: 400 } }, 'TICKER — COMPANY'),
+    createElement('span', { key: 'yours', style: { ...mono2xs, alignItems: 'center', color: 'var(--owl-color-muted)', display: 'flex', justifyContent: 'center' }, title: 'Your names: ⚑ held · ⚐ watched' }, '⚑'),
     ...managers.map((m, i) => {
       const q = m.cik === undefined ? undefined : quarterByCik.get(m.cik)
       return createElement(
@@ -313,7 +315,6 @@ function createMatrixRow(
   const home: 'held' | 'watched' | undefined = ticker !== undefined && homes.held.has(ticker)
     ? 'held'
     : ticker !== undefined && homes.watched.has(ticker) ? 'watched' : undefined
-  const flagged = home !== undefined
   const summaryChip = row.buying > 0 && row.selling > 0
     ? createElement('span', { key: 's', style: { ...mono2xs, color: 'var(--owl-color-muted)' } }, 'MIXED')
     : row.buying > 0
@@ -329,6 +330,17 @@ function createMatrixRow(
       createElement('span', { style: { color: 'var(--owl-color-text)', fontWeight: 700, whiteSpace: 'nowrap' } }, row.ticker ?? 'UNRESOLVED'),
       createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, titleCaseEntityName(row.issuer)),
     ),
+    home === undefined
+      ? createElement('span', { key: 'yours' })
+      : createElement(
+          'span',
+          {
+            key: 'yours',
+            style: { alignItems: 'center', color: home === 'held' ? 'var(--owl-color-gold-bright)' : 'var(--owl-color-muted)', display: 'flex', fontWeight: 800, justifyContent: 'center' },
+            title: home === 'held' ? `You hold ${row.ticker ?? row.issuer} — review your own thesis` : `${row.ticker ?? row.issuer} is on your watchlist`,
+          },
+          home === 'held' ? '⚑' : '⚐',
+        ),
     ...managers.map((m, i) => {
       const cell = m.cik === undefined ? undefined : row.cells.get(m.cik)
       if (cell === undefined) {
@@ -345,7 +357,6 @@ function createMatrixRow(
       'span',
       { key: 'sum', style: { display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', whiteSpace: 'nowrap' } },
       summaryChip,
-      flagged ? createElement('span', { key: 'own', style: { ...mono2xs, color: CELL_AMBER_TEXT } }, home === 'held' ? '⚑ YOU HOLD' : '⚑ WATCHED') : null,
     ),
   )
 
@@ -382,7 +393,6 @@ function createMatrixRow(
   )
 }
 
-const CELL_AMBER_TEXT = `rgba(${CELL_AMBER}, 1)`
 
 function createLeftoverCandidatesSection(leftovers: DiscoveryCandidateProjection[]) {
   return createElement(

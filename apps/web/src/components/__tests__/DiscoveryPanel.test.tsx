@@ -104,7 +104,10 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('Berkshire Hathaway (Warren Buffett): NEW position — 6.0% of the book · 13F 2026Q1')
     expect(html).toContain('2 BUYING')
     expect(html).toContain('1 SELLING')
-    expect(html).toContain('⚑ WATCHED')
+    // The YOURS column: header marker + the watched glyph with its explanatory tooltip.
+    expect(html).toContain('Your names: ⚑ held · ⚐ watched')
+    expect(html).toContain('COST is on your watchlist')
+    expect(html).toContain('⚐')
     // No performance numbers, no live prices — filing values only.
     expect(html).not.toMatch(/return/i)
   })
@@ -119,7 +122,7 @@ describe('the 13F discovery page', () => {
       dedupe_key: 'spgi', discovered_at: '2026-07-16', source_ids: [],
     }] as never
     const html = render({ quarters: [spgiBuy], candidates, heldTickers: ['SPGI'] })
-    expect(html).toContain('⚑ YOU HOLD')
+    expect(html).toContain('You hold SPGI — review your own thesis')
     expect(html).toContain('You hold this name')
     expect(html).toContain('/portfolio')
     // No admission triage on a name that already has a home.
