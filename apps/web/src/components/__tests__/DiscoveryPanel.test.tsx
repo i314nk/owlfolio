@@ -78,6 +78,8 @@ describe('the 13F discovery page', () => {
       ],
       heldOrWatchedTickers: ['COST'],
     })
+    // The many small buy/sell rows tile into the 3-up grid (single column wasted the screen).
+    expect(html).toContain('owl-row-grid-3')
     expect(html).toContain('EXIT')
     expect(html).toContain('TRIM &gt;25%')
     expect(html).toContain('YOU HOLD/WATCH THIS')

@@ -67,7 +67,7 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, sells, heldOrW
         ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No new buy signals. Run the harvest to check the latest filings.')
         : createElement(
             'div',
-            { className: 'owl-row-list' },
+            { className: 'owl-row-grid-3' },
             ...discovered.map((c) => createCandidateCard(c)),
           ),
     ),
@@ -83,7 +83,7 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, sells, heldOrW
       ),
       sells.length === 0
         ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No exits or meaningful trims in the latest harvested quarters.')
-        : createElement('div', { className: 'owl-row-list' }, ...sells.map((s) => createSellRow(s, held))),
+        : createElement('div', { className: 'owl-row-grid-3' }, ...sells.map((s) => createSellRow(s, held))),
     ),
     // Manager portfolios — compact expandable cards per tracked manager's latest quarter.
     createElement(
@@ -183,7 +183,7 @@ function createSellRow(sell: Discovery13fAggregatedSell, held: Set<string>) {
         'h3',
         { className: 'owl-row-title', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
         createElement('span', { key: 't', style: { fontWeight: 800 } }, sell.ticker ?? 'UNRESOLVED'),
-        createElement('span', { key: 'n', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-md)', fontWeight: 400 } }, `— ${titleCaseEntityName(sell.issuer)}`),
+        createElement('span', { key: 'n', style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', fontWeight: 400, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(sell.issuer)}`),
         createElement('span', { key: 'spacer', style: { flex: '1 0 0.5rem' } }),
         sellChip(sell.signal_type),
         flagged
