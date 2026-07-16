@@ -199,6 +199,21 @@ describe('CLONER_LIST', () => {
       }
     }
   })
+
+  it('tracks the owner-requested roster (2026-07-16) with SEC-verified CIKs', () => {
+    const byCik = new Map(CLONER_LIST.map((m) => [m.cik, m]))
+    // Verified live against https://data.sec.gov/submissions/CIK{cik}.json on 2026-07-16.
+    expect(byCik.get('0001067983')?.manager_name).toContain('Berkshire')
+    expect(byCik.get('0001173334')?.manager_name).toContain('Pabrai')
+    expect(byCik.get('0001649339')?.manager_name).toContain('Scion')
+    expect(byCik.get('0001709323')?.manager_name).toContain('Himalaya')
+    expect(byCik.get('0001061768')?.manager_name).toContain('Baupost')
+    expect(byCik.get('0001336528')?.manager_name).toContain('Pershing Square')
+    expect(byCik.get('0002104187')?.manager_name).toContain('Aquamarine')
+    // Intermittent filers carry an honest staleness note so the page never fakes a live book.
+    expect(byCik.get('0001649339')?.note).toMatch(/intermittent|deregist|2025Q3/i)
+    expect(byCik.get('0001173334')?.note).toMatch(/2012/)
+  })
 })
 
 // ---------------------------------------------------------------------------

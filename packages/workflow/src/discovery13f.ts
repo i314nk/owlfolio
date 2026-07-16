@@ -105,17 +105,26 @@ export type ClonerManager = {
 }
 
 // CIKs confirmed live against https://data.sec.gov/submissions/CIK{cik}.json (name + 13F-HR present).
-// Concentrated, low-turnover value managers only; >50-position / high-turnover funds are excluded by
-// design (these all run focused books). Any manager whose CIK could not be verified is flagged
-// cik_unverified=true with NO guessed CIK so the operator can resolve it manually.
+// OWNER-CURATED roster (2026-07-16): mostly concentrated, low-turnover value managers, plus two
+// deliberate exceptions tracked for their signal value — Scion (contrarian, high turnover,
+// intermittent filer) and Baupost (larger book, cash-deployment watching). Any manager whose CIK
+// could not be verified is flagged cik_unverified=true with NO guessed CIK so the operator can
+// resolve it manually.
 export const CLONER_LIST: readonly ClonerManager[] = [
-  { manager_name: 'Berkshire Hathaway Inc', cik: '0001067983' },
+  { manager_name: 'Berkshire Hathaway Inc (Warren Buffett)', cik: '0001067983' },
   {
     manager_name: 'Pabrai Investment Funds (Mohnish Pabrai)',
     cik: '0001173334',
     note: 'Confirmed CIK; latest 13F-HR is historical (2012) — Pabrai has since stayed below the 13F reporting threshold. Kept for backfill/clustering; will yield no new quarters until a fresh filing appears.',
   },
+  {
+    manager_name: 'Scion Asset Management (Michael Burry)',
+    cik: '0001649339',
+    note: 'Intermittent filer (has deregistered/claimed exemptions before): latest 13F-HR filed 2025-11-03 covers 2025Q3, so his card can lag the other managers by a quarter or more. High-turnover contrarian book — treat signals as conversation starters, not conviction.',
+  },
   { manager_name: 'Himalaya Capital Management LLC (Li Lu)', cik: '0001709323' },
+  { manager_name: 'Baupost Group LLC (Seth Klarman)', cik: '0001061768' },
+  { manager_name: 'Pershing Square Capital Management (Bill Ackman)', cik: '0001336528' },
   { manager_name: 'Aquamarine Capital (Guy Spier)', cik: '0002104187' },
   { manager_name: 'Akre Capital Management LLC', cik: '0001112520' },
   { manager_name: 'Giverny Capital Inc', cik: '0001641864' },
