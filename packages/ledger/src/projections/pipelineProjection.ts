@@ -25,6 +25,7 @@ export const PIPELINE_SPECIALIST_LANES = [
 ] as const
 
 export type PipelineStageKey =
+  | 'filings_fetch'
   | 'shariah_gate'
   | 'deep_dive'
   | 'synthesis'
@@ -359,6 +360,18 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
 
   // ── Stage counts ── (active stages exclude failed cases) ───────────────────
   const isActive = (c: ResearchCaseProjection): boolean => !failedCaseIds.has(c.research_case_id)
+  // The FETCH WINDOW (derived — no filings_fetched event exists by design): a CLAIMED run whose case
+  // has not yet recorded its first post-fetch event (the gate judgment). This is where the EDGAR
+  // fundamentals + primary-filing grounding happen, and where a run visibly parks when EDGAR is slow.
+  // Requested-but-unclaimed cases stay out (the worker has not picked them up — a different fault).
+  const claimedCaseIds = new Set(
+    events
+      .filter((event) => event.event_type === 'research_run_claimed')
+      .map((event) => (isRecord(event.payload) ? getString(event.payload, 'research_case_id') : undefined) ?? event.aggregate_id),
+  )
+  const filingsFetch = liveCases.filter(
+    (c) => isActive(c) && c.stage === 'discovered' && claimedCaseIds.has(c.research_case_id),
+  ).length
   const shariahGate = liveCases.filter(
     (c) => isActive(c) && (c.stage === 'shariah_gate_judged' || c.stage === 'quick_screened' || c.stage === 'awaiting_deep_dive_approval' || c.stage === 'pass'),
   ).length
@@ -374,6 +387,7 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   const awaitingApproval = liveCases.filter((c) => isActive(c) && c.stage === 'awaiting_deep_dive_approval').length
 
   const stage_counts: PipelineStageCount[] = [
+    { key: 'filings_fetch', label: 'Filings fetch', count: filingsFetch, health: 'ok' },
     { key: 'shariah_gate', label: 'Shariah gate', count: shariahGate, health: 'ok' },
     {
       key: 'deep_dive',

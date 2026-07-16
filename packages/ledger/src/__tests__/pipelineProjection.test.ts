@@ -46,6 +46,37 @@ describe('projectPipeline — stage counts', () => {
   })
 })
 
+describe('projectPipeline — the filings-fetch stage (derived window)', () => {
+  it('counts a CLAIMED run whose case has not reached the gate; the gate judgment moves it on', () => {
+    const preGate: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'rc_fetch', event_type: 'research_case_created', payload: { research_case_id: 'rc_fetch', ticker: 'FTCH' } }),
+      evt({ aggregate_id: 'rc_fetch', event_type: 'research_run_requested', payload: { research_case_id: 'rc_fetch', ticker: 'FTCH' } }),
+      evt({ aggregate_id: 'rc_fetch', event_type: 'research_run_claimed', payload: { research_case_id: 'rc_fetch', run_id: 'run_1', worker_id: 'w' }, actor_type: 'worker' }),
+    ]
+    const during = projectPipeline(preGate)
+    const byKey = Object.fromEntries(during.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.filings_fetch).toBe(1)
+    expect(byKey.shariah_gate).toBe(0)
+
+    const after = projectPipeline([
+      ...preGate,
+      evt({ aggregate_id: 'rc_fetch', event_type: 'shariah_gate_judged', payload: { research_case_id: 'rc_fetch', ticker: 'FTCH', allowed: true, sector_status: 'compliant' } }),
+    ])
+    const afterByKey = Object.fromEntries(after.stage_counts.map((s) => [s.key, s.count]))
+    expect(afterByKey.filings_fetch).toBe(0)
+    expect(afterByKey.shariah_gate).toBe(1)
+  })
+
+  it('a requested-but-UNCLAIMED case does not count (the worker has not picked it up — a different fault)', () => {
+    const projection = projectPipeline([
+      evt({ aggregate_id: 'rc_unclaimed', event_type: 'research_case_created', payload: { research_case_id: 'rc_unclaimed', ticker: 'UNCL' } }),
+      evt({ aggregate_id: 'rc_unclaimed', event_type: 'research_run_requested', payload: { research_case_id: 'rc_unclaimed', ticker: 'UNCL' } }),
+    ])
+    const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.filings_fetch).toBe(0)
+  })
+})
+
 describe('projectPipeline — run statuses', () => {
   it('derives running, awaiting_approval, rejected and failed', () => {
     const events: LedgerEventEnvelope<unknown>[] = [
