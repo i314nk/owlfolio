@@ -23,7 +23,7 @@ test('the 13F discovery page renders its sections with honest empty states', asy
   await page.goto('/discovery')
 
   // Summary + honesty rails.
-  const summary = page.getByRole('region', { name: /what 13f discovery is/i })
+  const summary = page.getByRole('region', { name: /what the superinvestors page is/i })
   await expect(summary.getByText(/value superinvestors/i)).toBeVisible()
   await expect(summary.getByText(/45 days/)).toBeVisible()
   await expect(summary.getByText(/nothing here is a buy or sell instruction/i)).toBeVisible()

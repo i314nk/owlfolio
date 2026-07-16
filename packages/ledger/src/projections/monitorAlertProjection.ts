@@ -400,7 +400,7 @@ function superinvestorExitAlerts(
       recorded_at: event.created_at,
       is_observation: true,
       is_draft: false,
-      human_action: { label: 'Open discovery', href: '/discovery' },
+      human_action: { label: 'Open superinvestors', href: '/discovery' },
     })
   }
   return out

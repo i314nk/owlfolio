@@ -17,6 +17,9 @@ const navSections: NavSection[] = [
     title: 'Workflow',
     items: [
       { href: '/', label: 'Command Center' },
+      // The 13F superinvestor page — the idea source at the TOP of the funnel (owner, 2026-07-16:
+      // renamed from 'Discovery' and moved into the workflow group; the route stays /discovery).
+      { href: '/discovery', label: 'Superinvestors' },
       { href: '/research', label: 'Research' },
       { href: '/watchlist', label: 'Watchlist' },
       { href: '/portfolio', label: 'Portfolio' },
@@ -27,7 +30,6 @@ const navSections: NavSection[] = [
   {
     title: 'Operations & evidence',
     items: [
-      { href: '/discovery', label: 'Discovery' },
       { href: '/pipeline', label: 'Pipeline' },
       { href: '/audit', label: 'Audit' },
     ],

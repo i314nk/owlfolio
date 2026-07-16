@@ -172,8 +172,8 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
 function createSummaryHeader(runStatusLine: string) {
   return createElement(
     'section',
-    { 'aria-label': 'What 13F discovery is', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, '13F discovery'),
+    { 'aria-label': 'What the superinvestors page is', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Superinvestors — 13F discovery'),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0, maxWidth: '52rem' } },

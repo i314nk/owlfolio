@@ -16,7 +16,7 @@ import { getOnboardingState } from '../../lib/onboarding'
 export default async function DiscoveryPage() {
   const state = await getOnboardingState()
   if (isUnconfiguredForUser(state.config)) {
-    return createElement(UnconfiguredNotice, { feature: 'Discovery' })
+    return createElement(UnconfiguredNotice, { feature: 'Superinvestors' })
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
