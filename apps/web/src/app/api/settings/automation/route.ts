@@ -33,6 +33,7 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     if (typeof d !== 'object' || d === null) return false
     if ('enabled' in d && typeof d.enabled !== 'boolean') return false
     if ('cadence' in d && !(AutomationCadenceDiscoveryValues as readonly string[]).includes(d.cadence as string)) return false
+    if ('auto_research' in d && typeof d.auto_research !== 'boolean') return false
   }
 
   if ('watchlist_monitoring' in b) {

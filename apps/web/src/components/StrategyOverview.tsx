@@ -130,7 +130,7 @@ function Section({
 
 // ── 2. Pipeline flow ─────────────────────────────────────────────────────────
 const PIPELINE_STEPS: { key: string; label: string; detail: string }[] = [
-  { key: 'discovery', label: 'Discovery', detail: 'Candidate enters research' },
+  { key: 'discovery', label: 'Superinvestors discovery', detail: 'Candidate enters research' },
   { key: 'shariah_gate', label: 'Shariah gate', detail: 'Grounded sector judgment, pre-spend' },
   { key: 'circle_gate', label: 'Circle of competence', detail: 'Predictability demonstrated, or set aside' },
   { key: 'gate', label: 'Automatic | Review', detail: 'Run now, or pause for approval' },
@@ -384,7 +384,9 @@ export function StrategyOverview(): ReactNode {
       eyebrow: 'Admission',
       title: 'Discovery is the admission operation',
       lead:
-        'Discovery is not a stock screener that ranks names — it is the operation that decides which businesses are even allowed into deep research. Two human-set boundaries bound it before any model runs, and the final admit is a human decision with a written thesis.',
+        'Discovery is not a stock screener that ranks names — it is the operation that decides which businesses are even allowed into deep research. '
+        + 'Ideas enter from the Superinvestors page: the quarterly SEC 13F filings of seven owner-curated value investors (Buffett, Pabrai, Burry, Li Lu, Klarman, Ackman, Spier) surfaced as buys, sells, and portfolio snapshots — grounded filings, up to 45 days stale, no reasons given, never a copy trade. '
+        + 'Two human-set boundaries bound admission before any model runs, and the final admit is a human decision with a written thesis.',
       children: createElement(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },

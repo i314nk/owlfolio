@@ -67,6 +67,7 @@ Primary routes:
 | --- | --- |
 | `/` | Command Center with setup status, workflow counts, next action, accounting/review prompts, recent activity. |
 | `/onboarding` | Demo/personal-local setup and provider readiness flow. |
+| `/discovery` | Superinvestors (13F discovery): the owner-curated roster's latest portfolios, and buys/sells as an action heat-map — the idea source feeding research (see `architecture/superinvestors-13f-discovery.md`). |
 | `/research/new` | Secondary manual ticker intake into the strategy pipeline. |
 | `/research` | Strategy pipeline cockpit: discovery, the front gates (Shariah + circle), deep dive, decision drafts, watchlist, and outcomes. |
 | `/research/[caseId]` | Review a research case and draft watchlist recommendation. |
