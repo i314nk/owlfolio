@@ -102,6 +102,7 @@ function mapStageToCurrent(stage: ResearchCaseStage | undefined): ResearchRunSta
     case 'specialist_finding_recorded':
     case 'deep_dive_in_progress':
       return 'deep_dive'
+    case 'valuation_judgment_drafted':
     case 'deep_dive_synthesis_drafted':
     case 'deep_dive_completed':
     case 'deep_dive_complete':

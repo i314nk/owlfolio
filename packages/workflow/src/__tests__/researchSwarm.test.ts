@@ -949,6 +949,16 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
 
+    // Phase 2 V5: lanes + synthesis stamp their stage_cost (scheduler unattended-spend data).
+    const finding = events.find((e) => e.event_type === 'specialist_finding_recorded')
+    const findingCost = (finding?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(findingCost?.provider_calls).toBe(1)
+    expect(typeof findingCost?.wall_ms).toBe('number')
+    const synthEvent = events.find((e) => e.event_type === 'deep_dive_synthesis_drafted')
+    const synthCost = (synthEvent?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(synthCost?.provider_calls).toBe(1)
+    expect(typeof synthCost?.wall_ms).toBe('number')
+
     // F.2 threading pin: discount = 0.03 anchor + 0.055 equity premium, basis compliant_savings.
     const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const av = (analysis?.payload as { valuation?: { discount_rate?: number; discount_inputs?: { risk_free_basis?: string } } }).valuation
@@ -1139,8 +1149,10 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
     // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded verbatim).
     // The mock emits 320 for capital-light names (MSFT) — NOT a band/threshold-derived number.
-    expect(caseProjection?.valuation?.buy_price_per_share).toBe(320)
-    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['proposed_buy_below']).toBe(320)
+    // R1 SUPERSEDED: the computed threshold = min(FV, 18×OE 252) × 0.75 = 189; the mock's 320 is advisory.
+    expect(caseProjection?.valuation?.buy_price_per_share).toBe(189)
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['proposed_buy_below']).toBe(189)
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(320)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
@@ -1232,7 +1244,7 @@ type SynthesisOverrides = Partial<{
     sources: ('price' | 'moat')[]
     price_gap_reasoning?: string
     moat_durability_reasoning?: string
-    adequacy: 'adequate' | 'thin' | 'inadequate'
+    adequacy?: 'adequate' | 'thin' | 'inadequate'
     reasoning: string
   }
 }>
@@ -1272,7 +1284,13 @@ function configurableSwarmProvider(opts: {
     assumed_growth: number
     assumed_growth_rationale: string
     assumed_growth_citation: string
+    // Phase 2 V1: the stage-owned fields (optional in the fake exactly as in the schema).
+    proposed_buy_below?: number
+    valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
   }
+  // Phase 2 V4: make the STAGE omit its artifact (the retry-exhaust path) — the default now supplies
+  // the full artifact derived from the SAME synthesis overrides, since the stage owns the valuation.
+  stageOmitsValuation?: boolean
   // Counter the test reads to confirm the focused call fired (or, for the happy path, did NOT).
   valuationReasoningCalls?: { count: number }
   // A1 hole repro: the decision agent proposes BOTH a verified ('src_dec_good_1') and a
@@ -1391,11 +1409,28 @@ function configurableSwarmProvider(opts: {
       // FOCUSED valuation-reasoning call (the fallback when the monolithic decision drops/ungrounds it).
       if (schemaName === 'BuffettMungerValuationReasoning') {
         if (opts.valuationReasoningCalls !== undefined) opts.valuationReasoningCalls.count += 1
+        // Phase 2 V4: the STAGE owns the valuation — derive the full artifact from the SAME overrides the
+        // monolithic synthesis used to carry, so the deterministic-side tests keep their semantics.
+        if (opts.stageOmitsValuation === true) {
+          return { proposed_sources: [src('src_vr_focused_1')] }
+        }
+        const vrOverride = opts.synthesis?.valuation_reasoning ?? opts.valuationReasoningResponse
         return {
-          // Omit valuation_reasoning entirely when no response configured (→ the required field is missing →
-          // the focused call also fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted).
-          ...(opts.valuationReasoningResponse !== undefined ? { valuation_reasoning: opts.valuationReasoningResponse } : {}),
-          proposed_sources: [src('src_vr_focused_1')],
+          valuation_reasoning: {
+            ...(vrOverride ?? {
+              owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+              owner_earnings_citation: 'src_dec_1',
+              assumed_growth: 0.06,
+              assumed_growth_rationale: 'Modest growth grounded in segment capex, cited to the 10-K.',
+              assumed_growth_citation: 'src_dec_1',
+            }),
+            proposed_buy_below: (vrOverride as { proposed_buy_below?: number } | undefined)?.proposed_buy_below
+              ?? opts.synthesis?.proposed_buy_below ?? 150,
+            valuation_status: (vrOverride as { valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA' } | undefined)?.valuation_status
+              ?? opts.valuationStatus ?? 'EXPENSIVE',
+            owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
+          },
+          proposed_sources: [src('src_dec_1'), src('src_vr_focused_1')],
         }
       }
       // synthesis/decision (BuffettMungerSynthesisDecision)
@@ -1483,11 +1518,11 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. buy_price_per_share is the
-    // MODEL's proposed_buy_below (default 150). The per-share UNITS are still proven by the implied_multiple
-    // (= internal forward FV / OE), a ratio independent of total-vs-per-share scaling.
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. R1 SUPERSEDED:
+    // buy_price_per_share is the COMPUTED threshold — min(FV 417.7, 18×OE 342.86) × 0.75 = 257.15
+    // (rounded 257.2). The per-share UNITS are still proven by the implied_multiple.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(257.2, 1)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
     // Sanity: per-share units, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
@@ -1529,10 +1564,10 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     // No bogus huge HARNESS fair value persisted (the deterministic point FV / OE-per-share fail closed).
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeUndefined()
-    // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below — it is the model's
-    // own number, NOT derived from the harness valuation, so it is still recorded even when the harness FV
-    // fails closed (no OE/share). What the harness must NOT fabricate is a DERIVED price; this is not that.
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    // R1 SUPERSEDED: with no OE/share there is no reference value → NO computed buy threshold (the
+    // harness never fabricates a derived price). The model's price view survives as ADVISORY only.
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(150)
     // No reference cross-check FV (no OE/share to value against).
     expect((cp?.valuation as Record<string, unknown> | undefined)?.['reference_fair_value']).toBeUndefined()
     // A valuation caveat must be recorded on the analysis event
@@ -1611,10 +1646,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
         normalized_working_capital_change: 0, shares_outstanding: 50,
       },
     }, 'neg-oe')
-    // No positive OE/share → no point FV and no reference cross-check FV (both fail closed). The MODEL's
-    // proposed_buy_below is still recorded verbatim (R1: it is the model's number, not a harness-derived one).
+    // No positive OE/share → no point FV and no computed threshold (both fail closed; R1 superseded).
+    // The model's price view survives as ADVISORY only.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(150)
     expect((cp?.valuation as Record<string, unknown> | undefined)?.['reference_fair_value']).toBeUndefined()
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
@@ -1793,12 +1829,13 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
   }
 
-  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below; the forward reference FV is no longer surfaced', async () => {
-    // The model proposes 150; the buy-below is the model's verbatim number (NOT derived from any FV).
+  it('BUY-BELOW ← COMPUTED (R1 superseded, owner-approved 2026-07-11): the operative threshold = reference × (1 − required margin); the model price is ADVISORY', async () => {
+    // The model proposes 150 (advisory); the OPERATIVE buy-below is computed from the reference value.
     const { valuation, cp } = await runRelit({ id: 'buybelow-model', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
-    // Recorded buy-below IS the model's proposed number (verbatim).
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
-    expect(valuation?.['proposed_buy_below']).toBe(150)
+    // Recorded buy-below IS the computed threshold (fixture: FV≈342.9 → ×0.75 = 257.20).
+    expect(cp?.valuation?.buy_price_per_share).toBe(257.2)
+    expect(valuation?.['proposed_buy_below']).toBe(257.2)
+    expect(valuation?.['model_proposed_buy_below']).toBe(150)
     // forward-DCF removal: the dollar reference_fair_value / fair_value_per_share are no longer emitted.
     expect(valuation?.['reference_fair_value']).toBeUndefined()
     expect(valuation?.['fair_value_per_share']).toBeUndefined()
@@ -1820,9 +1857,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.length).toBeGreaterThan(0)
     expect(flags.some((f) => /attractive/i.test(f) && /implausible|cap/i.test(f))).toBe(true)
-    // FLAG NEVER BLOCKS: the model BUY (with a buy-below + price present) is recorded, not clamped.
+    // Post-flip: the price ($800) sits far above the COMPUTED threshold (257.20) → the zone gate
+    // derates the BUY to WATCH (the flag itself still never blocks).
     expect(cp?.investment_verdict).toBe('WATCH')
-    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(true)
   })
 
   it('SANITY (over-PESSIMISTIC): status EXPENSIVE + market implies only MODEST growth → a sanity flag (verdict NOT blocked)', async () => {
@@ -1848,10 +1886,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('SANITY (self-coherence TOLERANCE, 2026-07-11): ATTRACTIVE with the price only slightly above the buy-below → NO flag (coherent "wait for my price")', async () => {
-    // Live SPGI noise: ATTRACTIVE with the price 2.6% above the model's buy-below fired the flag —
-    // but "attractive, I'd buy a few percent lower" is a coherent position. Inside the 5% band → quiet.
+    // "Attractive, I'd buy a few percent lower" is a coherent position. Post-flip the tolerance is
+    // measured against the COMPUTED threshold (257.20): a price within the 5% band stays quiet.
     const { valuation } = await runRelit({
-      id: 'coherence-attractive-nearzone', price: 431, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
+      id: 'coherence-attractive-nearzone', price: 265, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
     })
     expect(valuation?.['in_buy_zone']).toBe(false)
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
@@ -2021,12 +2059,12 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       id: 'buyzone-derate', price: 360, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
     })
     expect(cp?.investment_verdict).toBe('WATCH')
-    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$290\.00/.test(q) && /\$360\.00/.test(q))).toBe(true)
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$257\.20/.test(q) && /\$360\.00/.test(q))).toBe(true)
   })
 
   it('GATE (owner rule) — model BUY with the price AT/BELOW its own buy-below stays BUY', async () => {
     const { cp } = await runRelit({
-      id: 'buyzone-inzone', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+      id: 'buyzone-inzone', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
     })
     expect(cp?.investment_verdict).toBe('BUY')
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
@@ -2037,10 +2075,27 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     // in growth the method's single-growth cap refuses to underwrite (harness fair value was ~half
     // the model's buy-below). Arithmetic on the model's own numbers → derate to WATCH, thesis kept.
     const { cp } = await runRelit({
-      id: 'buyzone-absurd', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
+      id: 'buyzone-absurd', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
     })
     expect(cp?.investment_verdict).toBe('WATCH')
     expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
+  })
+
+  it('NVO dogfood (2026-07-11) — a moat-FAILED set-aside surfaces NO buy zone (the buy-below sanity rails never ran)', async () => {
+    // Moat moderate → set-aside PASS: the valuation (and its implied-growth rails) is suppressed, so an
+    // unvetted model buy-below must not produce an "in buy zone" banner. The raw number stays recorded.
+    const { cp, valuation } = await runRelit({
+      id: 'buyzone-moatfail', price: 85, moatClass: 'moderate', investmentVerdict: 'BUY', proposedBuyBelow: 280,
+    })
+    expect(cp?.investment_verdict).toBe('PASS')
+    expect(cp?.valuation?.in_buy_zone).toBeUndefined()
+    // GATED-DOSSIER INVARIANT (owner, 2026-07-11): the unvetted model number is NOT a first-class
+    // judgment on a gated case — it lives only in the explicitly-labeled audit block.
+    expect(cp?.valuation?.proposed_buy_below).toBeUndefined()
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    const uvp = (valuation?.['unvetted_model_proposals'] as { proposed_buy_below?: number; note?: string } | undefined)
+    expect(uvp?.proposed_buy_below).toBe(280)
+    expect(uvp?.note).toMatch(/UNVETTED/)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
@@ -2130,18 +2185,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(cp?.investment_verdict).toBe('BUY')
   })
 
-  it('in_buy_zone is pure arithmetic: current_price <= buy_below', async () => {
+  it('in_buy_zone is pure arithmetic: current_price <= the COMPUTED buy threshold (257.20 on this fixture)', async () => {
     const { valuation: belowVal } = await runRelit({ id: 'inzone-yes', price: 100, proposedBuyBelow: 150 })
     expect(belowVal?.['in_buy_zone']).toBe(true)
-    const { valuation: aboveVal } = await runRelit({ id: 'inzone-no', price: 200, proposedBuyBelow: 150 })
+    const { valuation: aboveVal } = await runRelit({ id: 'inzone-no', price: 300, proposedBuyBelow: 150 })
     expect(aboveVal?.['in_buy_zone']).toBe(false)
   })
 
   it('a sanity flag NEVER blocks: even with a flag firing, the model verdict passes the cheap gates unchanged', async () => {
-    // High price → the exit-multiple sanity flag fires; model says BUY; moat wide, sector compliant, price
-    // present, buy-below present AND the price is in the model's own buy zone (so the owner-rule buy-zone
-    // ARITHMETIC gate stays out of the way) → the model BUY is recorded (the flag is advisory only).
-    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
+    // In-zone price (250 ≤ the computed 257.20) with a firing ADVISORY flag (the model's price view
+    // diverges >25% from the computed threshold → buy_below_divergence) → the model BUY is recorded.
+    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 250, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).length).toBeGreaterThan(0)
     expect(cp?.investment_verdict).toBe('BUY')
   })
@@ -3250,6 +3304,31 @@ function swarmFakeProviderWithShariah(
           proposed_sources: [src('src_qs_1')],
         }
       }
+      // Phase 2 V4: the valuation STAGE owns the bridge/buy-below/status/reasoning — serve the same
+      // overrides here (the monolithic fields below are stripped by the slimmed decision schema).
+      if (schemaName === 'BuffettMungerValuationReasoning') {
+        return {
+          valuation_reasoning: {
+            // Default = UNGROUNDED citations (preserves this fake's contract: no override → the A1
+            // grounding gate fails → RESEARCH_MORE, headline omitted) while the BRIDGE still binds.
+            ...(valuationReasoningOverride ?? {
+              owner_earnings_basis: 'FY OE per the 10-K bridge.',
+              owner_earnings_citation: 'src_ungrounded_basis',
+              assumed_growth: 0.06,
+              assumed_growth_rationale: 'Asserted, not grounded.',
+              assumed_growth_citation: 'src_ungrounded_basis',
+            }),
+            proposed_buy_below: 150,
+            valuation_status: 'EXPENSIVE',
+            owner_earnings_bridge: bridgeOverride ?? {
+              net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
+              maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+              normalized_working_capital_change: 0, shares_outstanding: 1,
+            },
+          },
+          proposed_sources: [src('src_dec_1')],
+        }
+      }
       return {
         investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
         next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
@@ -4083,6 +4162,82 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
   // Foreign 20-F filers (e.g. NVO) report fundamentals in their local currency (DKK) while the market cap
   // derived from Yahoo/US-listed ADR prices is in USD. Without FX conversion the ratios mix currencies and
   // can be off by the USD/DKK rate (~6.9×). These tests verify the conversion path and its fail-closed guard.
+  it('V3 (owner-validated option A) — DKK filer: per-share valuation runs in USD (fx × assumed 1:1 ADR), provenance + flag recorded', async () => {
+    // NVO-shaped 20-F filer: bridge/OE in DKK, price in USD. The T0 conversion must put EVERY per-share
+    // output in USD: oe_ps(USD) = oe_ps(DKK) × 1 (assumed ADR ratio, flagged) × 0.145.
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    const rate = 0.145
+    // Price scaled so the USD-converted basis is PLAUSIBLE (~2.55 USD OE/share → ~11.8× at $30): the
+    // absurdity guards suppress outputs otherwise, and a naive unconverted DKK read would be ~1.7×.
+    const priceUsd = 30
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: priceUsd, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async (currency) => (currency === 'DKK' ? rate : undefined),
+    })
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    const v = cp?.valuation
+    // Conversion provenance recorded (assumed 1:1 — no curated entry) + the visible assumption flag.
+    expect(v?.fx_conversion?.reporting_currency).toBe('DKK')
+    expect(v?.fx_conversion?.fx_rate_to_usd).toBe(rate)
+    expect(v?.fx_conversion?.adr_ordinary_per_listed).toBe(1)
+    expect(v?.fx_conversion?.adr_ratio_source).toBe('assumed_1')
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const val = (analysis?.payload as { valuation?: { degraded_flags?: string[]; normalized_owner_earnings_per_share?: number; market_implied_growth?: number } }).valuation
+    expect((val?.degraded_flags ?? []).join(' ')).toMatch(/adr_ratio_assumed/)
+    // The reporting-currency OE/share stays as-recorded (DKK, per ordinary share)…
+    const oePsDkk = val?.normalized_owner_earnings_per_share
+    expect(oePsDkk).toBeDefined()
+    expect(oePsDkk!).toBeGreaterThan(10) // ≈17.6 DKK — clearly the unconverted reporting figure
+    // …while the reverse-DCF ran on the USD basis: $30 vs ≈$2.55/share (11.8×) solves to ≈−6.1% implied
+    // growth at the 7.5% default discount — a NAIVE unconverted read ($30 vs 17.6 "DKK-as-USD" = 1.7×)
+    // would solve wildly lower/not at all. Pinning the exact solved value proves the USD basis precisely.
+    const impliedGrowthUsd = val?.market_implied_growth
+    expect(impliedGrowthUsd).toBeDefined()
+    expect(impliedGrowthUsd).toBeCloseTo(-0.0606, 2)
+  })
+
+  it('V3 — DKK filer with NO FX rate: the per-share valuation is BLOCKED (fail-closed, flagged), never a silent currency mix', async () => {
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async () => undefined,
+    })
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const val = (analysis?.payload as { valuation?: Record<string, unknown> }).valuation
+    expect(((val?.['degraded_flags'] as string[] | undefined) ?? []).join(' ')).toMatch(/fx_unavailable_valuation_blocked/)
+    // No USD per-share outputs were fabricated off DKK numbers.
+    expect(val?.['implied_exit_multiple']).toBeUndefined()
+    expect(val?.['market_implied_growth']).toBeUndefined()
+    expect(val?.['fx_conversion']).toBeUndefined()
+  })
+
   it('DKK filer + USD market cap + known FX rate → debt_ratio computed in DKK (not raw USD)', async () => {
     // Simulate a 20-F filer (NVO-shaped): latest_annual.currency = 'DKK', fundamentals in DKK millions.
     // The ADR is priced in USD on US exchanges → market_cap is in USD.
@@ -4211,8 +4366,11 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
       assumed_growth: number
       assumed_growth_rationale: string
       assumed_growth_citation: string
+      proposed_buy_below?: number
+      valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
     }
     valuationReasoningCalls?: { count: number }
+    stageOmitsValuation?: boolean
     ground?: GroundFn
   }) {
     const store = new InMemoryEventStore()
@@ -4223,6 +4381,7 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
       ...(opts.omitValuationReasoning !== undefined ? { omitValuationReasoning: opts.omitValuationReasoning } : {}),
       ...(opts.valuationReasoningResponse !== undefined ? { valuationReasoningResponse: opts.valuationReasoningResponse } : {}),
       ...(opts.valuationReasoningCalls !== undefined ? { valuationReasoningCalls: opts.valuationReasoningCalls } : {}),
+      ...(opts.stageOmitsValuation !== undefined ? { stageOmitsValuation: opts.stageOmitsValuation } : {}),
     })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-vr-${opts.id}-`))
     await runStrategyResearchSwarm(
@@ -4247,7 +4406,7 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
 
   it('Test 1 — decision DROPS valuation_reasoning, focused call produces it GROUNDED → verdict = model WATCH (not RESEARCH_MORE)', async () => {
     const calls = { count: 0 }
-    const { valuation, cp } = await runVR({
+    const { valuation, cp, events } = await runVR({
       id: 'vr-grounded',
       omitValuationReasoning: true,
       // The focused call grounds both citations in src_dec_1 (verified by allVerifiedGround into dec.verified_ids).
@@ -4268,13 +4427,42 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     // The focused valuation_reasoning rides along on the projection.
     const vr = valuation?.['valuation_reasoning'] as Record<string, unknown> | undefined
     expect(vr?.['assumed_growth']).toBe(0.06)
+
+    // Phase 2 V1: the stage records its artifact + stage_cost as valuation_judgment_drafted.
+    const vjEvent = events.find((e) => e.event_type === 'valuation_judgment_drafted')
+    expect(vjEvent).toBeDefined()
+    const vjPayload = vjEvent?.payload as Record<string, unknown>
+    expect(vjPayload['status']).toBe('ok')
+    expect(vjPayload['assumed_growth']).toBe(0.06)
+    expect((vjPayload['stage_cost'] as { provider_calls?: number }).provider_calls).toBe(1)
+  })
+
+  it('V1b — the valuation STAGE artifact is PRIMARY: its buy-below/status override the monolithic decision fields', async () => {
+    // The stage supplies buy-below 333 + FAIR; the monolithic decision (fall-through fake) still emits
+    // proposed_buy_below 150 + EXPENSIVE. Stage-first (V1b) means the recorded valuation carries 333/FAIR.
+    const { valuation, cp } = await runVR({
+      id: 'v1b-primary',
+      valuationReasoningResponse: {
+        owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+        owner_earnings_citation: 'src_dec_1',
+        assumed_growth: 0.05,
+        assumed_growth_rationale: 'Modest growth grounded to the 10-K.',
+        assumed_growth_citation: 'src_dec_1',
+        proposed_buy_below: 333,
+        valuation_status: 'FAIR',
+      },
+    })
+    // R1 superseded: the stage's 333 is the ADVISORY price; the operative threshold is computed.
+    expect(valuation?.['buy_price_per_share']).toBe(257.2)
+    expect(valuation?.['model_proposed_buy_below']).toBe(333)
+    expect(cp?.valuation_status).toBe('FAIR')
   })
 
   it('Test 2 — decision drops it AND the focused call ALSO fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted', async () => {
     const { valuation, cp } = await runVR({
       id: 'vr-exhausted',
       omitValuationReasoning: true,
-      // No valuationReasoningResponse → the focused call omits the required field → retries exhaust.
+      stageOmitsValuation: true, // V4: the stage is the only owner — force ITS omission for the exhaust path
     })
     expect(valuation?.['synthesis_grounding_unmet']).toBe(true)
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
@@ -4282,15 +4470,19 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     expect(degraded.join(' ')).toMatch(/valuation_reasoning_retry_exhausted/)
   })
 
-  it('Test 3 — HAPPY PATH: decision produced a grounded valuation_reasoning → focused call is NOT invoked, verdict proceeds', async () => {
+  it('Test 3 — HAPPY PATH (Phase 2 V1): the valuation STAGE always runs exactly once; a grounded monolithic valuation_reasoning still proceeds without a second call', async () => {
     const calls = { count: 0 }
-    const { valuation, cp } = await runVR({
+    const { valuation, cp, events } = await runVR({
       id: 'vr-happy',
       // omitValuationReasoning defaults false → the decision agent supplies the grounded valuation_reasoning.
       valuationReasoningCalls: calls,
     })
-    // The focused call must be SKIPPED on the happy path.
-    expect(calls.count).toBe(0)
+    // Phase 2 V1: the focused valuation call is a DEDICATED ALWAYS-ON stage now (it may retry once under
+    // runValidatedAgent) — but the fallback NEVER issues an additional call beyond the stage's own attempts.
+    expect(calls.count).toBeGreaterThanOrEqual(1)
+    expect(calls.count).toBeLessThanOrEqual(2)
+    // The stage records its event even when the fake omits the required field (status 'failed').
+    expect(events.map((e) => e.event_type)).toContain('valuation_judgment_drafted')
     expect(valuation?.['synthesis_grounding_unmet']).toBeUndefined()
     expect(cp?.investment_verdict).toBe('WATCH')
   })
@@ -5399,7 +5591,9 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     // Wiring-conformance: with the decision agent producing NO valuation_reasoning at all (and so no
     // citations), the recorded decision verdict MUST be RESEARCH_MORE + synthesis_grounding_unmet — NEVER
     // the model's confident investment_verdict. This guards the founding-risk gate at the final verdict.
-    const { cp } = await runWithSynthesis('rc_g_trip', { investmentVerdict: 'BUY', omitValuationReasoning: true })
+    // V4: the STAGE is the sole owner — the tripwire now forces the stage to omit (the monolithic
+    // fields no longer exist to omit).
+    const { cp } = await runWithSynthesis('rc_g_trip', { investmentVerdict: 'BUY', omitValuationReasoning: true, stageOmitsValuation: true })
     expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
     expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
@@ -5769,15 +5963,56 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
     }, 'mos-structured')
     // Persisted on the analysis event under the distinct (non-legacy-colliding) key.
     const payload = analysisEvent?.payload as Record<string, unknown>
-    const persisted = payload['margin_of_safety_judgment'] as { sources: string[]; adequacy: string; reasoning: string }
+    const persisted = payload['margin_of_safety_judgment'] as { sources: string[]; adequacy?: string; reasoning: string }
     expect(persisted).toBeDefined()
     expect(persisted.sources).toEqual(['price', 'moat'])
-    expect(persisted.adequacy).toBe('adequate')
+    // V2/V4 (live COST dogfood): a model-emitted adequacy is STRIPPED from new events — the T0
+    // margin_of_safety_grade is the only grade; the narrative fields carry.
+    expect(persisted.adequacy).toBeUndefined()
     // Projected onto the case under the distinct key (NOT the legacy valuation.margin_of_safety string).
     expect(cp?.margin_of_safety_judgment?.sources).toEqual(['price', 'moat'])
-    expect(cp?.margin_of_safety_judgment?.adequacy).toBe('adequate')
+    expect(cp?.margin_of_safety_judgment?.adequacy).toBeUndefined()
     expect((cp?.margin_of_safety_judgment?.reasoning ?? '').length).toBeGreaterThan(0)
     expect(cp?.margin_of_safety_judgment?.moat_durability_reasoning).toBeTruthy()
+  })
+
+  it('V2 — the T0 margin-of-safety GRADE: a deep-discount buy-below grades adequate; a premium buy-below grades inadequate (required_margin 0.25, audit-only)', async () => {
+    // The reference value is min(internal DCF FV, 18× OE) — exact dollars are model-input-dependent, so
+    // pin the two unambiguous ends: a buy-below of $1 (discount ≈ 100%) and one far above any FV.
+    const deep = await runMos({
+      moat_class: 'wide', runway: 'proven', proposed_buy_below: 1,
+      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Deep discount.', reasoning: 'Deep discount carries the margin.' },
+    }, 'mos-grade-deep')
+    const deepGrade = deep.cp?.valuation?.margin_of_safety_grade
+    expect(deepGrade?.grade).toBe('adequate')
+    expect(deepGrade?.required_margin).toBe(0.25)
+    expect(deepGrade?.price_discount_to_reference ?? 0).toBeGreaterThan(0.25)
+
+    const premium = await runMos({
+      moat_class: 'wide', runway: 'proven', proposed_buy_below: 8000,
+      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Premium price.', reasoning: 'No price margin.' },
+    }, 'mos-grade-premium')
+    const premiumGrade = premium.cp?.valuation?.margin_of_safety_grade
+    expect(premiumGrade?.grade).toBe('inadequate')
+    // Audit-only: the grade never gates — both runs record their (clamp-governed) verdicts identically
+    // to the adequacy era; no new gate reads the grade.
+  })
+
+  it('V2 — the joint judgment WITHOUT the retired adequacy field still persists + projects (narrative-only, the new model shape)', async () => {
+    const { analysisEvent, cp } = await runMos({
+      moat_class: 'wide', runway: 'proven',
+      margin_of_safety: {
+        sources: ['moat'],
+        moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
+        reasoning: 'The moat carries the margin; the T0 grade quantifies the price side.',
+      },
+    }, 'mos-no-adequacy')
+    const persisted = (analysisEvent?.payload as Record<string, unknown>)['margin_of_safety_judgment'] as { sources: string[]; adequacy?: string }
+    expect(persisted.sources).toEqual(['moat'])
+    expect(persisted.adequacy).toBeUndefined()
+    expect(cp?.margin_of_safety_judgment?.sources).toEqual(['moat'])
+    expect(cp?.margin_of_safety_judgment?.adequacy).toBeUndefined()
+    expect((cp?.margin_of_safety_judgment?.reasoning ?? '').length).toBeGreaterThan(0)
   })
 
   it('Test 2 / GUARD 1 — the verdict + buy-below are UNCHANGED whether adequacy is adequate vs inadequate (adequacy never gates)', async () => {

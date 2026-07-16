@@ -37,6 +37,9 @@ export type ValuationParams = {
    * expels is a quality-adjusted discount, so there is no per-name / per-moat knob here.
    */
   equity_premium: number
+  /** Phase 2 V2 — uniform required margin of safety (decimal). PROVISIONAL (F.11): owner-chosen 0.25,
+   *  pending post-mortem calibration (entry_discount_to_fv vs realized outcomes). */
+  required_margin_of_safety: number
   /**
    * Documented fail-closed default COMPLIANT SAVINGS rate (Mudarabah expected profit) used as the discount
    * risk-free anchor when the app-config savings rate is unavailable (F.2). Mirrors the app-config default
@@ -138,6 +141,11 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // calibration (fix NVO's currency path + add US 10-K compounders). single_growth_cap was re-derived
   // 2026-06-15 (see its note below); premium remains provisional until the must-signal pass.
   equity_premium: 0.055,
+  // Phase 2 V2 (owner-validated 2026-07-11): the T0 margin-of-safety grade's uniform threshold —
+  // buy-below must sit ≥25% below min(internal DCF fair value, the 18× OE cap value) to grade
+  // 'adequate' (≥ half that → 'thin'). UNIFORM per F.13; PROVISIONAL per F.11 until post-mortems
+  // calibrate it. The moat's contribution to safety stays in the surfaced human-weighted channels.
+  required_margin_of_safety: 0.25,
   // F.2 — fail-closed compliant savings-rate anchor (mirrors DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE = 0.02).
   // The live discount sources the app-config savings rate; this is the fail-closed default.
   savings_rate_default: 0.02,

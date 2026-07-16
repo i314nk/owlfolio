@@ -12,7 +12,7 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 
 - **Concentrated** — up to 20 positions, maximum 15 % per position, 3 % minimum cash buffer.
 - **Quality** — investable only when the business has a durable wide economic moat and positive normalized owner earnings.
-- **Value** — buy price derived from a two-stage owner-earnings DCF at a flat 10 % discount rate, then discounted by a **uniform 25 % base margin of safety** (F.13). All conservatism beyond honest inputs lives in that single MoS knob, which **widens** with documented uncertainty (high terminal-value share, low maintenance-capex confidence, weak moat durability, sensitivity dispersion). The certainty difference between moat classes is captured by the human-weighted moat-durability input (and that widening rule), **not** by tiering the discount rate or the margin of safety.
+- **Value** — buy price derived from a two-stage owner-earnings DCF at a flat savings-anchored discount rate (the user's compliant savings anchor + the uniform 5.5 % equity premium — 9.5 % at a 4 % anchor; F.2), then discounted by a **uniform 25 % required margin of safety** (F.13, T0-graded). All conservatism beyond honest inputs lives in that single MoS knob, which **widens** with documented uncertainty (high terminal-value share, low maintenance-capex confidence, weak moat durability, sensitivity dispersion). The certainty difference between moat classes is captured by the human-weighted moat-durability input (and that widening rule), **not** by tiering the discount rate or the margin of safety.
 - **Shariah-first** — Shariah screening is the first hard gate; a non-compliant result stops the deep-dive before provider cost is incurred.
 
 ### Pipeline
@@ -24,15 +24,18 @@ Discovery
   → Circle-of-competence gate (cite-verified predictability judgment; k-sample agreement)
        ↓ outside circle (or ungroundable) → set aside
        ↓ both gates open: [Automatic | Review-before-deep-dive]
-  → Swarm deep dive (moat / financials / risk / management / valuation / synthesis specialists — parallel)
-  → Synthesis & decision (moat ≥ wide gate enforced here)
+  → Swarm deep dive (moat / financials / risk / management / risks specialists — parallel, grounded)
+  → Valuation judgment (dedicated grounded stage: judged OE bridge + assumed growth + buy-below, cite-checked;
+     the harness computes the T0 margin-of-safety GRADE against a uniform required margin, and converts
+     foreign-filer per-share values into the price currency deterministically)
+  → Synthesis & decision (reconciliation; moat ≥ wide gate enforced here)
   → User-confirmed watchlist entry
   → Holding open (separate explicit ledger transition)
 ```
 
 **Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
 
-Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, a dedicated valuation-judgment stage (`valuation_judgment_drafted` — it owns the owner-earnings bridge, assumed growth, buy-below, and valuation status; the monolithic synthesis no longer carries them), and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
 
 ### Deep-dive approval gate (`deep_dive_approval`)
 
@@ -69,7 +72,7 @@ The moat class is assessed by the deep-dive moat specialist. The gate is enforce
 
 ## 3. Flat discount rate + uniform margin of safety
 
-**All investable moat classes use the same flat 10 % discount rate AND the same uniform base margin of safety** (F.13). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
+**All investable moat classes use the same flat savings-anchored discount rate (F.2: anchor + uniform equity premium) AND the same uniform required margin of safety** (F.13). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
 
 | Discount rate | Base margin of safety |
 |---|---|

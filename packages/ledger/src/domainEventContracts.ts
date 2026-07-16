@@ -80,6 +80,7 @@ export const domainEventTypes = [
   'research_case_archived',
   'research_case_re_review_recorded',
   'price_snapshot_recorded',
+  'valuation_judgment_drafted',
   'shariah_gate_judged',
 ] as const
 
@@ -871,6 +872,29 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_types: ['user', 'worker'],
     projection_owner: 'portfolio',
     payload_fields: ['snapshot_id', 'ticker', 'price_per_share', 'currency', 'as_of', 'source', 'checked_at'],
+  },
+  {
+    event_type: 'valuation_judgment_drafted',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    projection_owner: 'worker_status',
+    payload_fields: [
+      'valuation_judgment_id',
+      'research_case_id',
+      'company_id',
+      'ticker',
+      'status',
+      'owner_earnings_basis',
+      'owner_earnings_citation',
+      'assumed_growth',
+      'assumed_growth_rationale',
+      'assumed_growth_citation',
+      'proposed_buy_below',
+      'valuation_status',
+      'owner_earnings_bridge',
+      'corpus_source_ids',
+      'stage_cost',
+    ],
   },
   {
     // Restructure Phase 1: the FRONT Shariah gate — a provider-authored judgment recorded BEFORE any

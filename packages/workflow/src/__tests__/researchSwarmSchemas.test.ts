@@ -41,68 +41,38 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x.htm', excerpt: 'e' }],
   }
 
-  it('requires proposed_buy_below (the model\'s buy-below number)', () => {
-    const { proposed_buy_below: _omit, ...withoutBuyBelow } = base
-    void _omit
-    expect(DecisionAgentSchema.safeParse(withoutBuyBelow).success).toBe(false)
-    const parsed = DecisionAgentSchema.safeParse(base)
-    expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.proposed_buy_below).toBe(150)
-  })
-
-  it('parses with the cited valuation_reasoning block (owner-earnings basis + assumed growth + rationale + grounding citations)', () => {
+  it('V4 — the valuation-owned fields are DROPPED: emitted values are stripped as unknown keys, and their absence parses', () => {
+    // Phase 2 V4: proposed_buy_below / valuation_reasoning / valuation_status / owner_earnings_bridge
+    // are OWNED by the valuation stage (ValuationReasoningAgentSchema). The monolithic schema neither
+    // requires nor carries them.
     const parsed = DecisionAgentSchema.safeParse({
       ...base,
       valuation_reasoning: {
         owner_earnings_basis: 'FY25 owner earnings $8.4B per the 10-K.',
-        // Founding-risk fix: the grounding citations (a source_id of a verified primary source) are required.
         owner_earnings_citation: 's1',
         assumed_growth: 0.06,
-        assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+        assumed_growth_rationale: 'Cited.',
         assumed_growth_citation: 's1',
       },
     })
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.valuation_reasoning?.assumed_growth).toBe(0.06)
-    expect(parsed.success && parsed.data.valuation_reasoning?.owner_earnings_citation).toBe('s1')
-    expect(parsed.success && parsed.data.valuation_reasoning?.assumed_growth_citation).toBe('s1')
-    expect(parsed.success && parsed.data.valuation_reasoning?.discount_rationale).toBeUndefined()
+    if (parsed.success) {
+      const data = parsed.data as Record<string, unknown>
+      expect(data['proposed_buy_below']).toBeUndefined()
+      expect(data['valuation_reasoning']).toBeUndefined()
+      expect(data['valuation_status']).toBeUndefined()
+      expect(data['owner_earnings_bridge']).toBeUndefined()
+    }
+    // And a payload WITHOUT any of them parses (they are not required).
+    const { proposed_buy_below: _b, valuation_status: _v, owner_earnings_bridge: _o, ...slim } = base
+    void _b; void _v; void _o
+    expect(DecisionAgentSchema.safeParse(slim).success).toBe(true)
   })
 
-  it('REQUIRES the grounding citations when valuation_reasoning is present (founding-risk fix)', () => {
-    // valuation_reasoning is optional overall, but if present BOTH citation fields are mandatory — the
-    // schema FAILS without them so runValidatedAgent retries (the model must ground its own claims).
-    const missingCitations = DecisionAgentSchema.safeParse({
-      ...base,
-      valuation_reasoning: {
-        owner_earnings_basis: 'FY25 owner earnings $8.4B per the 10-K.',
-        assumed_growth: 0.06,
-        assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex.',
-      },
-    })
-    expect(missingCitations.success).toBe(false)
-  })
-
-  it('carries an optional discount_rationale on valuation_reasoning', () => {
-    const parsed = DecisionAgentSchema.safeParse({
-      ...base,
-      valuation_reasoning: {
-        owner_earnings_basis: 'FY25 owner earnings per the 10-K.',
-        owner_earnings_citation: 's1',
-        assumed_growth: 0.18,
-        assumed_growth_rationale: 'Capital-light operating leverage per the cloud segment, cited to the 10-K.',
-        assumed_growth_citation: 's1',
-        discount_rationale: '10% = live 10y Treasury + uniform equity premium.',
-      },
-    })
-    expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.valuation_reasoning?.discount_rationale).toBe('10% = live 10y Treasury + uniform equity premium.')
-  })
-
-  it('valuation_reasoning is OPTIONAL — a degraded payload (buy-below only) still parses', () => {
+  it('a payload without any valuation fields parses (V4: the stage owns them)', () => {
     const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.valuation_reasoning).toBeUndefined()
+    expect(parsed.success && (parsed.data as Record<string, unknown>)['valuation_reasoning']).toBeUndefined()
   })
 
   // Margin-of-safety audit surface: the SINGLE assumption that, if wrong, breaks the thesis +

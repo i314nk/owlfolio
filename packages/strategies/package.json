@@ -39,6 +39,7 @@
     "./goldenSet": "./src/goldenSet.ts",
     "./qualificationEval": "./src/qualificationEval.ts",
     "./sourcePolicy": "./src/sourcePolicy.ts",
-    "./baseRates": "./src/baseRates.ts"
+    "./baseRates": "./src/baseRates.ts",
+    "./adrRatios": "./src/adrRatios.ts"
   }
 }

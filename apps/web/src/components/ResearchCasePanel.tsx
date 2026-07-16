@@ -23,7 +23,9 @@ import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/wo
 // Live default discount when an event predates a stored discount_rate: the savings-anchored default
 // (compliant savings rate + equity premium), computed from the versioned strategy contract — never a
 // hard-coded "10%". Mirrors how StrategyOverview/LearnTabs render the live discount.
-const DEFAULT_DISCOUNT_LABEL = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%`
+// Rounding bug fix (owner find, 2026-07-11): Math.round(9.5)=10 rendered a 9.5% discount as "10%".
+const pctLabel = (rate: number): string => `${(rate * 100).toFixed(1).replace(/\.0$/, '')}%`
+const DEFAULT_DISCOUNT_LABEL = pctLabel(discountRate(buffettMungerStrategy))
 
 export type MarketQuote = {
   price_per_share: number
@@ -376,12 +378,13 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     hintBuyBelow === undefined ? undefined : `buy-below $${hintBuyBelow.toFixed(2)}`,
     hintInBuyZone === undefined ? undefined : (hintInBuyZone ? 'in buy zone' : 'not in buy zone'),
   ].filter((part): part is string => part !== undefined).join(' · ') || undefined
-  const mosAdequacy = researchCase.margin_of_safety_judgment?.adequacy
+  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
   const mosHint = mosAdequacy === undefined ? undefined : `margin ${mosAdequacy}`
   // Valuation headline: the moat tier + discount rate on the right of the card header (mirrors the in-card
   // moat label). Reuses the same DEFAULT_DISCOUNT_LABEL fallback as the valuation panel.
   const valDiscountRate = researchCase.valuation?.discount_rate
-  const valDiscountLabel = valDiscountRate !== undefined ? `${Math.round(valDiscountRate * 100)}%` : DEFAULT_DISCOUNT_LABEL
+  const valDiscountLabel = valDiscountRate !== undefined ? pctLabel(valDiscountRate) : DEFAULT_DISCOUNT_LABEL
   const valuationHint = researchCase.valuation === undefined
     ? undefined
     : `${(researchCase.valuation.moat_class ?? 'unknown').toUpperCase()} MOAT · ${valDiscountLabel} DISCOUNT`
@@ -1304,7 +1307,8 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const moat = researchCase.valuation?.moat_class
   const impliedGrowth = researchCase.valuation?.market_implied_growth
   const buyBelow = researchCase.valuation?.proposed_buy_below ?? researchCase.valuation?.buy_price_per_share
-  const mosAdequacy = researchCase.margin_of_safety_judgment?.adequacy
+  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
   const shariah = researchCase.shariah_status
 
   // The WHOLE thesis leads the verdict summary as prose (the standalone Thesis box was removed — this is now
@@ -1757,6 +1761,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   if (valuation === undefined) return null
 
   const pctPts = (frac: number) => `${(frac * 100).toFixed(1)}%`
+  // NVO dogfood (2026-07-11): on a moat-gated case the buy-price math (fair-value derivatives, implied
+  // growth/multiples, buy zone, MoS grade) is DELIBERATELY not computed — a below-gate name is set aside
+  // before pricing. Say so once, instead of rendering a wall of "Pending" that reads as an incomplete run.
+  const moatGatedNotPriced = valuation.moat_passes_gate === false
 
   // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reverse-DCF
   // market-implied growth is the richness read. (forward-DCF removal: the dollar reference fair value is gone.)
@@ -1814,7 +1822,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const redTeamResponse = redTeam?.synthesis_response
   const redTeamUnaddressed = redTeam?.objection_unaddressed === true
 
-  const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : DEFAULT_DISCOUNT_LABEL
+  const discountLabel = discountRateVal !== undefined ? pctLabel(discountRateVal) : DEFAULT_DISCOUNT_LABEL
 
   // Judged-growth label: the model's judged sustainable g (early years) fading to terminal g_t. growth_rate
   // is now the MODEL's cite-verified assumed/judged growth; the capped demonstrated CAGR is the
@@ -1824,8 +1832,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% (filings)` : ''}${runwayLabel}`
-      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}${runwayLabel}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
@@ -1928,15 +1936,15 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
       createValuationLedgerStat(
         'Market-implied growth',
-        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',
+        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'),
         '',
       ),
       // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
       // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
       // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
       // model judgment or vice versa.
-      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
+      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
       createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),

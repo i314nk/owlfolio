@@ -2567,6 +2567,8 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
     case 'specialist_finding_recorded':
     case 'deep_dive_in_progress':
       return 'Record specialist findings and draft synthesis'
+    case 'valuation_judgment_drafted':
+      return 'Valuation judgment drafted; synthesis in progress'
     case 'deep_dive_synthesis_drafted':
     case 'deep_dive_completed':
     case 'deep_dive_complete':

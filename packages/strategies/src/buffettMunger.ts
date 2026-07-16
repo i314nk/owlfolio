@@ -394,6 +394,7 @@ const rawBuffettMungerStrategy = {
     // savings rate, Treasury retired), 18× FV cap.
     discount_rate: VALUATION_PARAMS.discount_rate,
     equity_premium: VALUATION_PARAMS.equity_premium,
+    required_margin_of_safety: VALUATION_PARAMS.required_margin_of_safety,
     savings_rate_default: VALUATION_PARAMS.savings_rate_default,
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth: VALUATION_PARAMS.terminal_growth,

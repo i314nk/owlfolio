@@ -39,6 +39,28 @@ export const ValuationReasoningSchema = z.object({
   // prompt), so the model is instructed NOT to choose its own rate. Retained optional for schema
   // back-compat; a populated value is not expected and is not used to override the harness discount.
   discount_rationale: z.string().optional(),
+  // ---- Phase 2 V1: the fields the monolithic synthesis used to carry (MOVED, not redesigned) ----
+  // Optional in V1 (the prompt requires them; V4 tightens once the monolithic fields are dropped) so
+  // the T0 side keeps its existing graceful degradation when a model omits them.
+  // The model's judged buy-below price (price currency). Verbatim — the deterministic rails
+  // (buy-zone clamp, absurd-implied-growth clamp, T0 MoS grade in V2) police it.
+  proposed_buy_below: z.number().positive().optional(),
+  // The model's qualitative read of TODAY's price vs value.
+  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']).optional(),
+  // The judged owner-earnings bridge INPUTS (the T0 arithmetic stays harness-owned; EDGAR anchors
+  // NI/D&A/SBC/shares — the model's judgment fields are maintenance capex + the proxy tier + any
+  // one-off NI normalization). Mirrors the monolithic decision's block exactly.
+  owner_earnings_bridge: z
+    .object({
+      net_income: z.number(),
+      depreciation_amortization: z.number(),
+      maintenance_capex: z.number(),
+      maintenance_capex_proxy_tier: z.enum(['20', '50', '80']),
+      stock_based_comp: z.number(),
+      normalized_working_capital_change: z.number(),
+      shares_outstanding: z.number(),
+    })
+    .optional(),
 })
 export type ValuationReasoning = z.infer<typeof ValuationReasoningSchema>
 
@@ -64,12 +86,18 @@ export type RunValuationReasoningPassArgs = {
    * id the harness reliably verifies, do NOT fetch a self-archive URL). May be empty.
    */
   preVerifiedSourceIds: string[]
+  /** Phase 2 V1 (always-on stage): the RESOLVED moat/runway tiers (mechanical anchor ±1, cite-gated). */
+  caseDigest?: { moat_class: string; runway: string }
+  /** Phase 2 V1: the harness-fetched primary-filing NUMBERS block (the same injection the lanes get). */
+  primaryFilingBlock?: string
+  /** Phase 2 V1: the circle gate's grounded cashflow drivers/breakers (predictability context). */
+  circleDigest?: { drivers: string[]; breakers: string[] }
 }
 
 /** Outcome of the dedicated valuation-reasoning call. `ok` carries the valuation_reasoning; `failed` means
  *  retries were exhausted (the caller leaves grounding unmet → the visible RESEARCH_MORE fallback). */
 export type ValuationReasoningOutcome =
-  | { status: 'ok'; valuation_reasoning: ValuationReasoning; verified_ids: string[]; captured: CapturedSource[] }
+  | { status: 'ok'; valuation_reasoning: ValuationReasoning; verified_ids: string[]; captured: CapturedSource[]; usage?: { input_tokens?: number; output_tokens?: number } }
   | { status: 'failed'; reason: string; attempts: number }
 
 export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArgs): string {
@@ -85,10 +113,14 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
       + `10-K (it fetches unreliably and will FAIL the cite-check). `
     : ''
   return (
-    `You are the Buffett-Munger valuation-reasoning agent for ${args.ticker}. The synthesis/decision agent `
-    + `omitted (or failed to ground) the structured valuation_reasoning — your FOCUSED, REQUIRED job is to `
-    + `produce it grounded.\n\n`
+    `You are the Buffett-Munger valuation-judgment agent for ${args.ticker}. Yours is the dedicated `
+    + `valuation stage: the specialist lanes have reported and the moat tier is resolved — your FOCUSED, `
+    + `REQUIRED job is to produce the grounded valuation judgment the synthesis will consume.\n\n`
     + `Lane findings (the shared narrative to value from):\n${laneLines}\n\n`
+    + (args.caseDigest === undefined ? '' : `Resolved judgment tiers (mechanical anchor ±1, cite-gated): moat_class=${args.caseDigest.moat_class}, runway=${args.caseDigest.runway}.\n`)
+    + (args.circleDigest === undefined ? '' : `Circle-gate grounded cashflow drivers: ${args.circleDigest.drivers.join('; ') || '(none)'} | predictability breakers: ${args.circleDigest.breakers.join('; ') || '(none)'}.\n`)
+    + (args.primaryFilingBlock ?? '')
+    + `\n`
     + `Produce a single valuation_reasoning:\n`
     + `  - owner_earnings_basis: the owner-earnings figure you valued, CITED.\n`
     + `  - owner_earnings_citation: REQUIRED — the source_id of a VERIFIED primary source backing it (a real `
@@ -97,7 +129,28 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `growth above ~15% will be FLAGGED as implausible.\n`
     + `  - assumed_growth_rationale: WHY that growth is defensible, CITED (a durable source, not "strong execution").\n`
     + `  - assumed_growth_citation: REQUIRED — the source_id of a VERIFIED primary source backing the growth `
-    + `rationale (again a real grounded source_id, NOT prose).\n\n`
+    + `rationale (again a real grounded source_id, NOT prose).\n`
+    + `  - proposed_buy_below: the price at/below which you would buy, in the US-LISTED quote currency (USD `
+    + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
+    + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
+    + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
+    + `  - valuation_status: ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your qualitative read of `
+    + `TODAY's price vs value (keep it coherent with your own proposed_buy_below).\n`
+    + `  - owner_earnings_bridge: your judged bridge INPUTS from the filing numbers above, in the FILING'S `
+    + `REPORTING currency and labeled as such in your basis text (say "DKK 100.5B", not "$100.5B", for a DKK `
+    + `filer) (net_income, `
+    + `depreciation_amortization, maintenance_capex + maintenance_capex_proxy_tier ('20'|'50'|'80'), `
+    + `stock_based_comp, normalized_working_capital_change, shares_outstanding — $M and millions of shares). `
+    + `The harness anchors NI/D&A/SBC/shares to EDGAR and bounds maintenance_capex by total capex; your real `
+    + `judgments are the maintenance-vs-growth capex split AND the normalized working-capital change.\n`
+    + `  - normalized_working_capital_change is a JUDGMENT, not a default: read the cash-flow statement's `
+    + `"changes in operating assets and liabilities" across the last 2-3 fiscal years (read_source the `
+    + `pre-verified filing, section 8) and estimate the STRUCTURAL recurring working-capital use of cash as `
+    + `the business grows — normalize away one-year swings. SIGN: positive = a recurring USE of cash `
+    + `(subtracts from owner earnings); negative = a structural release (adds). Enter 0 ONLY when the filing `
+    + `shows working capital roughly neutral across years — and if you enter 0, SAY WHY in `
+    + `owner_earnings_basis (e.g. "negative working-capital cycle; customers pay upfront"). A silent `
+    + `defaulted 0 overstates owner earnings for working-capital-hungry businesses.\n\n`
     + `GROUNDING (non-negotiable): the harness deterministically cite-checks owner_earnings_citation and `
     + `assumed_growth_citation against the grounded corpus and FAILS CLOSED when either is absent or does not `
     + `verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
@@ -127,6 +180,23 @@ export async function runValuationReasoningPass(
   deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
 ): Promise<ValuationReasoningOutcome> {
   const requiredFields: RequiredFieldCheck<ValuationReasoningAnalysis>[] = [
+    // Phase 2 V4: the stage OWNS the buy-below / status / bridge — retry-forced (schema stays optional so
+    // an exhausted retry degrades to the visible failed outcome instead of a hard throw).
+    {
+      name: 'valuation_reasoning.proposed_buy_below',
+      present: (a) => typeof a.valuation_reasoning?.proposed_buy_below === 'number' && Number.isFinite(a.valuation_reasoning.proposed_buy_below) && a.valuation_reasoning.proposed_buy_below > 0,
+      hint: 'the price at/below which you would buy, in the US-LISTED quote currency (a positive number)',
+    },
+    {
+      name: 'valuation_reasoning.valuation_status',
+      present: (a) => a.valuation_reasoning?.valuation_status !== undefined,
+      hint: "ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your read of TODAY's price vs value",
+    },
+    {
+      name: 'valuation_reasoning.owner_earnings_bridge',
+      present: (a) => a.valuation_reasoning?.owner_earnings_bridge !== undefined,
+      hint: 'your judged bridge inputs (net_income, depreciation_amortization, maintenance_capex + proxy tier, stock_based_comp, normalized_working_capital_change, shares_outstanding) in the reporting currency',
+    },
     {
       name: 'valuation_reasoning.owner_earnings_citation',
       present: (a) => (a.valuation_reasoning?.owner_earnings_citation ?? '').length > 0,
@@ -161,6 +231,7 @@ export async function runValuationReasoningPass(
         valuation_reasoning: validated.result.analysis.valuation_reasoning,
         verified_ids: validated.result.verified_ids,
         captured: validated.result.captured,
+        ...(validated.result.usage === undefined ? {} : { usage: validated.result.usage }),
       }
     }
     return { status: 'failed', reason: validated.reason, attempts: validated.attempts }

@@ -12,6 +12,8 @@ export type ResearchCaseStage =
   | 'specialist_finding_recorded'
   | 'deep_dive_in_progress'
   | 'circle_competence_judged'
+  /** Phase 2: the dedicated valuation-judgment stage (between the lanes and synthesis). */
+  | 'valuation_judgment_drafted'
   | 'deep_dive_synthesis_drafted'
   | 'deep_dive_completed'
   | 'deep_dive_complete'
@@ -63,7 +65,9 @@ export type ResearchCaseMarginOfSafetyJudgment = {
   sources: ('price' | 'moat')[]
   price_gap_reasoning?: string
   moat_durability_reasoning?: string
-  adequacy: 'adequate' | 'thin' | 'inadequate'
+  /** Legacy (pre-V2) model-graded adequacy — read-only; current runs carry the T0
+   *  valuation.margin_of_safety_grade instead. */
+  adequacy?: 'adequate' | 'thin' | 'inadequate'
   reasoning: string
 }
 
@@ -293,6 +297,23 @@ export type ResearchCaseCircleCompetenceProjection = {
 }
 
 export type ResearchCaseValuationProjection = {
+  /** R1 superseded (2026-07-11): the model's ADVISORY price view (the operative buy_price_per_share
+   *  is the computed threshold; the divergence flag reconciles the two). */
+  model_proposed_buy_below?: number
+  /** Phase 2 V3: the deterministic foreign-filer FX/ADR conversion provenance (price-currency basis). */
+  fx_conversion?: {
+    reporting_currency?: string
+    fx_rate_to_usd?: number
+    adr_ordinary_per_listed?: number
+    adr_ratio_source?: string
+  }
+  /** Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; the model no longer grades). */
+  margin_of_safety_grade?: {
+    grade: 'adequate' | 'thin' | 'inadequate'
+    price_discount_to_reference?: number
+    required_margin?: number
+    reference_basis?: string
+  }
   /** Set when the case was set aside outside the circle of competence (the deep dive did not run). */
   circle_competence_unmet?: boolean
   /** Mirror flag for the set-aside path (outside the owner-policy + competence circle). */
@@ -779,6 +800,8 @@ export type ResearchCaseProjection = {
    * predate the tool-grounded gate carry none, so this stays undefined and the dossier renders 0/—.
    */
   quick_screen_source_ids?: string[]
+  /** Phase 2: the dedicated valuation stage's artifact (grounded judgment inputs; T0 math stays harness-owned). */
+  valuation_judgment?: Record<string, unknown>
   /** The front Shariah gate's judgment (restructure gate #1): open/closed + the grounded sector read. */
   shariah_gate?: {
     allowed?: boolean
@@ -953,11 +976,12 @@ function getMarginOfSafetyJudgment(
   if (!Array.isArray(rawSources)) return undefined
   const sources = rawSources.filter((s): s is 'price' | 'moat' => s === 'price' || s === 'moat')
   if (sources.length === 0) return undefined
+  // Phase 2 V2: adequacy is legacy-optional (current runs carry the T0 grade on the valuation instead).
   const adequacy = value['adequacy']
-  if (adequacy !== 'adequate' && adequacy !== 'thin' && adequacy !== 'inadequate') return undefined
+  const validAdequacy = adequacy === 'adequate' || adequacy === 'thin' || adequacy === 'inadequate' ? adequacy : undefined
   const reasoning = value['reasoning']
   if (typeof reasoning !== 'string' || reasoning.trim().length === 0) return undefined
-  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, adequacy, reasoning }
+  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, ...(validAdequacy === undefined ? {} : { adequacy: validAdequacy }), reasoning }
   const priceGap = value['price_gap_reasoning']
   if (typeof priceGap === 'string' && priceGap.length > 0) judgment.price_gap_reasoning = priceGap
   const moatDurability = value['moat_durability_reasoning']
@@ -1589,6 +1613,36 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
       ...(equity_premium !== undefined ? { equity_premium } : {}),
     }
   }
+  const fxRaw = value['fx_conversion']
+  if (isRecord(fxRaw)) {
+    const rc = getString(fxRaw, 'reporting_currency')
+    const rate = getNumber(fxRaw, 'fx_rate_to_usd')
+    const ratio = getNumber(fxRaw, 'adr_ordinary_per_listed')
+    const ratioSource = getString(fxRaw, 'adr_ratio_source')
+    projected.fx_conversion = {
+      ...(rc !== undefined ? { reporting_currency: rc } : {}),
+      ...(rate !== undefined ? { fx_rate_to_usd: rate } : {}),
+      ...(ratio !== undefined ? { adr_ordinary_per_listed: ratio } : {}),
+      ...(ratioSource !== undefined ? { adr_ratio_source: ratioSource } : {}),
+    }
+  }
+  const modelProposedBuyBelow = getNumber(value, 'model_proposed_buy_below')
+  if (modelProposedBuyBelow !== undefined) projected.model_proposed_buy_below = modelProposedBuyBelow
+  const mosGradeRaw = value['margin_of_safety_grade']
+  if (isRecord(mosGradeRaw)) {
+    const grade = mosGradeRaw['grade']
+    if (grade === 'adequate' || grade === 'thin' || grade === 'inadequate') {
+      const discountToRef = getNumber(mosGradeRaw, 'price_discount_to_reference')
+      const requiredMargin = getNumber(mosGradeRaw, 'required_margin')
+      const referenceBasis = getString(mosGradeRaw, 'reference_basis')
+      projected.margin_of_safety_grade = {
+        grade,
+        ...(discountToRef !== undefined ? { price_discount_to_reference: discountToRef } : {}),
+        ...(requiredMargin !== undefined ? { required_margin: requiredMargin } : {}),
+        ...(referenceBasis !== undefined ? { reference_basis: referenceBasis } : {}),
+      }
+    }
+  }
   const growth_assumptions = getString(value, 'growth_assumptions')
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const growth_rate = getNumber(value, 'growth_rate')
@@ -1973,6 +2027,16 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         ...(event.payload['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
         ...(gateReason === undefined ? {} : { reason: gateReason }),
       }
+      continue
+    }
+
+    if (event.event_type === 'valuation_judgment_drafted') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      const researchCase = upsertCase(researchCases, researchCaseId, 'valuation_judgment_drafted', event.created_at)
+      researchCase.valuation_judgment = { ...event.payload }
       continue
     }
 

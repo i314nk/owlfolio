@@ -308,6 +308,36 @@ function mockSynthesisDecisionForTicker(ticker: string) {
   }
 }
 
+// Phase 2 V4 — the dedicated always-on VALUATION stage (valuation_judgment_drafted): the mock serves
+// the same bridge/buy-below/status/reasoning the monolithic synthesis used to carry (the slimmed
+// decision schema strips them there; the stage is the owner now).
+function mockValuationReasoningForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    valuation_reasoning: {
+      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
+      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
+      assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
+      assumed_growth_rationale: isCapitalLightMock(ticker)
+        ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
+        : `${companyLabel} sustains modest mid-single-digit growth = reinvestment 40% × 20% incremental ROIC (the funded identity), cited to the latest 10-K segment capex.`,
+      assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
+      proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
+      valuation_status: 'EXPENSIVE' as const,
+      owner_earnings_bridge: {
+        net_income: 14000,
+        depreciation_amortization: 4000,
+        maintenance_capex: 3000,
+        maintenance_capex_proxy_tier: '50' as const,
+        stock_based_comp: 2000,
+        normalized_working_capital_change: -1000,
+        shares_outstanding: 1000,
+      },
+    },
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
 // judgment-objectivity-layer-spec Mechanism 5 — the dedicated red-team-RESPONSE call (the focused
 // decomposition). The mock answers the strongest objection with evidence cited to the grounded corpus so
 // the demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
@@ -498,6 +528,8 @@ export class MockProvider implements Provider {
           return mockShariahLaneForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':
           return mockSynthesisDecisionForTicker(ticker)
+        case 'BuffettMungerValuationReasoning':
+          return mockValuationReasoningForTicker(ticker)
         case 'BuffettMungerRedTeam':
           return mockRedTeamForTicker(ticker)
         case 'BuffettMungerRedTeamResponse':

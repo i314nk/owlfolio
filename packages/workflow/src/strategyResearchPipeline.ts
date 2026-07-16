@@ -114,6 +114,14 @@ export type StartDeepDiveCommand = ResearchStrategyRef & {
   idempotency_key?: string
 }
 
+/** Phase 2 V5 — per-stage spend record (scheduler unattended-spend data). Additive/optional. */
+export type StageCostPayload = {
+  provider_calls: number
+  input_tokens?: number
+  output_tokens?: number
+  wall_ms: number
+}
+
 type SpecialistFindingRecordedPayload = StrategyPipelinePayloadBase & {
   finding_id: string
   deep_dive_id: string
@@ -122,6 +130,7 @@ type SpecialistFindingRecordedPayload = StrategyPipelinePayloadBase & {
   confidence: DeepDiveConfidence
   caveats: string[]
   owner_earnings_valuation?: OwnerEarningsValuationPayload
+  stage_cost?: StageCostPayload
 }
 
 export type SpecialistFindingRecorded = LedgerEventEnvelope<SpecialistFindingRecordedPayload> & SpecialistFindingRecordedPayload
@@ -141,6 +150,8 @@ export type RecordSpecialistFindingCommand = ResearchStrategyRef & {
   causation_id: string
   actor_id: string
   idempotency_key?: string
+  /** Phase 2 V5 — the lane's spend (calls + reported tokens + wall time). */
+  stage_cost?: StageCostPayload
 }
 
 type DeepDiveSynthesisDraftedPayload = StrategyPipelinePayloadBase & {
@@ -150,6 +161,7 @@ type DeepDiveSynthesisDraftedPayload = StrategyPipelinePayloadBase & {
   specialist_finding_ids: string[]
   confidence: DeepDiveConfidence
   caveats: string[]
+  stage_cost?: StageCostPayload
 }
 
 export type DeepDiveSynthesisDrafted = LedgerEventEnvelope<DeepDiveSynthesisDraftedPayload> & DeepDiveSynthesisDraftedPayload
@@ -168,6 +180,8 @@ export type DraftDeepDiveSynthesisCommand = ResearchStrategyRef & {
   causation_id: string
   actor_id: string
   idempotency_key?: string
+  /** Phase 2 V5 — the synthesis stage's spend. */
+  stage_cost?: StageCostPayload
 }
 
 type DeepDiveCompletedPayload = StrategyPipelinePayloadBase & {
@@ -726,6 +740,7 @@ export async function recordSpecialistFinding(
     ...(command.owner_earnings_valuation === undefined
       ? {}
       : { owner_earnings_valuation: command.owner_earnings_valuation }),
+    ...(command.stage_cost === undefined ? {} : { stage_cost: command.stage_cost }),
   }
 
   return await appendPipelineEvent(store, {
@@ -757,6 +772,7 @@ export async function draftDeepDiveSynthesis(
     specialist_finding_ids: normalizeNonEmptyStringList(command.specialist_finding_ids, 'specialist_finding_ids'),
     confidence: command.confidence,
     caveats: normalizeStringList(command.caveats, 'caveats'),
+    ...(command.stage_cost === undefined ? {} : { stage_cost: command.stage_cost }),
   }
   await requireRecordedSpecialistFindings(store, command, payload.specialist_finding_ids)
 

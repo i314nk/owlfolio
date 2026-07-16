@@ -14,7 +14,8 @@ Onboarding
   -> Discovery queue
   -> Shariah gate (grounded sector judgment + AAOIFI ratios, pre-spend)
   -> Circle-of-competence gate
-  -> Deep dive
+  -> Deep dive (5 grounded specialist lanes)
+  -> Valuation judgment (dedicated grounded stage; T0 margin-of-safety grade, FX-converted for foreign filers)
   -> Synthesis / decision draft
   -> User-confirmed watchlist item
   -> User-opened holding
