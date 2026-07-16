@@ -19,6 +19,8 @@ export type PipelineObservatoryProps = {
   drillDown?: PipelineDrillDown
   selectedCaseId?: string
   mode: WorkflowMode
+  /** SCREENING TOGGLE (owner, 2026-07-16): false renders the Shariah-gate stage as OFF. */
+  shariahEnabled?: boolean
 }
 
 // ── Scoped style vocabulary ───────────────────────────────────────────────────
@@ -55,6 +57,7 @@ const HEALTH_DOT_COLOR: Record<PipelineStageHealth, string> = {
   ok: 'var(--owl-color-accent-bright)',
   warn: 'var(--owl-color-amber)',
   err: 'var(--owl-color-risk)',
+  off: 'rgba(148, 163, 184, 0.7)',
 }
 
 const LANE_DOT_COLOR: Record<PipelineLaneStatus, string> = {
@@ -566,7 +569,7 @@ function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): Reac
 
 // ── The page ──────────────────────────────────────────────────────────────────
 
-export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: PipelineObservatoryProps): ReactNode {
+export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true }: PipelineObservatoryProps): ReactNode {
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
 
   const snapshotTime = snapshot_at !== undefined
@@ -594,7 +597,13 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
       sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
-      createElement(StageFlowMap, { stages: stage_counts }),
+      // SCREENING OFF: the gate stage reads OFF (gray dot) — the funnel never implies a screen that
+      // is not running. The count stays (historical + DISABLED pass-throughs still move through it).
+      createElement(StageFlowMap, {
+        stages: shariahEnabled
+          ? stage_counts
+          : stage_counts.map((stage) => stage.key === 'shariah_gate' ? { ...stage, label: 'Shariah gate · OFF', health: 'off' as const } : stage),
+      }),
       // Inversion step slot (UI-continuity Rule 2): the Munger inversion pass — the case argued against
       // itself pre-synthesis. The objection renders on the case view's case-against card; step id stays stable.
       createElement(

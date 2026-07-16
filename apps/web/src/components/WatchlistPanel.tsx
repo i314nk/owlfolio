@@ -13,6 +13,8 @@ export type WatchlistPanelProps = {
   mode?: WorkflowMode
   /** Open agent observations per watchlist item (buy-window, staleness re-run, Shariah re-screen). */
   alerts?: MonitorAlert[]
+  /** SCREENING TOGGLE (owner, 2026-07-15): false hides the purification-rate surfaces. */
+  shariahEnabled?: boolean
 }
 
 const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
@@ -75,7 +77,7 @@ function zoneSort(a: AppWatchlistItem, b: AppWatchlistItem): number {
   return da - db
 }
 
-export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: WatchlistPanelProps) {
+export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], shariahEnabled = true }: WatchlistPanelProps) {
   // ONE HOME PER NAME (owner, 2026-07-14): a HELD name lives on the portfolio — it leaves the
   // watchlist board while its holding is open (the item itself survives in the ledger and returns
   // to plain watching when the holding closes).
@@ -93,7 +95,7 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: 
         { key: `band-${band}`, 'aria-label': `${meta.title} candidates`, 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
         createElement('p', { className: 'owl-section-accent' }, `${meta.title} · ${bandItems.length}`),
         createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, meta.note),
-        ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alertMatchesItem(alert, item)), band)),
+        ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alertMatchesItem(alert, item)), band, shariahEnabled)),
       ),
     ]
   }
@@ -215,7 +217,7 @@ function createEmptyState(heldCount = 0) {
 
 // ── Candidate card ────────────────────────────────────────────────────────────
 
-function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[], band: ZoneBand) {
+function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[], band: ZoneBand, shariahEnabled = true) {
   const ticker = item.ticker ?? item.company_id ?? item.watchlist_item_id
   const v = item.verdict
   const buyBelow = v?.proposed_buy_below ?? v?.buy_price_per_share
@@ -283,7 +285,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
         ...(v?.market_price_per_share === undefined ? {} : { livePrice: v.market_price_per_share }),
       }),
       // CONDITIONAL explained at the point of contact: what the amber chip obliges you to do.
-      createShariahConditionLine(item),
+      // SCREENING OFF hides the purification surface (owner-locked, 2026-07-15).
+      shariahEnabled ? createShariahConditionLine(item) : null,
       // Provenance: WHICH analysis these figures come from — and, when the latest run produced no
       // thresholds, say so instead of silently keeping old numbers.
       v === undefined && item.latest_analysis_verdict !== undefined
@@ -367,6 +370,11 @@ function shariahChip(item: AppWatchlistItem) {
 
   const status = (item.shariah_gate_status ?? '').toUpperCase()
 
+  // SCREENING OFF: the gate recorded an explicit DISABLED decision — a neutral chip, never a fake
+  // APPROVED (the admission was not screened).
+  if (status === 'DISABLED') {
+    return createElement(OwlValuationChip, { kind: 'watch', label: 'GATE OFF' })
+  }
   if (item.shariah_gate_allowed === true) {
     if (status === 'CONDITIONAL') {
       return createElement(OwlValuationChip, { kind: 'watch', label: 'CONDITIONAL' })

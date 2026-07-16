@@ -237,3 +237,40 @@ test('personal-local mode can create the first research case from the command ce
 
   await expect(browserErrors).toEqual([])
 })
+
+test('screening OFF: the toggle persists, the run skips the gate, and the admission records DISABLED (never a fake pass)', async ({ page, request }) => {
+  await initWorkflow(request)
+
+  // Turn screening OFF through the settings UI (the toggle + save round-trip).
+  await page.goto('/settings/automation')
+  // The toggle is a client component — wait for hydration before clicking (a pre-hydration click
+  // lands on inert server HTML and silently does nothing).
+  await page.waitForLoadState('networkidle')
+  await page.getByTestId('shariah-toggle').click()
+  await page.getByTestId('shariah-save').click()
+  await expect(page.getByText('Screening is OFF')).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Screening is OFF')).toBeVisible()
+
+  // A full mock run with screening OFF: the swarm skips the Shariah gate + lanes.
+  const automationResponse = await request.post('/api/settings/automation', { data: { deep_dive_approval: 'automatic' } })
+  expect(automationResponse.ok()).toBe(true)
+  await page.goto('/research/new')
+  await page.getByLabel('Ticker').fill('MSFT')
+  await page.getByRole('button', { name: /create research case/i }).click()
+  await expect(page).toHaveURL(/\/research\/rc_msft_/)
+  await expect(page.getByText('Verdict summary')).toBeVisible()
+
+  // Promote → the admission gate records an explicit DISABLED decision; the board shows the neutral
+  // GATE OFF chip (never APPROVED) and NO purification surface.
+  const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
+  await expect(promoteButton).toBeEnabled()
+  await promoteButton.click()
+  await expect(page).toHaveURL('/watchlist')
+  const row = page.locator('details[data-watchlist-row="MSFT"]')
+  await expect(row).toBeVisible()
+  await expect(row.getByText('GATE OFF', { exact: true })).toBeVisible()
+  await expect(row.getByText('CONDITIONAL', { exact: true })).toHaveCount(0)
+  await row.locator('> summary').click()
+  await expect(page.getByText(/Shariah-permissible to hold, with an obligation/)).toHaveCount(0)
+})

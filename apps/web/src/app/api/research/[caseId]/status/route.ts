@@ -85,6 +85,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cas
     stage: researchCase.stage,
     specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
     failed,
+    shariahGateDisabled: (researchCase.shariah_gate?.sector_status ?? '').toUpperCase() === 'DISABLED',
   })
   return NextResponse.json({ stage: researchCase.stage, ...toBody(progress) }, { status: 200 })
 }
@@ -93,6 +94,7 @@ function toBody(progress: RunProgress) {
   return {
     currentStage: progress.currentStage,
     inProgress: progress.inProgress,
+    shariahGateDisabled: progress.shariahGateDisabled,
     failed: progress.failed,
     awaitingApproval: progress.awaitingApproval,
     lanes: progress.lanes,

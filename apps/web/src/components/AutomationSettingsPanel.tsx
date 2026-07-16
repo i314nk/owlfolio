@@ -6,8 +6,6 @@ import type {
   AutomationCadenceDiscovery,
   AutomationCadencePriceRefresh,
   AutomationCadencePurification,
-  AutomationCadenceReanalysis,
-  AutomationCadenceThesisReview,
   AutomationCadenceWatchlist,
   AutomationSettings,
 } from '@owlfolio/shared'
@@ -392,7 +390,7 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
       : createElement(
         'p',
         { style: pausedNoticeBannerStyle },
-        'Research pipeline paused. Discovery, deep-dive, quick-screen, and reanalysis controls below are preserved but inactive while the engine is off.',
+        'Research pipeline paused. The discovery, deep-dive, and monitoring controls below are preserved but inactive while the engine is off.',
       ),
 
     // --- Research section ---
@@ -521,7 +519,7 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           ControlRow,
           {
             label: 'Watchlist monitoring',
-            helper: 'Periodic re-check of watchlist candidates for material news or Shariah status changes.',
+            helper: 'The deterministic buy-window / staleness pass over watched names, and the tranche/concentration monitors over held ones. Observations only — never a trade.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {
@@ -540,44 +538,20 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           }),
         ),
 
+        // REVIEW RETIRED + 10-K cadence (2026-07-14/15): this switch drives the quarterly grounded
+        // check-in (re_review_check) — the task's cadence is fixed quarterly (the 10-Q rhythm), so no
+        // decorative cadence select. The ANNUAL full re-analysis needs no cadence knob either: a
+        // detected new 10-K raises the one-click re-run prompt on the boards.
         createElement(
           ControlRow,
           {
-            label: 'Thesis-intact review',
-            helper: 'Checks if the thesis still holds; can trigger a full re-deep-dive (escalation coming soon).',
-            workerNote: 'Cadence takes effect when the local worker runs.',
+            label: 'Thesis check-in (vs new filings)',
+            helper: 'The quarterly grounded check-in: diffs filings NEW since each decision against the recorded thesis (INTACT / WEAKENED / BROKEN). A BROKEN thesis on a held name escalates a full re-analysis draft; a detected new annual report raises the one-click full re-run prompt on the boards.',
+            workerNote: 'Runs quarterly when the local worker runs (also on demand from any board row).',
           },
           createElement(Toggle, {
             enabled: pendingSettings.thesis_review.enabled,
             onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, enabled: v }),
-          }),
-          createElement(ControlSelect<AutomationCadenceThesisReview>, {
-            label: 'Thesis-intact review cadence',
-            value: pendingSettings.thesis_review.cadence,
-            options: [
-              { value: 'off', label: 'Off' },
-              { value: 'monthly', label: 'Monthly' },
-              { value: 'quarterly', label: 'Quarterly' },
-            ],
-            onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, cadence: v }),
-          }),
-        ),
-
-        createElement(
-          ControlRow,
-          {
-            label: 'Annual full reanalysis',
-            helper: 'Full swarm deep dive on this cadence (or on demand).',
-            workerNote: 'Cadence takes effect when the local worker runs.',
-          },
-          createElement(ControlSelect<AutomationCadenceReanalysis>, {
-            label: 'Annual full reanalysis cadence',
-            value: pendingSettings.reanalysis.cadence,
-            options: [
-              { value: 'off', label: 'Off' },
-              { value: 'annual', label: 'Annual' },
-            ],
-            onChange: (v) => update('reanalysis', { cadence: v }),
           }),
         ),
 
@@ -607,11 +581,14 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
     ),
 
     // --- Compliance section ---
+    // SCALE-DOWN truth (2026-07-15): the purification LEDGER is gone — this section now presents the
+    // one thing the legacy `purification` config key still does: supply the Shariah re-screen task's
+    // cadence. Its on/off rides the Shariah screening toggle (the section below).
     createElement(
       'section',
       { style: sectionStyle, 'aria-label': 'Compliance settings' },
       createElement('p', { className: 'owl-section-accent' }, 'Compliance'),
-      createElement('h3', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Purification'),
+      createElement('h3', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Shariah re-screen'),
       createElement(
         'div',
         { style: controlGridStyle },
@@ -619,16 +596,12 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
-            label: 'Purification obligations',
-            helper: 'Track and schedule purification obligation calculations. This records config only — purification amounts and payments remain explicit user-confirmed ledger events.',
+            label: 'Shariah ratio re-screen',
+            helper: 'Re-checks held and watched names against the AAOIFI financial ratios on this cadence. A breach starts the 90-day grace, then a DIVEST-REQUIRED draft — always human-decided. On/off rides the Shariah screening toggle in the section below.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
-          createElement(Toggle, {
-            enabled: pendingSettings.purification.enabled,
-            onChange: (v) => update('purification', { ...pendingSettings.purification, enabled: v }),
-          }),
           createElement(ControlSelect<AutomationCadencePurification>, {
-            label: 'Purification cadence',
+            label: 'Shariah re-screen cadence',
             value: pendingSettings.purification.cadence,
             options: [
               { value: 'off', label: 'Off' },

@@ -43,6 +43,7 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
         <PipelineObservatory
           pipeline={pipeline}
           mode={state.config.mode}
+          shariahEnabled={state.config.shariah.enabled}
           {...(drillDown !== undefined ? { drillDown } : {})}
           {...(selectedRun !== undefined ? { selectedCaseId: selectedRun.research_case_id } : {})}
         />

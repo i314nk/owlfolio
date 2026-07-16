@@ -27,7 +27,7 @@ export default async function WatchlistPage() {
         </a>
         <RefreshPricesButton />
       </div>
-      <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} />
+      <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} shariahEnabled={state.config.shariah.enabled} />
     </main>
   )
 }

@@ -139,6 +139,24 @@ export async function updateAutomationSettings(partial: Partial<AutomationSettin
   return next
 }
 
+/**
+ * Update the Shariah screening settings (currently the on/off toggle). OFF is fail-visible
+ * downstream: gates record DISABLED decisions, chips show GATE OFF, purification surfaces hide —
+ * never a fake APPROVED. Default stays ON (Shariah-by-design is an opt-out, not a repositioning).
+ */
+export async function updateShariahSettings(partial: { enabled?: boolean }, options: OnboardingOptions = {}): Promise<AppConfig> {
+  const current = await loadAppConfig(options)
+  const next: AppConfig = {
+    ...current,
+    shariah: {
+      ...current.shariah,
+      ...(partial.enabled === undefined ? {} : { enabled: partial.enabled }),
+    },
+  }
+  await saveAppConfig(next, options)
+  return next
+}
+
 export async function getProviderReadinessSnapshot(config: AppConfig, options: OnboardingOptions = {}): Promise<ProviderReadiness> {
   const rows = await buildProviderStatusRows({
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),

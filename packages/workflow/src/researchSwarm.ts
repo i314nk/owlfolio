@@ -76,7 +76,7 @@ import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinan
 import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runInversionPass, buildInversionLayer, type InversionLaneDigest, type InversionResult } from './inversionPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
-import { runShariahGatePhase } from './shariahGatePhase'
+import { runShariahGatePhase, type ShariahGatePhaseResult } from './shariahGatePhase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   resolveCrossCheck,
@@ -242,6 +242,49 @@ export type CircleGateSettings = {
   min_breakers?: number
 }
 
+/**
+ * SCREENING OFF: record the front gate's stand-in — a system-authored shariah_gate_judged
+ * OBSERVATION with status DISABLED (allowed; the reason names the setting). Zero provider spend;
+ * no fabricated sector judgment. Returns the ShariahGatePhaseResult shape so the swarm's causation
+ * chain and set-aside plumbing are untouched.
+ */
+async function recordShariahGateDisabled(
+  store: SwarmStore,
+  command: RunStrategyResearchSwarmCommand,
+  causationEventId: string,
+): Promise<ShariahGatePhaseResult> {
+  const eventId = `evt_shariah_gate_judged_${command.research_case_id}_disabled`
+  const stored = await store.append({
+    event_id: eventId,
+    event_type: 'shariah_gate_judged',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: causationEventId,
+    actor_type: 'system',
+    actor_id: 'research_workflow',
+    payload: {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      allowed: true,
+      status: 'DISABLED',
+      sector_status: 'DISABLED',
+      reason: 'Shariah screening is OFF by setting — the front gate did not run this analysis.',
+      is_observation: true,
+    },
+    source_ids: [],
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `shariah-gate:${command.research_case_id}:disabled:v1`,
+  })
+  return {
+    allowed: true,
+    reason: 'Shariah screening is OFF by setting — the front gate did not run this analysis.',
+    event_id: stored.event_id,
+    event: stored,
+  }
+}
+
 export type RunStrategyResearchSwarmCommand = {
   research_case_id: string
   company_id: string
@@ -257,6 +300,12 @@ export type RunStrategyResearchSwarmCommand = {
   supersedes_research_case_id?: string
   /** Circle-gate hardening knobs (k-sample agreement + evidence floors), forwarded to the deep dive. */
   circle_gate?: CircleGateSettings
+  /**
+   * SCREENING TOGGLE (owner-approved 2026-07-15): false skips the Shariah front gate AND the deep
+   * Shariah re-screen lane (zero Shariah provider spend, no fabricated verdict) — the run records
+   * an explicit DISABLED gate observation instead. Absent/true = today's behavior.
+   */
+  shariah_enabled?: boolean
   /**
    * F.2 — the COMPLIANT risk-free SAVINGS rate (decimal) from the app-config savings sleeve, the
    * valuation discount anchor. Forwarded to the deep-dive phase (previously only the approval-RESUME
@@ -301,6 +350,8 @@ export type RunResearchDeepDivePhaseCommand = {
   source_ledger_path: string
   /** Source ids verified at the front Shariah gate (legacy: the quick screen) — seed queueDeepDive */
   gate_source_ids: string[]
+  /** SCREENING TOGGLE: false skips the deep Shariah reasoning pass (no spend; DISABLED honestly). */
+  shariah_enabled?: boolean
   /** event_id of the shariah_gate_judged event (legacy: quick_screen_drafted) — used as causation_id */
   gate_event_id: string
   /**
@@ -687,8 +738,16 @@ export async function runStrategyResearchSwarm(
   // (gate_incomplete) — the downstream Shariah machinery still fails closed. The circle gate (gate #2,
   // inside the deep-dive phase, pre-lane) absorbs the retired quick screen's "worth a deep dive"
   // judgment — "durably predictable" is the stricter form of it.
+  // SCREENING OFF (the toggle): the front gate does not run — zero Shariah spend, no fabricated
+  // sector judgment. A system-authored DISABLED observation takes the gate event's place so the
+  // causation chain, the dossier, and the projections stay honest ("screening was OFF for this run").
+  const shariahGate = command.shariah_enabled === false
+    ? await recordShariahGateDisabled(store, command, researchCase.event_id)
+    : await runShariahGatePhaseLive()
+
+  async function runShariahGatePhaseLive(): Promise<ShariahGatePhaseResult> {
   const shariahGateRuntime = resolveRoleRuntime('lane_shariah', provider, command)
-  const shariahGate = await runShariahGatePhase(store, {
+  return await runShariahGatePhase(store, {
     research_case_id: command.research_case_id,
     company_id: command.company_id,
     ticker: command.ticker,
@@ -718,6 +777,8 @@ export async function runStrategyResearchSwarm(
     ),
     corpusSourceIds: [...accumulated.values()].map((c) => c.source_id),
   })
+  }
+
   // Corpus continuity: fold the gate pass's grounded captures into the run corpus so its verified
   // citations stay readable/citable by the circle gate, the lanes, and the cross-stage cite-checks.
   if (shariahGate.pass_captured !== undefined) {
@@ -839,6 +900,8 @@ export async function runStrategyResearchSwarm(
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
     // S6: forward the user-authored moat-gate override (run remaining pillars anyway).
     ...(command.moat_gate_override === undefined ? {} : { moat_gate_override: command.moat_gate_override }),
+    // SCREENING TOGGLE: forward so the deep Shariah pass is skipped too (zero Shariah spend when off).
+    ...(command.shariah_enabled === undefined ? {} : { shariah_enabled: command.shariah_enabled }),
   }, { ...deps, accumulated })
 
   return {
@@ -2167,7 +2230,11 @@ export async function runResearchDeepDivePhase(
     && frontGateSector !== undefined
     && corpusIdsNow.length === frontGateCorpusIds.size
     && corpusIdsNow.every((id) => frontGateCorpusIds.has(id))
-  const shariahPassOutcome = reusableGateJudgment
+  const shariahPassOutcome = command.shariah_enabled === false
+    // SCREENING OFF: no deep Shariah pass, no spend, no fabricated judgment — the recompute below
+    // fails CLOSED (shariah UNDETERMINED / deep-screen incomplete) and the analysis stamps DISABLED.
+    ? { status: 'skipped_disabled' as const }
+    : reusableGateJudgment
     ? {
         status: 'ok' as const,
         shariah_judgment: {
@@ -3864,8 +3931,11 @@ export async function runResearchDeepDivePhase(
   // COMPLIANT and NOT a silent 0% purification; purification cannot be determined until the impermissible-
   // income figure is obtained. Only with a real (computable) verdict does the harness status supersede the
   // lane's proposed (quick-screen) status.
-  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNDETERMINED' | 'UNKNOWN' =
-    sectorHardStop ? 'NON_COMPLIANT'
+  // SCREENING OFF (the toggle): no screen ran anywhere in this analysis — stamp the explicit
+  // DISABLED non-verdict (never a lane-derived status; there is no lane).
+  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNDETERMINED' | 'UNKNOWN' | 'DISABLED' =
+    command.shariah_enabled === false ? 'DISABLED'
+    : sectorHardStop ? 'NON_COMPLIANT'
     : impermissibleIncomeUndetermined ? 'UNDETERMINED'
     : harnessFinancialStatus ?? laneShariahStatus
 

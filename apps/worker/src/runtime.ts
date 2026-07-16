@@ -93,6 +93,8 @@ export type WorkerClock = {
 
 export type DefineDefaultScheduledTasksOptions = WorkerClock & {
   automation?: AutomationSettings
+  /** SCREENING TOGGLE: false disables the shariah_rescreen task (rides config.shariah.enabled). */
+  shariah_enabled?: boolean
 }
 
 /**
@@ -478,7 +480,7 @@ function cadenceToCron(cadence: CadenceWithOff, dailyCron: string): { enabled: b
   }
 }
 
-function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskPayload[] {
+function defaultTaskDefinitions(automation?: AutomationSettings, shariahEnabled = true): ScheduledTaskPayload[] {
   const cfg = mergeAutomationSettings(automation)
   const watchlistCron = cadenceToCron(cfg.watchlist_monitoring.cadence, CRON_DAILY_WATCHLIST)
   // REVIEW RETIRED (owner, 2026-07-14): thesis_review now drives ONLY re_review_check — the
@@ -546,7 +548,9 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       scheduled_task_id: 'task_shariah_rescreen_quarterly',
       task_kind: 'shariah_rescreen',
       cadence: purificationCron.cadence,
-      enabled: cfg.purification.enabled && purificationCron.enabled,
+      // SCREENING TOGGLE (2026-07-15): the re-screen rides shariah.enabled — the honest owner of
+      // this task post-scale-down (the purification key only supplies the legacy cadence string).
+      enabled: shariahEnabled && purificationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -639,12 +643,12 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
 
 export async function defineDefaultScheduledTasks(
   store: EventStore<LedgerEventEnvelope<unknown>>,
-  { now = nowIso, automation }: DefineDefaultScheduledTasksOptions = {},
+  { now = nowIso, automation, shariah_enabled = true }: DefineDefaultScheduledTasksOptions = {},
 ): Promise<LedgerEventEnvelope<unknown>[]> {
   const createdAt = now()
   const events: LedgerEventEnvelope<unknown>[] = []
 
-  for (const payload of defaultTaskDefinitions(automation)) {
+  for (const payload of defaultTaskDefinitions(automation, shariah_enabled)) {
     const event = scheduledTaskEvent(
       'scheduled_task_defined',
       payload.scheduled_task_id,
@@ -2249,6 +2253,8 @@ export async function runProcessResearchQueueTask(
     maxToolCalls?: number
     /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
     circle_gate?: CircleGateSettings
+  /** SCREENING TOGGLE: false skips the Shariah phases (zero Shariah spend; DISABLED honestly). */
+  shariah_enabled?: boolean
     /** Deep-dive approval pause ('review' pauses behind the gates; undefined → automatic). */
     deep_dive_approval?: 'automatic' | 'review'
     /** F.2 — the compliant savings anchor (decimal) for the valuation discount. */
@@ -2371,6 +2377,7 @@ export async function runProcessResearchQueueTask(
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
+          ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
           ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
@@ -2424,6 +2431,8 @@ export async function runProcessDeepDiveQueueTask(
     maxToolCalls?: number
     /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
     circle_gate?: CircleGateSettings
+  /** SCREENING TOGGLE: false skips the Shariah phases (zero Shariah spend; DISABLED honestly). */
+  shariah_enabled?: boolean
     /**
      * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit) from the app-config savings
      * sleeve, threaded into the deep-dive discount anchor. Omitted → the swarm fails closed to the strategy's
@@ -2467,6 +2476,7 @@ export async function runProcessDeepDiveQueueTask(
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           ...(options.required_return === undefined ? {} : { required_return: options.required_return }),
           model_role_env: modelRoleEnv,
+          ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },

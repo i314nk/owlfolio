@@ -45,6 +45,28 @@ const drillDown: PipelineDrillDown = {
   ],
 }
 
+describe('the Shariah-gate stage under the screening toggle', () => {
+  const pipeline = {
+    summary: { discovered: 0, in_research: 0, watchlist: 0, holdings: 0 },
+    stage_counts: [
+      { key: 'shariah_gate', label: 'Shariah gate', count: 2, health: 'ok' },
+      { key: 'decision', label: 'Decision', count: 1, health: 'ok' },
+    ],
+    runs: [],
+  } as never
+
+  it('renders the gate stage as OFF when the mode is off (never an ok/green screen claim)', () => {
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local', shariahEnabled: false }))
+    expect(html).toContain('Shariah gate · OFF')
+  })
+
+  it('keeps the normal stage when the mode is on', () => {
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local', shariahEnabled: true }))
+    expect(html).not.toContain('Shariah gate · OFF')
+    expect(html).toContain('Shariah gate')
+  })
+})
+
 describe('PipelineObservatory', () => {
   it('renders KPIs, flow map, runs table and drill-down', () => {
     const html = renderToStaticMarkup(
