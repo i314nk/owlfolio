@@ -3,7 +3,10 @@ import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
 
 import { AppNavigation } from './AppNavigation'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
+import type { OwlThemeId } from '@owlfolio/shared'
+
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
+import { ThemeSwitcher } from './ThemeSwitcher'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
 // Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
@@ -33,6 +36,8 @@ export type AppShellProps = {
   isSetupComplete?: boolean
   activeModeStatus?: ActiveModeStatus
   modelSwitcher?: ModelSwitcher
+  /** The active UI palette (PALETTES 2026-07-16); the shell mounts the top-right quick-switcher. */
+  theme?: OwlThemeId
 }
 
 export type OwlCardProps = {
@@ -83,7 +88,7 @@ const shellStatusItems = [
   { label: 'Provider readiness', value: 'Shown inline' },
 ]
 
-export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher }: AppShellProps) {
+export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher, theme = 'emerald' }: AppShellProps) {
   return createElement(
     'div',
     { className: `owl-app-shell ${fontVariableClassName}`, 'data-owl-shell': 'clean-sidebar' },
@@ -104,6 +109,7 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
           createElement('span', { className: 'owl-shell-context-label' }, item.label),
           createElement('span', { className: 'owl-shell-context-value' }, item.value),
         )),
+        createElement(ThemeSwitcher, { current: theme }),
       ),
       createElement(
         'div',
