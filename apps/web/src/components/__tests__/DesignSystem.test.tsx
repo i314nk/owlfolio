@@ -51,7 +51,7 @@ describe('phase 3 design system primitives', () => {
   it('renders persistent navigation with dark-shell route pills and command affordance', () => {
     const html = renderToStaticMarkup(createElement(AppNavigation))
 
-    expect(html).toContain('aria-label="Primary Owlfolio navigation"')
+    expect(html).toContain('aria-label="Primary Owner’s Manual navigation"')
     expect(html).toContain('class="owl-nav-link owl-focusable"')
     expect(html).toContain('Command Center')
     expect(html).toContain('Watchlist')

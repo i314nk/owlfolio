@@ -897,7 +897,7 @@ describe('ResearchCasePanel specialist lanes surface all 5 expected lanes', () =
   })
 })
 
-describe('ResearchCasePanel auditable dossier uses the Owlfolio design system only', () => {
+describe('ResearchCasePanel auditable dossier uses the Owner’s Manual design system only', () => {
   const FOREIGN_PALETTE_LITERALS = ['#6366f1', '#a5b4fc', '124, 140, 255', '124,140,255']
   it('the decision + sanity + reasoning builders reference owl-* tokens and no foreign palette', () => {
     const source = readFileSync(fileURLToPath(new URL('../ResearchCasePanel.tsx', import.meta.url)), 'utf8')

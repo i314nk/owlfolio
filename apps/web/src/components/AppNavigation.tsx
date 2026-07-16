@@ -46,6 +46,33 @@ const navSections: NavSection[] = [
   },
 ]
 
+/**
+ * The brand mark: an open owner's manual with a gold ribbon bookmark — drawn inline so it rides
+ * the design tokens and needs no asset pipeline. Sits on the emerald orb gradient.
+ */
+function BrandBookMark(): ReactNode {
+  return createElement(
+    'svg',
+    { 'aria-hidden': true, fill: 'none', height: 26, viewBox: '0 0 24 24', width: 26, xmlns: 'http://www.w3.org/2000/svg' },
+    // The open book: two soft-curved page spreads meeting at the spine.
+    createElement('path', {
+      d: 'M3 6 C6 4.6 9 4.8 12 6.4 C15 4.8 18 4.6 21 6 V17.4 C18 16 15 16 12 17.6 C9 16 6 16 3 17.4 Z',
+      stroke: '#f8fafc',
+      strokeLinejoin: 'round',
+      strokeWidth: 1.7,
+    }),
+    createElement('path', { d: 'M12 6.4 V17.6', stroke: '#f8fafc', strokeLinecap: 'round', strokeWidth: 1.7 }),
+    // The gold ribbon bookmark on the right-hand page.
+    createElement('path', {
+      d: 'M16.2 5.1 V10.4 L17.8 9 L19.4 10.4 V5.3',
+      stroke: 'var(--owl-color-gold-bright, #f0c96a)',
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      strokeWidth: 1.5,
+    }),
+  )
+}
+
 export type AppNavigationProps = {
   isSetupComplete?: boolean
   /**
@@ -128,7 +155,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
   return createElement(
     'nav',
     {
-      'aria-label': 'Primary Owlfolio navigation',
+      'aria-label': 'Primary Owner’s Manual navigation',
       className: 'owl-nav-shell',
     },
     createElement(
@@ -137,11 +164,11 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
       createElement(
         'a',
         { className: 'owl-brand-mark owl-focusable', href: '/' },
-        createElement('span', { 'aria-hidden': true, className: 'owl-brand-orb' }, 'O'),
+        createElement('span', { 'aria-hidden': true, className: 'owl-brand-orb' }, createElement(BrandBookMark)),
         createElement(
           'span',
           { className: 'owl-brand-copy' },
-          createElement('span', { className: 'owl-brand-title' }, 'Owlfolio'),
+          createElement('span', { className: 'owl-brand-title' }, 'Owner’s Manual'),
           createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
         ),
       ),
@@ -205,7 +232,7 @@ function renderNavSection(
 function SetupCard() {
   return createElement(
     'section',
-    { 'aria-label': 'Owlfolio setup status', className: 'owl-setup-card' },
+    { 'aria-label': 'Owner’s Manual setup status', className: 'owl-setup-card' },
     createElement('p', { className: 'owl-setup-card-kicker' }, 'Setup needed'),
     createElement('h2', { className: 'owl-setup-card-title' }, 'Start your local workspace'),
     createElement('p', { className: 'owl-setup-card-copy' }, 'Connect a local AI assistant before personal ledger workflows begin.'),

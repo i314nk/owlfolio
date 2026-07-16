@@ -1578,7 +1578,7 @@ async function setupMsftResearchCaseInLedger(
         next_required_action: 'Wait for a wider margin of safety and refresh MSFT source coverage after the next quarterly filing.',
         thesis_summary: 'Microsoft screens as a durable quality compounder, but remains a watchlist candidate until valuation provides a wider margin of safety.',
         evidence_summary: 'Microsoft source records cover the latest annual report, proxy governance context, and recent quarterly operating momentum.',
-        valuation_rationale: 'Current valuation remains elevated versus the required Buffett-Munger margin of safety.',
+        valuation_rationale: 'Current valuation remains elevated versus the required Buffett 4-Pillar margin of safety.',
         shariah_rationale: 'Mock source coverage did not identify prohibited-business evidence; final Shariah treatment remains subject to sourced ratio review.',
         risks: ['Valuation compression', 'Source coverage may need refreshing after the next filing'],
         open_questions: ['Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing'],

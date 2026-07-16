@@ -23,10 +23,10 @@ export function UnconfiguredNotice({ feature }: UnconfiguredNoticeProps) {
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
     createElement(RouteHeader, {
-      kicker: 'Owlfolio',
+      kicker: 'Owner’s Manual',
       title: `${feature} — connect a provider to begin`,
       description:
-        'This workspace is not set up yet. Connect a provider to set up a personal-local workflow. Until then, Owlfolio will not show any data here.',
+        'This workspace is not set up yet. Connect a provider to set up a personal-local workflow. Until then, Owner’s Manual will not show any data here.',
     }),
     createElement(EmptyState, {
       title: 'Connect a provider to begin',

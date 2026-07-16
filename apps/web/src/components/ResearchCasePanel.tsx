@@ -262,7 +262,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
   const moatClass = researchCase.valuation?.moat_class ?? 'unknown'
   return {
     title: 'Below the wide-moat gate · deep dive skipped',
-    reason: `Moat classification is ${moatClass}, which does not pass the ≥ wide gate required by the Buffett-Munger strategy. No deep-dive swarm was run.`,
+    reason: `Moat classification is ${moatClass}, which does not pass the ≥ wide gate required by the Buffett 4-Pillar strategy. No deep-dive swarm was run.`,
     failingGate: `Moat gate — ${moatClass} does not pass ≥ wide`,
   }
 }
@@ -1930,7 +1930,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       // B2 (Phase 4, rule 8): the LOAD-UP threshold + zone — a ≥50% discount to intrinsic value marks
       // the concentrated-sizing zone ("once you find a margin of safety, load up the truck").
       createValuationLedgerStat(
-        'Load-up below (rule 8)',
+        'Load-up below',
         researchCase.valuation?.load_up_below !== undefined ? `$${researchCase.valuation.load_up_below.toFixed(2)}` : 'Not computable',
         'owl-ledger-figure-money',
       ),
@@ -2103,7 +2103,7 @@ function createRequiredReturnProvenance(researchCase: AppResearchCase) {
         margin: '0.5rem 0 0',
       },
     },
-    `Required return ${pct(di.required_return)} — ${di.required_return_basis === 'setting' ? 'user setting' : 'the book default (anything less, buy the index)'} · margins: buy at ≥30% below intrinsic value, load up at ≥50%`,
+    `Required return ${pct(di.required_return)} — ${di.required_return_basis === 'setting' ? 'user setting' : 'the strategy default (anything less, buy the index)'} · margins: buy at ≥30% below intrinsic value, load up at ≥50%`,
   )
 }
 
@@ -2252,7 +2252,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         'p',
         { 'data-testid': 'exit-multiple-basis', style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Exit multiple: '),
-        `${valuation.exit_multiple_used}× year-10 FCF (${valuation.exit_multiple_source === 'model_grounded' ? 'cited, verified' : valuation.exit_multiple_source === 'model_asserted' ? 'model-asserted, not verified' : valuation.exit_multiple_source === 'model_clamped' ? 'clamped to the book band' : 'conservative fallback'})`,
+        `${valuation.exit_multiple_used}× year-10 FCF (${valuation.exit_multiple_source === 'model_grounded' ? 'cited, verified' : valuation.exit_multiple_source === 'model_asserted' ? 'model-asserted, not verified' : valuation.exit_multiple_source === 'model_clamped' ? 'clamped to the strategy band' : 'conservative fallback'})`,
         valuation.exit_multiple_basis_note !== undefined ? ` — ${valuation.exit_multiple_basis_note}` : '',
       ) : null,
       reasoning.discount_rationale !== undefined ? createElement(
@@ -2300,10 +2300,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           )
         : null,
       valuation.buy_price_per_share !== undefined
-        ? createValuationLedgerStat('Buy below (rule 7)', `$${valuation.buy_price_per_share.toFixed(2)}`, 'owl-ledger-figure-money')
+        ? createValuationLedgerStat('Buy below', `$${valuation.buy_price_per_share.toFixed(2)}`, 'owl-ledger-figure-money')
         : null,
       (valuation as { load_up_below?: number }).load_up_below !== undefined
-        ? createValuationLedgerStat('Load-up below (rule 8)', `$${(valuation as { load_up_below?: number }).load_up_below!.toFixed(2)}`, 'owl-ledger-figure-money')
+        ? createValuationLedgerStat('Load-up below', `$${(valuation as { load_up_below?: number }).load_up_below!.toFixed(2)}`, 'owl-ledger-figure-money')
         : null,
     ),
     // Discount provenance: B2 runs show the flat required return; legacy runs keep the savings-anchor line.
@@ -3353,18 +3353,16 @@ const SIZING_FLOOR_BASIS_LABEL: Record<string, string> = {
 //   - `cannot_assess`  → fail-closed neutral message (mirrors sizing's cannot_size).
 // The bias_caveats (disposition / anchoring) render as advisory notes. The close is ALWAYS human-authored.
 
-// B6 (book alignment): each reason maps onto the book's sell rules so the dossier speaks the
-// owner's vocabulary — rule 10 (a rotten business → sell), rule 11 (the business changed → ok to
-// leave), rule 12 (well beyond fair value → lock in a profit), rule 13 (a great business staying
-// great → ok to hold; the guard-held/hold postures ARE rule 13 working).
+// DE-BOOK (owner, 2026-07-16): the sell reasons speak plain strategy language — the numbered
+// sell-rule vocabulary was the book's; the owner adds the credit/plug himself later.
 const SELL_REASON_CODE_LABEL: Record<string, string> = {
-  thesis_broken: 'rule 10 (rotten) / rule 11 (changed) — the durable advantage or the bet no longer holds: sell or leave',
-  permanent_impairment: 'rule 10 (rotten) — permanent impairment; the loss is not recoverable inside the thesis',
-  valuation_inverted: 'rule 12 (lock in a profit) — price reached / exceeded the frozen intrinsic value',
+  thesis_broken: 'rotten or changed — the durable advantage or the bet no longer holds: sell or leave',
+  permanent_impairment: 'rotten — permanent impairment; the loss is not recoverable inside the thesis',
+  valuation_inverted: 'lock in a profit — price reached / exceeded the frozen intrinsic value',
   better_opportunity: 'better opportunity — a materially higher net FCF yield clears the switching hurdle',
   original_mistake: 'original mistake — the underwriting was wrong from the start; admit it and exit',
   minimum_hold_released: 'minimum-hold guard released the review',
-  minimum_hold_active: 'rule 13 (great stays great) — the guard is holding a fixable problem inside the window',
+  minimum_hold_active: 'great stays great — the guard is holding a fixable problem inside the window',
   escalate_human_review: 'unresolved / incoherent — escalated for your judgment',
 }
 

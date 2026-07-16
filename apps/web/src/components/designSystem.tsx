@@ -97,7 +97,7 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
       { className: 'owl-app-frame' },
       createElement(
         'div',
-        { 'aria-label': 'Owlfolio operating context', className: 'owl-shell-context-bar' },
+        { 'aria-label': 'Owner’s Manual operating context', className: 'owl-shell-context-bar' },
         ...shellStatusItems.map((item) => createElement(
           'span',
           { className: 'owl-shell-context-chip', key: item.label },
@@ -126,7 +126,7 @@ export const BOUNDARIES_FOOTER_TEXT =
 export function BoundariesFooter() {
   return createElement(
     'footer',
-    { 'aria-label': 'Owlfolio fiduciary boundaries', className: 'owl-boundaries-footer', role: 'contentinfo' },
+    { 'aria-label': 'Owner’s Manual fiduciary boundaries', className: 'owl-boundaries-footer', role: 'contentinfo' },
     createElement('p', { className: 'owl-boundaries-footer-label' }, 'Fiduciary boundary'),
     createElement('p', { className: 'owl-boundaries-footer-text' }, BOUNDARIES_FOOTER_TEXT),
   )

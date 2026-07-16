@@ -1,16 +1,16 @@
-# Owlfolio v2 architecture
+# Owner's Manual v2 architecture
 
-This document describes the active TypeScript/pnpm Owlfolio v2 alpha branch. Earlier Python/FastAPI/Claude-only architecture notes are historical and should not be used as setup or support claims for this branch.
+This document describes the active TypeScript/pnpm Owner's Manual v2 alpha branch. Earlier Python/FastAPI/Claude-only architecture notes are historical and should not be used as setup or support claims for this branch.
 
 ## Product shape
 
-Owlfolio v2 is an automation-first local investment workflow OS. The product center is a workflow UI and append-only investment ledger, not a chat-first assistant, public SaaS, broker connector, or trading bot.
+Owner's Manual v2 is an automation-first local investment workflow OS. The product center is a workflow UI and append-only investment ledger, not a chat-first assistant, public SaaS, broker connector, or trading bot.
 
 Target workflow:
 
 ```text
 Onboarding
-  -> Default Buffett-Munger strategy posture (future selectable strategies remain experimental until gated)
+  -> Default Buffett 4-Pillar strategy posture (future selectable strategies remain experimental until gated)
   -> Discovery queue
   -> Shariah gate (grounded sector judgment + AAOIFI ratios, pre-spend)
   -> Circle-of-competence gate
@@ -38,7 +38,7 @@ packages/
   providers/ provider catalog, CLI-backed adapters, certification runner
   shared/    app configuration and shared provider/domain types
   shariah/   Shariah policy helpers
-  strategies/ Buffett-Munger strategy reference package
+  strategies/ Buffett 4-Pillar strategy reference package
   workflow/  workflow helpers for research/watchlist/holdings/reviews/Shariah gates
 scripts/
   certify-providers.mjs

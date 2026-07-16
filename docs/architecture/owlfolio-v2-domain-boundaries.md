@@ -1,4 +1,4 @@
-# Owlfolio v2 domain and route boundaries
+# Owner's Manual v2 domain and route boundaries
 
 This contract slice freezes the small domain/event surface that downstream parallel lanes can build on. It is intentionally a boundary document, not a feature-complete implementation plan.
 
@@ -35,7 +35,7 @@ This is the live route set as implemented under `apps/web/src/app/**/page.tsx`. 
 |---|---|---|---|
 | Command center | `@owlfolio/ledger` | `/` | Cross-domain home: workflow entry points and current portfolio/workflow state. |
 | Onboarding | `@owlfolio/shared` | `/onboarding` | Guided local setup; writes app config + ledger paths. |
-| Strategy | `@owlfolio/strategies` | `/strategy` | Buffett-Munger strategy overview and live valuation/sizing parameters. |
+| Strategy | `@owlfolio/strategies` | `/strategy` | Buffett 4-Pillar strategy overview and live valuation/sizing parameters. |
 | Learn | `@owlfolio/strategies` | `/learn` | Educational tabs explaining the strategy, valuation, and provider model. |
 | Research pipeline | `@owlfolio/workflow` | `/research`, `/research/new`, `/research/[caseId]` | Research case list, new-case intake, and the per-case decision dossier. |
 | Pipeline | `@owlfolio/workflow` | `/pipeline` | Cross-stage research/watchlist/holding pipeline view. |

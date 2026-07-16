@@ -8,7 +8,7 @@ import { resolveActiveModeStatus } from '../lib/resolveActiveModeStatus'
 import { resolveModelSwitcher } from '../lib/resolveModelSwitcher'
 
 export const metadata: Metadata = {
-  title: 'Owlfolio Command Center',
+  title: 'Owner’s Manual Command Center',
   description: 'Local Shariah-by-design investment workflow dashboard',
 }
 

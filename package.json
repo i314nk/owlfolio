@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.3.0",
-  "bin": { "owlfolio": "./owlfolio" },
+  "bin": { "owners-manual": "./owners-manual", "owlfolio": "./owlfolio" },
   "scripts": {
     "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web dev",
     "worker": "corepack pnpm --filter @owlfolio/worker dev",
+    "owners-manual": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx apps/cli/src/index.ts",
     "owlfolio": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx apps/cli/src/index.ts",
     "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run --passWithNoTests",
     "test:watch": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest --passWithNoTests",

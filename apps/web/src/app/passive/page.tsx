@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 const RULES = [
   {
     title: 'Rule 1 — Own the market first',
-    body: 'Before any single business, keep broad market exposure through a low-cost index ETF. The passive sleeve is the foundation the concentrated Buffett-Munger sleeve stands on — it guarantees you participate in the market’s compounding even when no wonderful business trades at a margin of safety.',
+    body: 'Before any single business, keep broad market exposure through a low-cost index ETF. The passive sleeve is the foundation the concentrated Buffett 4-Pillar sleeve stands on — it guarantees you participate in the market’s compounding even when no wonderful business trades at a margin of safety.',
   },
   {
     title: 'Rule 2 — Contribute on a schedule, not a feeling',
@@ -39,12 +39,12 @@ export default function PassivePage() {
       <RouteHeader
         kicker="Passive foundation"
         title="Passive"
-        description="Keep market exposure through broad Shariah-compliant ETFs. This page is educational — Owlfolio does not track, recommend, or execute passive investments."
+        description="Keep market exposure through broad Shariah-compliant ETFs. This page is educational — Owner’s Manual does not track, recommend, or execute passive investments."
       />
       <hr className="owl-rule" />
 
       <section className="owl-section-card" aria-label="The passive rules">
-        <p className="owl-section-accent">The book&rsquo;s passive foundation (rules 1&ndash;3)</p>
+        <p className="owl-section-accent">The passive foundation</p>
         <div style={{ display: 'grid', gap: '0.9rem', marginTop: '0.6rem' }}>
           {RULES.map((rule) => (
             <div key={rule.title}>
@@ -70,7 +70,7 @@ export default function PassivePage() {
           ))}
         </div>
         <p style={{ color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: '0.9rem 0 0' }}>
-          EDUCATIONAL CONTENT, NOT ADVICE. Screens, fees, holdings, and Shariah certifications change — verify each fund&rsquo;s current prospectus and certification yourself before investing. Owlfolio records nothing about your passive holdings.
+          EDUCATIONAL CONTENT, NOT ADVICE. Screens, fees, holdings, and Shariah certifications change — verify each fund&rsquo;s current prospectus and certification yourself before investing. Owner’s Manual records nothing about your passive holdings.
         </p>
       </section>
     </main>

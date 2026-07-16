@@ -107,10 +107,10 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
   // never fall through into the personal-local rendering path.
   if (isUnconfiguredForUser(config, env)) {
     return {
-      product_name: 'Owlfolio',
+      product_name: 'Owner’s Manual',
       setup_status: 'Set up your workflow to begin',
       provider_status: 'Provider: not selected yet',
-      strategy_status: 'Strategy: Buffett-Munger default',
+      strategy_status: 'Strategy: Buffett 4-Pillar default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: not set up yet',
       pipeline_counts: {
@@ -132,10 +132,10 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
 
   if (!is_initialized || config.ledger_path === undefined) {
     return {
-      product_name: 'Owlfolio',
+      product_name: 'Owner’s Manual',
       setup_status: 'Setup required',
       provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} not ready yet`,
-      strategy_status: 'Strategy: Buffett-Munger default',
+      strategy_status: 'Strategy: Buffett 4-Pillar default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: not initialized yet',
       pipeline_counts: {
@@ -163,10 +163,10 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
     // SCALE-DOWN S2: the accounting books are removed — no accounting alert.
 
     return {
-      product_name: 'Owlfolio',
+      product_name: 'Owner’s Manual',
       setup_status: 'Personal local mode initialized',
       provider_status: providerStatus,
-      strategy_status: 'Strategy: Buffett-Munger default',
+      strategy_status: 'Strategy: Buffett 4-Pillar default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: SQLite durable event source',
       pipeline_counts: summary.pipeline_counts,

@@ -101,7 +101,7 @@ describe('ProviderKeysPanel — provider logins section', () => {
     // "Provider logins (OAuth / subscription)" lane the product no longer has.
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps({ loginRows: [] })))
     expect(html).not.toContain('Provider logins (OAuth / subscription)')
-    expect(html).not.toContain('Owlfolio has no in-app OAuth')
+    expect(html).not.toContain('Owner’s Manual has no in-app OAuth')
     // Section B (API-key + per-tier model config) still renders.
     expect(html).toContain('ANTHROPIC_API_KEY')
   })

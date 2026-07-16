@@ -16,7 +16,7 @@ type CliOptions = {
 
 function usage(): string {
   return [
-    'Owlfolio worker',
+    'Owner’s Manual worker',
     '',
     'Usage:',
     '  corepack pnpm worker -- --once --dry-run --define-defaults',

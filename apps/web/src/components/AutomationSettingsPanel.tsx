@@ -374,8 +374,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           'p',
           { style: controlHelperStyle },
           engineOn
-            ? 'Research pipeline active — Owlfolio can discover, screen, and deep-dive candidate stocks.'
-            : 'Research engine off — Owlfolio only manages your existing holdings.',
+            ? 'Research pipeline active — Owner’s Manual can discover, screen, and deep-dive candidate stocks.'
+            : 'Research engine off — Owner’s Manual only manages your existing holdings.',
         ),
       ),
       createElement(Toggle, {

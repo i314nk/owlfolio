@@ -22,10 +22,10 @@ beforeEach(() => {
 
 function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCenter {
   return {
-    product_name: 'Owlfolio',
+    product_name: 'Owner’s Manual',
     setup_status: 'Personal local mode initialized',
     provider_status: 'Provider: Mock provider personal local mode',
-    strategy_status: 'Strategy: Buffett-Munger default',
+    strategy_status: 'Strategy: Buffett 4-Pillar default',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: {
@@ -49,7 +49,7 @@ describe('AppNavigation', () => {
   it('renders desktop sidebar navigation for first-class app areas without permanent onboarding', () => {
     const html = renderToStaticMarkup(createElement(AppNavigation))
 
-    expect(html).toContain('aria-label="Primary Owlfolio navigation"')
+    expect(html).toContain('aria-label="Primary Owner’s Manual navigation"')
     expect(html).toContain('class="owl-nav-section-title"')
     expect(html).toContain('href="/"')
     expect(html).toContain('Command Center')
@@ -151,7 +151,7 @@ describe('CommandCenter', () => {
 
     expect(html).toContain('Setup required')
     expect(html).toContain('Provider: OpenRouter not ready yet')
-    expect(html).toContain('Strategy: Buffett-Munger default')
+    expect(html).toContain('Strategy: Buffett 4-Pillar default')
     expect(html).toContain('Ledger: not initialized yet')
     expect(html).toContain('Complete onboarding and initialize the personal local ledger')
     expect(html).toContain('Continue setup')
@@ -327,7 +327,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Provider: OpenRouter unsupported — OpenRouter routing blocked by latest certification report')
       expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Open setup details')
-      expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.')
+      expect(html).toContain('Owner’s Manual cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.')
       expect(html).toContain('href="/settings/providers"')
       expect(html).not.toContain('Review credentials, support level, and certification evidence')
       expect(html).not.toContain('support level, and certification evidence')
@@ -397,7 +397,7 @@ describe('CommandCenter', () => {
 
     expect(html).toContain('aria-label="System status"')
     expect(html).toContain('Provider: Mock provider personal local mode')
-    expect(html).toContain('Strategy: Buffett-Munger default')
+    expect(html).toContain('Strategy: Buffett 4-Pillar default')
     // The terminal-style ticker counts row is gone; counts live in the KPI row.
     expect(html).not.toContain('owl-command-status-summary')
     expect(html).not.toContain('Workflow ticker strip')
@@ -624,6 +624,6 @@ describe('CommandCenter', () => {
     // The live stage board now lives on /pipeline; /research must not duplicate it.
     expect(researchPageSource).not.toContain('ResearchPipelineCockpit')
     expect(researchPageSource).not.toContain('Start research intake')
-    expect(researchPageSource).not.toContain('Buffett-Munger default')
+    expect(researchPageSource).not.toContain('Buffett 4-Pillar default')
   })
 })

@@ -42,11 +42,11 @@ const BAND_ORDER: ZoneBand[] = ['LOAD_UP', 'BUY_ZONE', 'ABOVE_ZONE', 'UNCLASSIFI
 
 const BAND_META: Record<ZoneBand, { title: string; note: string }> = {
   LOAD_UP: {
-    title: 'In the load-up zone (rule 8)',
+    title: 'In the load-up zone',
     note: '"Once you find a margin of safety, load up the truck." A ≥50% margin on a gate-clean case. Observation only — you author every buy.',
   },
   BUY_ZONE: {
-    title: 'In the buy zone (rule 7)',
+    title: 'In the buy zone',
     note: 'Price at or below the computed buy threshold (a ≥30% margin of safety). Observation only — you author every buy.',
   },
   ABOVE_ZONE: {
@@ -359,7 +359,7 @@ function createShariahConditionLine(item: AppWatchlistItem) {
   return createElement(
     'p',
     { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.03em', margin: 0 } },
-    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owlfolio keeps no books.`,
+    `CONDITIONAL — Shariah-permissible to hold, with an obligation: ${rateText}. Tracking and paying it is yours; Owner’s Manual keeps no books.`,
   )
 }
 

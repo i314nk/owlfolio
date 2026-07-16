@@ -26,7 +26,7 @@ type ActivitySummary = {
 /**
  * The Fiduciary Briefing.
  *
- * Owlfolio's home page reads as the steward's (the agent's) briefing to the
+ * Owner’s Manual's home page reads as the steward's (the agent's) briefing to the
  * principal (the user): a private-ledger / editorial layout, not a trading
  * terminal. Returns a Fragment so each section is a direct child of the route
  * frame and inherits the app's staggered reveal.
@@ -589,7 +589,7 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
   if (isProviderReadinessWarning(dashboard.provider_status)) {
     cards.push({
       category: 'Local assistant setup needed',
-      description: 'Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.',
+      description: 'Owner’s Manual cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.',
       href: '/settings/providers',
       label: 'Open setup details',
       title: 'Finish local assistant setup',

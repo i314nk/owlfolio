@@ -1,10 +1,10 @@
-# Owlfolio autonomous schedule policy
+# Owner's Manual autonomous schedule policy
 
-This file describes the active Owlfolio v2 alpha worker policy. The older Python/CLI/Claude scheduler note was moved to `docs/archive/AUTONOMOUS_SCHEDULE_POLICY.v0.1.md` and is historical only.
+This file describes the active Owner's Manual v2 alpha worker policy. The older Python/CLI/Claude scheduler note was moved to `docs/archive/AUTONOMOUS_SCHEDULE_POLICY.v0.1.md` and is historical only.
 
 ## Alpha policy
 
-Owlfolio v2 may observe and remind, but it must not autonomously create irreversible investment, accounting, or purification actions.
+Owner's Manual v2 may observe and remind, but it must not autonomously create irreversible investment, accounting, or purification actions.
 
 Allowed alpha worker behavior:
 
@@ -48,7 +48,7 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 
 ## Future requirements before higher autonomy
 
-Before scheduled provider research or portfolio-changing automation becomes eligible for certification, Owlfolio needs:
+Before scheduled provider research or portfolio-changing automation becomes eligible for certification, Owner's Manual needs:
 
 - provider role certification for the scheduled task,
 - explicit user opt-in and cadence/cost controls,

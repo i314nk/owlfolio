@@ -357,7 +357,7 @@ function auditSummarizeEvent(event: LedgerEventEnvelope<unknown>, entityLabel: s
     const shariah = typeof payload.shariah_status === 'string' ? payload.shariah_status : undefined
     if (verdict !== undefined || compliance !== undefined || shariah !== undefined) {
       const parts = [verdict, compliance, shariah !== undefined ? `Shariah ${shariah}` : undefined].filter(Boolean)
-      return `Buffett-Munger analysis: ${parts.join(' / ')} for ${entityLabel}`
+      return `Buffett 4-Pillar analysis: ${parts.join(' / ')} for ${entityLabel}`
     }
   }
 

@@ -1,8 +1,8 @@
-# Owlfolio v0.1.1 Product Boundaries
+# Owner's Manual v0.1.1 Product Boundaries
 
-**Purpose:** v0.1.1 is a stabilization release. It should make Owlfolio's existing product shape easier to understand, safer to run, and less surprising. It is not a feature-expansion track.
+**Purpose:** v0.1.1 is a stabilization release. It should make Owner's Manual's existing product shape easier to understand, safer to run, and less surprising. It is not a feature-expansion track.
 
-**Product stance:** Owlfolio is a local, methodology-driven investment research notebook and portfolio monitor. It helps a human investor analyze companies, keep watchlists/holdings organized, run safe monitoring, and maintain an audit trail. It is not a broker, robo-advisor, trading bot, or automatic portfolio manager.
+**Product stance:** Owner's Manual is a local, methodology-driven investment research notebook and portfolio monitor. It helps a human investor analyze companies, keep watchlists/holdings organized, run safe monitoring, and maintain an audit trail. It is not a broker, robo-advisor, trading bot, or automatic portfolio manager.
 
 ## Default experience
 
@@ -26,7 +26,7 @@ Default names to preserve:
 
 | Area | v0.1.1 status | Product rule |
 |---|---|---|
-| Manual company analysis | Core | A user can ask Owlfolio to analyze a company/ticker and receive a persisted markdown report with reasoning and a BUY/WATCH/PASS style decision. |
+| Manual company analysis | Core | A user can ask Owner's Manual to analyze a company/ticker and receive a persisted markdown report with reasoning and a BUY/WATCH/PASS style decision. |
 | Markdown reports | Core | Analysis output should remain readable, durable, and easy to export/review outside the UI. |
 | Holdings/watchlist CRUD | Core | Users can add, edit, remove, and inspect holdings/watchlist items locally. |
 | Safe monitoring | Core default | Deterministic no-LLM checks, such as price/watchlist and portfolio/P&L refreshes, may be enabled by default. They must not silently fall back to Claude. |
@@ -39,9 +39,9 @@ Default names to preserve:
 | Manual discovery/import | Advanced opt-in | Users can manually run discovery or import candidate lists when they want a pipeline beyond one-company analysis. |
 | Scheduled discovery templates | Advanced opt-in | Keep disabled templates so the autonomous ladder is visible, but never enable research/discovery schedules by default. |
 | Weekly discovery | Advanced opt-in | Weekly discovery is a template/cadence a user may enable after accepting cost/runtime implications. It is never a default. |
-| Market universe toggle | Non-credentialed discovery setting | It means which public markets Owlfolio may search, validate, and analyze. It does not connect to a broker. |
+| Market universe toggle | Non-credentialed discovery setting | It means which public markets Owner's Manual may search, validate, and analyze. It does not connect to a broker. |
 | Broker account sync | Deferred | No credentials, holdings sync, balances, orders, trade execution, or live broker APIs in v0.1.1. |
-| Trading/order placement | Deferred | Owlfolio may produce research and monitoring signals, but the user acts elsewhere. |
+| Trading/order placement | Deferred | Owner's Manual may produce research and monitoring signals, but the user acts elsewhere. |
 | Live broker APIs | Deferred | Avoid adding broker SDKs or credential flows in this stabilization track. |
 
 ## Terminology
@@ -57,9 +57,9 @@ Core v0.1.1 language:
 - "holdings and watchlists"
 - "safe no-LLM monitoring"
 - "audit trail"
-- "Buffett-Munger default strategy"
+- "Buffett 4-Pillar default strategy"
 
-Avoid implying that core Owlfolio automatically researches, rebalances, or trades without explicit user action.
+Avoid implying that core Owner's Manual automatically researches, rebalances, or trades without explicit user action.
 
 ### Advanced opt-in
 
@@ -102,8 +102,8 @@ It does **not** answer:
 
 - Which broker account is connected?
 - Where does the user hold shares?
-- Can Owlfolio place trades?
-- Can Owlfolio sync balances, lots, orders, or transaction history?
+- Can Owner's Manual place trades?
+- Can Owner's Manual sync balances, lots, orders, or transaction history?
 
 Recommended label language:
 
@@ -112,7 +112,7 @@ Recommended label language:
 
 Recommended helper copy:
 
-> Select the public markets Owlfolio may search and validate for analysis. This does not connect a brokerage account or enable trading.
+> Select the public markets Owner's Manual may search and validate for analysis. This does not connect a brokerage account or enable trading.
 
 ## Addons policy
 
@@ -162,7 +162,7 @@ These are documentation recommendations for a follow-up docs pass; v0.1.1 does n
    - Recommended v0.1.1 wording: "A local, methodology-driven investment research notebook and portfolio monitor. Start with manual company analysis, markdown reports, watchlists, and safe no-LLM monitoring; opt into agentic discovery and scheduled research when you're ready."
 
 2. Preset strategy wording
-   - Current README says Owlfolio ships with 7 preset strategies near the top.
+   - Current README says Owner's Manual ships with 7 preset strategies near the top.
    - Recommended: keep the fact, but add that `buffett-munger` is the default path and the rest are advanced presets.
 
 3. Scheduled tasks wording
@@ -173,7 +173,7 @@ These are documentation recommendations for a follow-up docs pass; v0.1.1 does n
    - Prefer "manual discovery" and "opt-in scheduled discovery" over generic "automated sourcing" in first-run copy.
 
 5. Broker/trading disclaimer
-   - Add one concise sentence near portfolio/market copy: "Owlfolio does not connect to brokers or place trades; portfolio data is local/manual in v0.1.1."
+   - Add one concise sentence near portfolio/market copy: "Owner's Manual does not connect to brokers or place trades; portfolio data is local/manual in v0.1.1."
 
 ## Recommended UI wording changes
 
@@ -181,7 +181,7 @@ These are wording-only recommendations unless a follow-up task chooses to implem
 
 1. Market dropdown
    - Rename or explain the existing market selector as "Analysis markets" or "Research universe".
-   - Add helper copy: "Choose markets Owlfolio may search and validate for analysis. This does not connect a broker or enable trading."
+   - Add helper copy: "Choose markets Owner's Manual may search and validate for analysis. This does not connect a broker or enable trading."
 
 2. Add-ons dropdown
    - Rename header from only "Specialist Agents" to "Manual addon checks" or add helper copy: "Run only when selected; not part of default analysis."

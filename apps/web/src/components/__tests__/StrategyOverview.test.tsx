@@ -37,7 +37,7 @@ describe('StrategyOverview', () => {
 
   it('E2c: renders the flat required return from the versioned valuation config', () => {
     const html = render()
-    // The book discount: the flat 15% required return (user-settable), NOT the savings anchor.
+    // The strategy discount: the flat 15% required return (user-settable), NOT the savings anchor.
     expect(html).toContain('15%')
     expect(html.toLowerCase()).toContain('required return')
   })
@@ -65,13 +65,15 @@ describe('StrategyOverview', () => {
     expect(html).not.toContain('growth-points')
   })
 
-  it('E2c: teaches the BOOK model — computed IV off FCF, the two cited judgments, the 30/50 margins', () => {
+  it('E2c: teaches the valuation model — computed IV off FCF, the two cited judgments, the 30/50 margins', () => {
     const html = render()
     const lower = html.toLowerCase()
     expect(lower).toContain('free cash flow')
     expect(lower).toContain('exit multiple')
-    expect(lower).toContain('rule 7')
-    expect(lower).toContain('rule 8')
+    // DE-BOOK (owner 2026-07-16): the zones speak for themselves — no book-rule numbering.
+    expect(lower).not.toContain('rule 7')
+    expect(lower).not.toContain('rule 8')
+    expect(lower).toContain('load up the truck')
     expect(lower).not.toContain('market-implied growth') // F: the implied lens is retired
     // The OE-era framing is gone.
     expect(lower).not.toContain('owner-earnings fair value')
@@ -153,13 +155,13 @@ describe('StrategyOverview', () => {
     expect(html).toContain('does not yet present an admit-recommendation panel')
   })
 
-  it('renders the two book zones + the truck base (owner-locked: no weight table, no ladder)', () => {
+  it('renders the two zones + the truck base (owner-locked: no weight table, no ladder)', () => {
     const html = render()
     expect(buffettMungerStrategy.portfolio.target_weight_by_moat).toBeUndefined()
     expect(buffettMungerStrategy.portfolio.entry_tranches).toBeUndefined()
     expect(html).toContain('load up the truck')
-    expect(html).toContain('Buy zone (rule 7)')
-    expect(html).toContain('Load-up zone (rule 8)')
+    expect(html).toContain('Buy zone')
+    expect(html).toContain('Load-up zone')
     expect(html).toContain('risk rails')
   })
 

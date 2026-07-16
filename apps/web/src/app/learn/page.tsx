@@ -14,7 +14,7 @@ export default function LearnPage() {
       <RouteHeader
         kicker="How it works"
         title="Learn"
-        description="Owlfolio is a local-first investment research harness: grounded specialist agents propose evidence, deterministic code computes the numbers, and you author every decision. These tabs document the specs behind that harness — its strategy, its swarm, and the discipline that keeps it honest. This is an alpha; where something is experimental or setup-only, it says so."
+        description="Owner’s Manual is a local-first investment research harness: grounded specialist agents propose evidence, deterministic code computes the numbers, and you author every decision. These tabs document the specs behind that harness — its strategy, its swarm, and the discipline that keeps it honest. This is an alpha; where something is experimental or setup-only, it says so."
       />
       <hr className="owl-rule" />
 

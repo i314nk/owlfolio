@@ -380,7 +380,7 @@ describe('research and watchlist workflow pages', () => {
   })
 
   it('renders a first-class investment brief and safe source evidence for drafted decisions', () => {
-    const fullThesis = 'Microsoft remains a high-quality Buffett-Munger business: durable ecosystem moats across Microsoft 365, Azure, Windows, GitHub/LinkedIn/Gaming, very high profitability, strong balance sheet, and resilient cash generation, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.'
+    const fullThesis = 'Microsoft remains a high-quality Buffett 4-Pillar business: durable ecosystem moats across Microsoft 365, Azure, Windows, GitHub/LinkedIn/Gaming, very high profitability, strong balance sheet, and resilient cash generation, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.'
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',
       version: 1,
@@ -469,7 +469,7 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('private/local/path')
     // The thesis appears once on a decision_drafted case: in the dossier full-thesis readout. Review-and-
     // promote removed the admission thesis textarea, so there is no second (pre-filled) copy.
-    expect([...html.matchAll(/Microsoft remains a high-quality Buffett-Munger business/g)]).toHaveLength(1)
+    expect([...html.matchAll(/Microsoft remains a high-quality Buffett 4-Pillar business/g)]).toHaveLength(1)
   })
 
   it('renders harness-computed AAOIFI Shariah ratios + EDGAR OE-bridge provenance when present', () => {
@@ -682,7 +682,7 @@ describe('research and watchlist workflow pages', () => {
         latest_review_id: 'review_holding_msft_001',
         thesis_health: 'HEALTHY',
         action_stance: 'HOLD',
-        latest_review_rationale: 'The original Buffett-Munger thesis remains intact.',
+        latest_review_rationale: 'The original Buffett 4-Pillar thesis remains intact.',
         latest_review_evidence_summary: 'Reviewed current valuation and source ledger references.',
         latest_review_uncertainty: 'Needs a refreshed primary-source review after the next quarterly filing.',
         next_review_at: '2026-09-30',
@@ -718,7 +718,7 @@ describe('research and watchlist workflow pages', () => {
     // thesis-health still shows as the row badge (readable forever); the drafted-review ceremony is gone.
     expect(html).toContain('HEALTHY')
     expect(html).not.toContain('Manual fallback actions')
-    expect(html).not.toContain('Run Buffett-Munger review')
+    expect(html).not.toContain('Run Buffett 4-Pillar review')
     expect(html).not.toContain('action="/api/portfolio/holding_msft_001/review"')
     expect(html).not.toContain('Next review')
     expect(html).not.toContain('#ecfdf5')

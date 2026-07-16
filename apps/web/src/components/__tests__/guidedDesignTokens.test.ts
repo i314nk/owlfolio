@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Structural guard: the guided-setup + shared connection-select surfaces must use ONLY the Owlfolio
+ * Structural guard: the guided-setup + shared connection-select surfaces must use ONLY the Owner’s Manual
  * emerald/gold design system (var(--owl-*) tokens + owl-* classes). They previously carried an
  * indigo/slate palette inherited from the old wizard styling. This test locks the restyle so the
  * foreign-palette literals cannot regress back in.
@@ -32,7 +32,7 @@ const TARGET_FILES = [
   '../app/research/new/page.tsx',
 ]
 
-describe('guided onboarding surfaces use only the Owlfolio design system palette', () => {
+describe('guided onboarding surfaces use only the Owner’s Manual design system palette', () => {
   for (const fileName of TARGET_FILES) {
     it(`${fileName} contains no foreign-palette literals`, () => {
       const filePath = fileURLToPath(new URL(`../${fileName}`, import.meta.url))

@@ -44,7 +44,7 @@ export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false }: DataSa
     createElement(RouteHeader, {
       kicker: 'Settings · Data safety',
       title: 'Data Safety',
-      description: 'Everything Owlfolio knows lives on this machine. This page shows the privacy boundary of a backup, the current inventory snapshot, and the honest state of restore — status and proposal evidence only, never a destructive control.',
+      description: 'Everything Owner’s Manual knows lives on this machine. This page shows the privacy boundary of a backup, the current inventory snapshot, and the honest state of restore — status and proposal evidence only, never a destructive control.',
     }),
     createElement('hr', { className: 'owl-rule' }),
     createPrivacyBoundary(),

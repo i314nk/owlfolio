@@ -17,7 +17,7 @@ test('personal-local mode can create the first research case from the command ce
   })
 
   await page.goto('/')
-  const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
+  const initialPrimaryNav = page.getByRole('navigation', { name: /primary owner.s manual navigation/i })
   // The fresh (reset) default is now `unconfigured`; the app-wide workspace indicator shows the honest
   // "no provider configured" state. initWorkflow() below sets up personal-local.
   await expect(initialPrimaryNav.getByText(/no provider configured/i)).toBeVisible()
@@ -28,7 +28,7 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.goto('/')
   await expect(page).toHaveURL('/')
-  const primaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
+  const primaryNav = page.getByRole('navigation', { name: /primary owner.s manual navigation/i })
   await expect(primaryNav.getByRole('link', { name: 'Command Center', exact: true })).toHaveAttribute('href', '/')
   await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research')
   await expect(primaryNav.getByRole('link', { name: /watchlist/i })).toHaveAttribute('href', '/watchlist')
@@ -52,25 +52,25 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/onboarding')
   await expect(page).toHaveURL('/settings/providers')
   await expect(page.getByRole('heading', { name: /choose a provider and model/i })).toBeVisible()
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /watchlist/i }).click()
+  await page.getByRole('navigation', { name: /primary owner.s manual navigation/i }).getByRole('link', { name: /watchlist/i }).click()
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByText('No watchlist items yet. Create a research case first.')).toBeVisible()
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /portfolio/i }).click()
+  await page.getByRole('navigation', { name: /primary owner.s manual navigation/i }).getByRole('link', { name: /portfolio/i }).click()
   await expect(page).toHaveURL('/portfolio')
   await expect(page.getByRole('heading', { name: /no holdings are open yet/i })).toBeVisible()
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Audit', exact: true }).click()
+  await page.getByRole('navigation', { name: /primary owner.s manual navigation/i }).getByRole('link', { name: 'Audit', exact: true }).click()
   await expect(page).toHaveURL('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
   // /providers is retired: the nav "Providers" link now points at the consolidated /settings/providers
   // page (provider logins + LLM API keys + provider/model selection). The heavy trust gate was removed —
   // research quality depends on the model the user picks, and that responsibility is theirs.
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /providers/i }).click()
+  await page.getByRole('navigation', { name: /primary owner.s manual navigation/i }).getByRole('link', { name: /providers/i }).click()
   await expect(page).toHaveURL('/settings/providers')
   await expect(page.getByRole('heading', { name: /provider setup/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: /trust & certification/i })).toHaveCount(0)
   await expect(page.getByText(/Research quality depends on the model you choose/i)).toBeVisible()
 
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
+  await page.getByRole('navigation', { name: /primary owner.s manual navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
   await expect(page).toHaveURL('/')
 
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
