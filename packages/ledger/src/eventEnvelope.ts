@@ -13,6 +13,8 @@ export type AggregateType =
   | 'provider_run'
   | 'scheduled_task'
   | 'portfolio'
+  // B7 (book alignment): the passive index sleeve (the singleton aggregate for DCA contributions).
+  | 'passive_sleeve'
 
 export type LedgerEventEnvelope<TPayload> = {
   event_id: string

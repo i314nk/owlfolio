@@ -4,8 +4,6 @@ import { createElement, useCallback, useRef, useState, type CSSProperties, type 
 
 import {
   buffettMungerStrategy,
-  discountRate,
-  terminalGrowthForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
 import {
@@ -15,21 +13,18 @@ import {
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
-const DISCOUNT = discountRate(strategy)
-const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // RELIGHTENED DECISION (R1): the deterministic required_growth_gap / band engine is RETIRED. The MODEL now
-// proposes the verdict, the valuation, and the buy-below with cited reasoning; the deterministic side emits
+// proposes the verdict and valuation with cited reasoning; the deterministic side emits
 // a flag-only sanity-check. No band/gap display constant remains. Terminal g + horizon stay uniform.
-const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_HORIZON = strategy.valuation.stage1_horizon
-const GROWTH_FADE_YEARS = strategy.valuation.growth_fade_years
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
 // Phase 6 sell parameters (rendered live from the versioned config, never hard-coded).
 const MIN_HOLD_MONTHS = SELL_PARAMS.minimum_hold_months
@@ -154,30 +149,34 @@ function StrategyTab(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'The harness invests in a small number of understandable businesses with durable economic moats and honest management. The model proposes the valuation — the owner earnings, the growth it assumes and why, the discount — and a buy-below, all with cited reasoning; a light deterministic sanity-check flags internal absurdity, the human audits and decides. A candidate is investable only when its moat class is at least ',
+        'The harness invests in a small number of understandable businesses with durable economic moats and honest management. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model contributes two cited judgments — the growth and the industry exit multiple; the human audits and decides. A candidate is investable only when its moat class is at least ',
         gold(MIN_INVESTABLE_MOAT),
         ' — narrow and moderate moats are forced to PASS before price is ever considered.',
       ),
       children: cardGrid([
-        { key: 'oe', eyebrow: 'Owner earnings', body: createElement('span', null, 'OE = ', mono('NI + D&A − maintenance capex − SBC − ΔNWC'), '. SBC is a real expense; the harness never models dilution on top of it.') },
+        { key: 'fcf', eyebrow: 'Free cash flow', body: createElement('span', null, 'FCF = ', mono('CFO − capex'), ' — tagged XBRL facts, no maintenance-capex proxy, no assumptions. No tagged CFO → honestly unpriced (fail-closed).') },
         { key: 'gate', eyebrow: 'Wide-moat gate', body: 'Synthesis reconciles lane conflicts conservatively — lower tier, lower growth, or PASS, never an average.' },
       ]),
     }),
     PanelSection({
       eyebrow: 'Value',
-      title: 'Reverse-DCF first — the market’s implied growth as the lens',
+      title: 'The book model — FCF forward ten years, an exit multiple, a margin of safety',
       lead: createElement(
         'span',
         null,
-        'The primary lens is the ',
-        gold('reverse-DCF'),
-        ': read the growth today’s price already demands and compare it to the ',
-        gold('sustainable growth the model judges and cites'),
-        '. Cheapness is that comparison, not a single computed number. The ',
-        gold('forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision: a stage-1 horizon whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
-        mono(pct(DISCOUNT)),
-        ' today) — no WACC, no beta, ever. The model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        'Intrinsic value is ',
+        gold('computed, not judged'),
+        ': project the filing’s free cash flow forward ',
+        mono(`${STAGE1_HORIZON} years`),
+        ' at the model’s cited growth, add a terminal sale at the model’s comps-anchored exit multiple (median of its own ',
+        mono('named comparables'),
+        ', tilted conservative), adjust for net cash, and discount everything at the flat ',
+        mono(pct(VALUATION_PARAMS.required_return_default)),
+        ' required return — “anything less, buy the index.” The buy threshold is ',
+        gold(`IV less a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety (rule 7)`),
+        '; a ',
+        gold(`${pct(VALUATION_PARAMS.load_up_margin)} discount marks the load-up zone (rule 8)`),
+        '. Deterministic sanity rails police absurdity internally but never block. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -198,20 +197,17 @@ function StrategyTab(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
-          createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability claim) — the flag is not the value source`),
-          createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs; g holds, then fades LINEARLY to gₜ over the trailing ${GROWTH_FADE_YEARS} yrs (uniform for every investable moat)`),
-          createElement('div', null, `gₜ   = terminal rate: ${pct(TERMINAL_G_WIDE)} (uniform; the fade lands here by year ${STAGE1_HORIZON})`),
-          createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
-          createElement('div', null, 'ref  = forward-DCF cross-check fair value at the model’s assumed growth  (a sanity reference, NOT the decision)'),
-          createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
+          createElement('div', null, 'FCF  = cash from operations − capital expenditures   (tagged XBRL facts, T0)'),
+          createElement('div', null, `g    = the model’s judged FCF growth, cited; sanity-flagged above ${pct(SINGLE_GROWTH_CAP)} (or ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim)`),
+          createElement('div', null, `exit = the median P/FCF of the model’s NAMED comparables at year ${STAGE1_HORIZON}, tilted conservative; fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when absent/absurd`),
+          createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
+          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)} (rule 7)   ·   load-up = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)} (rule 8)`),
         ),
         cardGrid([
-          { key: 'd', eyebrow: 'Uniform discount', body: createElement('span', null, 'the same savings-anchored rate (', mono(pct(DISCOUNT)), ') for every business — no beta, no quality knob; a lower savings rate lowers it.') },
-          { key: 'rdcf', eyebrow: 'Reverse-DCF lens', body: 'The primary read: the growth the price implies vs the model’s judged sustainable growth. Cheapness is that gap, not a single number.' },
-          { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s judged sustainable rate, cited; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
-          { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },
-          { key: 'buy', eyebrow: 'Model buy-below', body: createElement('span', null, 'The model proposes the buy-below with cited reasoning; you buy when the price meets it and the reasoning holds. The deterministic sanity-check flags absurdity but never blocks the verdict.') },
+          { key: 'r', eyebrow: 'Required return', body: createElement('span', null, 'the flat ', mono(pct(VALUATION_PARAMS.required_return_default)), ' hurdle for every business (user-settable) — no beta, no quality knob. It doubles as the active-vs-passive bar.') },
+          { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s cited FCF growth; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
+          { key: 'exit', eyebrow: 'Exit multiple', body: createElement('span', null, 'Anchored to NAMED comparables (each industry carries its own multiples — no fixed band): the harness checks the choice against the comps’ median and falls back to a conservative ', mono(`${VALUATION_PARAMS.exit_multiple_fallback}×`), ' only when absent or absurd.') },
+          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The thresholds are arithmetic — the model judges growth and the exit comps, never the price.') },
         ], '200px'),
       ),
     }),
@@ -231,15 +227,15 @@ function StrategyTab(): ReactNode {
           createElement('span', { key: 2 }, gold('Size'), ' — the Pabrai Principle 5 axis, ', gold('deferred'), '. A size boundary favouring small, under-followed names is part of the model but shipped permissive; it does not yet constrain admission.'),
           createElement('span', { key: 3 }, gold('Cheapness counts only on an already-wonderful business'), ' — price is never the entry reason. Cheapness is considered only after a business passes the quality gate; a cheap business that fails the gate is still a PASS.'),
           createElement('span', { key: 4 }, gold('Uncertainty vs permanent-loss risk'), ' — the admit judgment splits the two. An opportunity is high uncertainty + ', gold('low permanent-loss risk'), '; an independent bear case tests that the downside is uncertainty, not impairment.'),
-          createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and the frozen ', gold('model-proposed buy-below'), ' at admit. A future re-underwrite re-anchors that buy-below visibly, never moving it silently.'),
+          createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and the frozen ', gold('computed buy-below'), ' at admit. A future re-underwrite re-anchors that buy-below visibly, never moving it silently.'),
         ]),
-        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the model-proposed buy-below is provisional (the human signs it off), and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
+        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
       ),
     }),
     PanelSection({
       eyebrow: 'The verdict',
       title: 'BUY, WATCH, or PASS',
-      lead: 'The model proposes the draft verdict with cited reasoning — a BUY-WINDOW draft when the price has met its proposed buy-below, WATCH while the price sits above it, and a failed quality gate forces PASS. The deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds) but never blocks the verdict — the human audits the reasoning and decides.',
+      lead: 'The model proposes the draft verdict with cited reasoning — a BUY-WINDOW draft when the price has met the computed buy threshold, WATCH while the price sits above it, and a failed quality gate forces PASS. The deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds) but never blocks the verdict — the human audits the reasoning and decides.',
       children: caveat('Every output here is a draft. Nothing becomes a watchlist entry or a holding without an explicit, user-authored ledger transition. See the full method on the Strategy page.'),
     }),
   )
@@ -247,12 +243,12 @@ function StrategyTab(): ReactNode {
 
 // 2 — The Research Swarm
 function SwarmTab(): ReactNode {
+  // S8 (Phase 3): the lanes ARE Buffett's pillars. Financial-quality numerics are owned by the
+  // valuation stage + harness T0 blocks; the adversarial risks duty lives in the inversion pass.
   const laneDetails: Record<string, string> = {
-    business_quality: 'How the business makes money, and whether 10-year owner earnings are predictable enough to value at all.',
-    moat: 'The moat and its reinvestment runway as a grounded, cite-verified thesis — every claim cited to a fetched source; a quant anchor from filings only corroborates, it does not set a numeric score.',
-    management: 'Capital allocation, candor, incentives, and the SBC trend — from filings and proxies, not media profiles.',
-    financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
-    risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
+    understand: 'Pillar 1 — how the business actually makes money: the model, unit economics, revenue/cost drivers, plus accounting quality (revenue recognition, one-offs, accruals).',
+    moat: 'Pillar 2 — the moat as PROTECTION: WHICH moat types ground (each passing the replication test — what stops a funded rival from copying this?), the direction (a grounded narrowing derates a BUY), and the standout peer read. The three named tests (capital efficiency, two-engine, standout) are computed by the harness.',
+    management: 'Pillar 3 — integrity (communication candor + how executives are paid, from the DEF 14A) and talent (capital allocation reconciled against harness ROIC/payout/debt observations and the retained-earnings test). A grounded worst-tier judgment vetoes an unattended BUY.',
   }
   return createElement(
     'div',
@@ -260,7 +256,7 @@ function SwarmTab(): ReactNode {
     PanelSection({
       eyebrow: 'Division of labour',
       title: 'Agents propose, the harness computes, the human decides',
-      lead: 'One principle holds the system together. LLM agents gather evidence and classify. Deterministic code does the valuation math, ratio checks, gates, and accounting. A human authors every irreversible transition. These three roles are never mixed.',
+      lead: 'One principle holds the system together. LLM agents gather evidence and classify. Deterministic code does the valuation math, ratio checks, and gates. A human authors every irreversible transition. These three roles are never mixed.',
       children: caveat(
         createElement(
           'span',
@@ -272,13 +268,13 @@ function SwarmTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'The pipeline',
-      title: 'Shariah gate → circle gate → deep dive → valuation → synthesis → decision',
-      lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
+      title: 'Shariah gate → circle gate → understand + moat → MOAT GATE → management → valuation → synthesis → decision',
+      lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors run Pillars 1–2 first; the moat gate then ends a below-gate case BEFORE Pillars 3–4 spend anything (a user override can run them anyway — the verdict still gates). Synthesis reconciles the pillars; the result is a BUY / WATCH / PASS draft for a human.',
       children: bullets([
         createElement('span', { key: 1 }, gold('Front gates'), ' — the grounded Shariah sector judgment (plus the deterministic AAOIFI ratios when computable) runs first, on the harness-verified annual filing; then the circle-of-competence judgment — durable predictability, cite-verified — decides whether the deep dive is worth spending on.'),
-        createElement('span', { key: 2 }, gold('Deep-dive swarm'), ` — ${LANE_COUNT} specialist lanes run blind to each other, each grounding its own claims.`),
+        createElement('span', { key: 2 }, gold('Pillar lanes'), ` — ${LANE_COUNT} specialist lanes (Buffett's pillars: understand, moat, management) ground their own claims; understand + moat run first and the MOAT GATE ends a below-gate case before management/valuation spend.`),
         createElement('span', { key: 3 }, gold('Valuation judgment'), ' — a dedicated grounded stage owns the owner-earnings bridge, assumed growth, and buy-below (cite-checked); the harness computes the margin-of-safety GRADE arithmetically against a uniform required margin — the model never grades its own margin.'),
-        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
+        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced, and the cite-checked case against the thesis weighed before any verdict.'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
       ]),
     }),
@@ -299,7 +295,7 @@ function SwarmTab(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
-          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
+          'Valuation (Pillar 4) and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass: valuation judges the durable FCF growth and the comps-anchored exit multiple (the harness computes the intrinsic value and both book thresholds from them), and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings). The retired business_quality / financial_quality / risks lanes live on in historical dossiers; their duties moved to the understand lane, the harness T0 blocks, and the inversion pass.',
         ),
       ),
     }),
@@ -375,7 +371,7 @@ function JudgmentTab(): ReactNode {
         { key: 'thesis', eyebrow: 'Cite-verified theses', title: 'Claims, not scores', body: 'Circle, moat, and runway are grounded, cite-verified theses — each claim cited to a source the harness fetched and content-hashed. There is no per-row rubric, no M1–M6, no total-score-to-tier map.' },
         { key: 'anchor', eyebrow: 'Quant corroborates', title: 'The numbers only confirm', body: 'A quant anchor read straight from the filings (ROIC, reinvestment, leverage) corroborates the thesis — but it does not set the tier or bound it. The model’s grounded argument is the judgment; the numbers either back it up or expose a contradiction.' },
         { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any proposal that beats a base rate must carry a structural exceptionality argument cited to evidence. Synthesis rejects inside-view narrative like "strong execution" as insufficient.' },
-        { key: 'redteam', eyebrow: 'Red-team pass', title: 'Break the case', body: 'Before synthesis, one adversarial agent — ideally on a different model — must build the strongest bear case. Synthesis must answer its strongest objection or downgrade.' },
+        { key: 'inversion', eyebrow: 'Inversion pass', title: 'Invert, always invert', body: 'Before synthesis, one adversarial agent — ideally on a different model — argues the case against itself. The strongest cite-checked objection (and the consensus read) is weighed by the synthesis and rendered on the dossier as the case against.' },
         { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
         { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
@@ -387,13 +383,11 @@ function JudgmentTab(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'Two hygiene checklists sit on the admission and re-underwrite sign-offs. They are a ',
-        gold('hygiene surface, not a gate'),
-        ': each one FORCES you to address a known failure mode, but it ',
-        gold('never scores, tallies, or pass/fails'),
-        ' your answers, and a "risk present" answer never auto-rejects the case. The checklist informs; you and the existing gates decide. They are a ',
-        gold('completion-block'),
-        ' — every item must be addressed in your own words before either sign-off goes through, but completeness is the only thing checked, never a verdict. The lists below are read ',
+        'Two hygiene checklists ride the workflow as ',
+        gold('prompts, not gates'),
+        ': each one names a known failure mode so you address it before committing, but nothing ',
+        gold('scores, tallies, or pass/fails'),
+        ' your answers, and a "risk present" answer never auto-rejects the case. The business list is agent-marshaled (grounded evidence beside each item on the admit checkpoint); the cognitive list is human-only. There is no checklist ceremony at sign-off — review-and-promote means the promote itself is the human commitment. The lists below are read ',
         gold('live from the versioned checklist config'),
         ', so they stay in sync as the owner adds failure modes learned from experience.',
       ),
@@ -462,7 +456,7 @@ function LifecycleTab(): ReactNode {
         gold('EXITED'),
         '. A name becomes a candidate from discovery + research, advances to watched on a user-confirmed watchlist entry, becomes held on an explicit open-holding entry, and is exited when no live entity remains. Every transition is append-only and timestamped, and ',
         gold('every irreversible transition is human-authored'),
-        ' — the agent never trades and never moves a name between states. The Lifecycle page renders this one list grouped by state.',
+        ' — the agent never trades and never moves a name between states. Research, watchlist, and portfolio each render their slice of this one list.',
       ),
       children: bullets([
         createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the front gates; the Shariah sector exclusion is applied before a candidate even enters the ledger, and most names die cheaply here.'),
@@ -487,10 +481,10 @@ function LifecycleTab(): ReactNode {
         { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
         cardGrid([
           { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
-          { key: 'tranche', eyebrow: 'Tranche triggers (held)', body: 'Price at T2 (−10%) or T3 (−20%) triggers a thesis re-check first, then a tranche alert — never mechanical averaging-down.' },
+          { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs — the book has no ladder) — never mechanical averaging-down.' },
           { key: 'conc', eyebrow: 'Concentration (held)', body: 'The 15% deployment cap binds new buys; a held position that APPRECIATES past a higher concentration-review threshold (~22%) raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim.' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
-          { key: 'rereview', eyebrow: 'Thesis re-review (any decided name)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
+          { key: 'rereview', eyebrow: 'Check-in (any decided name; the book: quarterly is the ideal rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
         ]),
         caveat(
           createElement(
@@ -550,7 +544,7 @@ function ShariahTab(): ReactNode {
     PanelSection({
       eyebrow: 'Enforced at six points',
       title: 'Shariah is a property, not a single lane',
-      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, the purification engine, and exit rules. A FAIL stops the case outright and is never price-overridable.',
+      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, and exit rules. A FAIL stops the case outright and is never price-overridable. The dossier states the purification RATE as guidance; Owlfolio keeps no payment books.',
       children: cardGrid([
         { key: 'sector', eyebrow: 'Sector screen', body: createElement('span', null, 'Segment-level revenue check; more than ', mono('5%'), ' impermissible core revenue screens the name out before any valuation is attempted.') },
         { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono(pct(AAOIFI_DEBT_RATIO_MAX)), ', computed by the harness from primary filings.') },
@@ -559,17 +553,16 @@ function ShariahTab(): ReactNode {
       ]),
     }),
     PanelSection({
-      eyebrow: 'Purification & zakat',
-      title: 'Computed by code, disbursed by the human',
-      lead: 'Obligations are arithmetic, not advice. The engine runs automatically; its output is a payable, never an instruction.',
+      eyebrow: 'Purification guidance',
+      title: 'The rate is computed; the books are yours',
+      lead: 'SCALE-DOWN (2026-07): Owlfolio computes the purification RATE from grounded filings and states it on the dossier — it deliberately keeps no obligation/payment books, because their inputs (your actual dividends and payments) are unverifiable by design.',
       children: bullets([
-        createElement('span', { key: 1 }, gold('On-dividend purification'), ' — on each dividend, purification due = dividend × purification %, posted to a separate purification ledger. Capital-gains purification is off by default (a stricter mode is user-selectable).'),
-        createElement('span', { key: 2 }, gold('Zakat'), ' — an optional module; the methodology and base are a user-authored setting, not an agent judgment.'),
-        createElement('span', { key: 3 }, gold('Human-authored disbursement'), ' — the ledger tracks accrued versus paid; a human authors the charitable disbursement entry.'),
+        createElement('span', { key: 1 }, gold('The rate'), ' — purification due = dividend × the computed purification % (from the harness-recomputed AAOIFI impermissible-income read). Stated on every CONDITIONAL dossier.'),
+        createElement('span', { key: 2 }, gold('The discipline'), ' — track and pay it yourself (a spreadsheet does this honestly); confidently wrong purification amounts from stale inputs are worse than none.'),
       ]),
     }),
     caveat(
-      'These screens and the purification arithmetic are a local screening aid and a local accounting aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Material ambiguity should be taken to a qualified Shariah adviser.',
+      'These screens and the purification rate are a local screening aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Material ambiguity should be taken to a qualified Shariah adviser.',
     ),
   )
 }
@@ -578,7 +571,7 @@ function ShariahTab(): ReactNode {
 // the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
 const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
   T1: 'T1 — Frontier (synthesis, moat/Shariah)',
-  T2: 'T2 — Mid (red-team)',
+  T2: 'T2 — Mid (inversion)',
   T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
 }
 
@@ -617,9 +610,9 @@ function TieringTab(): ReactNode {
       ),
       children: cardGrid([
         { key: 't1', eyebrow: 'T1 — Frontier', body: 'Synthesis and the highest-stakes lanes (moat, Shariah). Long-context reasoning and disciplined citation; errors here poison verdicts.' },
-        { key: 't2', eyebrow: 'T2 — Mid', body: 'The adversarial red-team cross-check and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
+        { key: 't2', eyebrow: 'T2 — Mid', body: 'The Munger inversion pass and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
         { key: 't3', eyebrow: 'T3 — Cheap / local', body: 'High-volume, low-judgment work: news and filing scans, trigger detection, entity resolution. Near-zero marginal cost.' },
-        { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, purification arithmetic, accounting, 13F/EDGAR parsing. Deterministic by constitution.' },
+        { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, the purification rate, 13F/EDGAR parsing. Deterministic by constitution.' },
       ]),
     }),
     PanelSection({

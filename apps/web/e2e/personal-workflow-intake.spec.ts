@@ -2,13 +2,6 @@ import { expect, test } from '@playwright/test'
 
 import { initWorkflow } from './helpers'
 
-function isoDateDaysFromToday(daysFromToday: number): string {
-  const today = new Date()
-  return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + daysFromToday))
-    .toISOString()
-    .slice(0, 10)
-}
-
 test.beforeEach(async ({ request }) => {
   const response = await request.post('/api/testing/reset')
   expect(response.ok()).toBe(true)
@@ -22,8 +15,6 @@ test('personal-local mode can create the first research case from the command ce
       browserErrors.push(message.text())
     }
   })
-
-  const nextReviewDate = isoDateDaysFromToday(153)
 
   await page.goto('/')
   const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
@@ -42,7 +33,8 @@ test('personal-local mode can create the first research case from the command ce
   await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research')
   await expect(primaryNav.getByRole('link', { name: /watchlist/i })).toHaveAttribute('href', '/watchlist')
   await expect(primaryNav.getByRole('link', { name: /portfolio/i })).toHaveAttribute('href', '/portfolio')
-  await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveAttribute('href', '/accounting/monthly')
+  // SCALE-DOWN S2: the Accounting page is retired — no nav entry.
+  await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveCount(0)
   await expect(primaryNav.getByRole('link', { name: 'Audit', exact: true })).toHaveAttribute('href', '/audit')
   await expect(primaryNav.getByRole('link', { name: /providers/i })).toHaveAttribute('href', '/settings/providers')
   await expect(primaryNav.getByRole('link', { name: /onboarding/i })).toHaveCount(0)
@@ -130,13 +122,25 @@ test('personal-local mode can create the first research case from the command ce
   // Phase 8 S4: admission is a SINGLE gated step — the promote lands the item user-confirmed (the
   // former separate "confirm watchlist draft" action + its interstitial state are gone). No second click.
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
-  await expect(page.getByText('User confirmed')).toBeVisible()
+  // Compact zone board: each candidate is one row; the ticker links to the original analysis and the
+  // full checkpoint expands beneath.
+  const msftRow = page.locator('details[data-watchlist-row="MSFT"]')
+  await expect(msftRow).toBeVisible()
+  await expect(msftRow.getByRole('link', { name: 'MSFT', exact: true })).toHaveAttribute('href', `/research/${researchCaseId}`)
+  // The "Confirmed" badge is retired (every admitted name is confirmed by construction) — the
+  // Shariah chip + the CONDITIONAL explanation carry the row's signal now.
+  await expect(msftRow.getByText('CONDITIONAL', { exact: true })).toBeVisible()
+  await msftRow.locator('> summary').click()
+  await expect(msftRow.getByText(/Shariah-permissible to hold, with an obligation/)).toBeVisible()
+  await msftRow.locator('> summary').click()
   await expect(page.getByText('Draft — awaiting user confirmation')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
-  await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
-  await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
-  await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
+  await msftRow.locator('> summary').click()
+  // The expansion is the small decision card: the thesis + "Open the full analysis" (gate reasons,
+  // required sources, and provenance moved to the dossier).
+  // The display text is the LATEST ANALYSIS's own thesis (not the admitted-on draft copy).
+  await expect(msftRow.getByText(/wide-moat compounder/)).toBeVisible()
+  await expect(msftRow.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   // The dashboard shows the item already confirmed: no pending watchlist-confirmation approval remains.
   await page.goto('/')
@@ -147,146 +151,89 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
 
   await page.goto('/watchlist')
-  await page.getByLabel('Shares').fill('3.25')
+  // SCALE-DOWN S5: share counts are retired — the entry price is the one manual field. The open-holding
+  // form lives in the expanded row.
+  await page.locator('details[data-watchlist-row="MSFT"] > summary').click()
   await page.getByLabel('Cost basis per share').fill('812.40')
   await page.getByLabel('Opened date').fill('2026-05-31')
   await page.getByRole('button', { name: /record initial holding/i }).click()
 
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
-  await expect(page.getByText('Holding recorded')).toBeVisible()
-  await expect(page.getByText('Holding open')).toBeVisible()
+  // ONE HOME PER NAME: the held name leaves the watchlist board (its home is the portfolio now);
+  // the ledger line points there.
+  await expect(page.locator('details[data-watchlist-row="MSFT"]')).toHaveCount(0)
+  await expect(page.locator('article').filter({ hasText: 'Held — see portfolio' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
   await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
-  await expect(page.getByText('Shares: 3.25')).toBeVisible()
-  await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
-  await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
-  await expect(page.getByText('Cost basis / share: $812.40')).toBeVisible()
-  await expect(page.getByText('Total cost basis: $2,640.30', { exact: true })).toBeVisible()
+  // Compact thesis rows: the summary carries the entry-price anchor; the body expands.
+  const msftHolding = page.locator('details[data-holding-row="MSFT"]')
+  await expect(msftHolding).toBeVisible()
+  await expect(msftHolding.getByText('entry $812.40')).toBeVisible()
+  await msftHolding.locator('> summary').click()
+  // SCALE-DOWN S5: the thesis view — the entry price is the anchor; no share/value books. Gate
+  // evidence lives in the dossier now; the row keeps the anchor + the route to the full analysis.
+  await expect(page.getByText('Your entry price: $812.40')).toBeVisible()
   await expect(page.getByText('Opened: 2026-05-31')).toBeVisible()
+  await expect(msftHolding.getByRole('link', { name: 'Open the full analysis' })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByLabel('Current price per share').fill('900')
-  await page.getByLabel('Valuation date').fill('2026-06-01')
-  await page.getByRole('button', { name: /record valuation snapshot/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Current value: $2,925.00', { exact: true })).toBeVisible()
-  await expect(page.getByText('Current price / share: $900.00')).toBeVisible()
-  await expect(page.getByText(/Unrealized P&L: \$284\.70 \(10\.78%\)/)).toBeVisible()
-  await expect(page.getByText('Concentration: 100.00%')).toBeVisible()
-  await expect(page.getByText('Valuation date: 2026-06-01')).toBeVisible()
-
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Strategy review drafted').first()).toBeVisible()
-  await expect(page.getByText('Choose one auditable decision path')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Apply provider draft' })).toBeVisible()
-  await expect(page.getByText('Applies the provider-authored thesis health, action stance, and next review date to portfolio state.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Apply user override' })).toBeVisible()
-  await expect(page.getByText('Applies your edited values instead of the provider draft and records a user-authored audit event.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Reject provider draft' })).toBeVisible()
-  await expect(page.getByText('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')).toBeVisible()
-  await page.goto('/')
-  await expect(page.getByText('Confirm the drafted strategy review for MSFT')).toBeVisible()
-  await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('1', { exact: true })).toBeVisible()
-  await expect(page.getByText('Approval queue')).toBeVisible()
-  await expect(page.getByText('Holding review decisions')).toBeVisible()
-  await expect(page.getByText('MSFT strategy review draft')).toBeVisible()
-  await expect(page.getByText('Provider proposes thesis health HEALTHY, action stance HOLD, next review 2026-09-30.')).toBeVisible()
-  await expect(page.getByRole('link', { name: /apply provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-  await expect(page.getByRole('link', { name: /reject provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-  await expect(page.getByRole('link', { name: /apply user override/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
-
-  await page.goto('/portfolio')
-
-  // Audit-and-decide re-underwrite (confirm): affirming the provider draft is gated on a SINGLE
-  // cognitive-reflection acknowledgement. Scope to the confirm form (action …/confirm) so it doesn't
-  // touch the sibling override form's acknowledgement.
-  const confirmForm = page.locator('form[action$="/confirm"]')
-  await confirmForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
-  const applyProviderDraft = page.getByRole('button', { name: /apply provider draft/i })
-  await expect(applyProviderDraft).toBeEnabled()
-  await applyProviderDraft.click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Thesis health: HEALTHY')).toBeVisible()
-  await expect(page.getByText('Action stance: HOLD')).toBeVisible()
-  await expect(page.getByText('Next review: 2026-09-30')).toBeVisible()
-  await expect(page.getByRole('button', { name: /apply provider draft/i })).toHaveCount(0)
-
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await page.getByLabel('Override thesis health').selectOption('WATCH')
-  await page.getByLabel('Override action stance').selectOption('RESEARCH_MORE')
-  await page.getByLabel('Override rationale').fill('User override: valuation requires another evidence pass before adding.')
-  await page.getByLabel('Override evidence summary').fill('Compared provider draft to the manual valuation snapshot and original thesis.')
-  await page.getByLabel('Override uncertainty').fill('Need updated Shariah ratio review and concentration check.')
-  await page.getByLabel('Override next review date').fill(nextReviewDate)
-
-  // Audit-and-decide re-underwrite (override): the human authors their own thesis fields (filled above)
-  // AND checks the SINGLE cognitive-reflection acknowledgement. Scope to the override form (action
-  // …/override) so it doesn't touch the sibling confirm form's acknowledgement.
-  const overrideForm = page.locator('form[action$="/override"]')
-  await overrideForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
-  const applyUserOverride = page.getByRole('button', { name: /apply user override/i })
-  await expect(applyUserOverride).toBeEnabled()
-  await applyUserOverride.click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
-  await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()
-  await expect(page.getByText('User override: valuation requires another evidence pass before adding.')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /apply user override/i })).toHaveCount(0)
-
-  await page.getByText('Manual fallback actions', { exact: true }).click()
-  await page.getByRole('button', { name: /run buffett-munger review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Strategy review drafted').first()).toBeVisible()
-  await page.getByLabel('Rejection reason').fill('Reject stale draft after override; wait for new evidence.')
-  await page.getByRole('button', { name: /reject strategy review/i }).click()
-
-  await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
-  await expect(page.getByText('Action stance: RESEARCH_MORE')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /reject strategy review/i })).toHaveCount(0)
+  // REVIEW RETIRED (owner, 2026-07-14): the drafted Buffett-Munger review + its confirm/override/
+  // reject ceremony and the review schedule are GONE — the quarterly check-in, the 10-K full-re-run
+  // prompt, and the zone board carry the duty. The row exposes the check-in; no review forms exist.
+  await expect(page.getByRole('button', { name: /run buffett-munger review/i })).toHaveCount(0)
+  await expect(page.getByText('Manual fallback actions')).toHaveCount(0)
+  await expect(msftHolding.getByTestId('rereview-button')).toBeVisible()
 
   await page.goto('/')
-  await expect(page.getByText(`Next scheduled strategy review for MSFT is ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByText('Holding review schedule')).toBeVisible()
-  await expect(page.getByText('Upcoming')).toBeVisible()
-  await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
-  await expect(page.getByText(/· \d+ days/)).toBeVisible()
-  await expect(page.getByRole('link', { name: /review msft/i }).first()).toHaveAttribute('href', /\/portfolio#holding_msft_/)
+  await expect(page.getByText('Holding review schedule')).toHaveCount(0)
+  await expect(page.getByText('Check in held names against new filings (quarterly cadence)').first()).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
 
-  await page.goto('/accounting/monthly')
-  await expect(page.getByRole('heading', { name: /monthly accounting report/i })).toBeVisible()
-  await expect(page.getByText('$2,925.00').first()).toBeVisible()
-  await expect(page.getByText('MSFT').first()).toBeVisible()
-
-  await page.goto('/purification')
-  await expect(page.getByRole('heading', { name: /purification ledger/i })).toBeVisible()
-  await expect(page.getByText(/No purification obligations have been recorded yet/i).or(page.getByText(/Unpaid obligations/i))).toBeVisible()
+  // SCALE-DOWN S2/S3: the accounting + purification pages are retired; /passive is informative.
+  await page.goto('/passive')
+  await expect(page.getByRole('heading', { name: 'Passive', exact: true })).toBeVisible()
+  await expect(page.getByText(/load up the truck|never sell the sleeve|own the market first/i).first()).toBeVisible()
+  await expect(page.getByText(/EDUCATIONAL CONTENT, NOT ADVICE/i)).toBeVisible()
 
   await page.goto('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
   await expect(page.locator('li').filter({ hasText: 'research_case_created' }).first()).toBeVisible()
-  await expect(page.locator('li').filter({ hasText: /holding_review_rejected|holding_review_overridden/ }).first()).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'holding_opened' }).first()).toBeVisible()
+
+  // ── Close the holding (the human-authored exit) — the position leaves the portfolio and the name
+  // returns to plain watching on the board.
+  await page.goto('/portfolio')
+  await page.locator('details[data-holding-row="MSFT"] > summary').click()
+  await page.getByText('Close holding (record the exit)').click()
+  // The CONDITIONAL name's close form carries the exit-purification GUIDANCE (never an account).
+  await expect(page.getByTestId('exit-purification-guidance')).toBeVisible()
+  await expect(page.getByText(/GUIDANCE, NOT AN ACCOUNT/)).toBeVisible()
+  await page.getByLabel('Exit price per share').fill('905.10')
+  await page.getByLabel('Sell-discipline reason').selectOption('valuation_inverted')
+  await page.getByRole('button', { name: /record the exit/i }).click()
+  await expect(page).toHaveURL('/portfolio')
+  await expect(page.getByRole('heading', { name: /no holdings are open yet/i })).toBeVisible()
+
+  await page.goto('/watchlist')
+  const msftRowAfterClose = page.locator('details[data-watchlist-row="MSFT"]')
+  await expect(msftRowAfterClose).toBeVisible()
+  await expect(msftRowAfterClose.getByText('CONDITIONAL', { exact: true })).toBeVisible()
+
+  // ── Remove the name from the watchlist (the human-authored prune) — the board empties; the
+  // research case + the audit trail survive.
+  await msftRowAfterClose.locator('> summary').click()
+  await page.getByText('Remove from watchlist', { exact: true }).first().click()
+  await page.getByLabel('Reason').fill('Cycle complete — no longer tracking in the e2e flow.')
+  await page.getByRole('button', { name: /remove from watchlist/i }).click()
+  await expect(page).toHaveURL('/watchlist')
+  await expect(page.locator('details[data-watchlist-row="MSFT"]')).toHaveCount(0)
+
+  await page.goto('/audit')
+  await expect(page.locator('li').filter({ hasText: 'holding_closed' }).first()).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'watchlist_item_pruned' }).first()).toBeVisible()
 
   await expect(browserErrors).toEqual([])
 })

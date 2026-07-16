@@ -181,64 +181,17 @@ describe('runPriceRefresh — 3b watchlist buy-window alerts', () => {
 // 3c: holding NAV valuation
 // ---------------------------------------------------------------------------
 
-describe('runPriceRefresh — 3c holding valuation', () => {
-  it('emits holding_valuation_recorded with correct market_value', async () => {
+describe('runPriceRefresh — the holding-valuation leg is RETIRED (scale-down S2)', () => {
+  it('records the price snapshot for a held ticker and NO holding_valuation event', async () => {
     const store = new InMemoryEventStore()
     await seedOpenHolding(store, { ticker: 'AAPL', shares: 10 })
-
-    const priceSource = fakePriceSource({ AAPL: 200 })
-    await runPriceRefresh(store, { priceSource, now: () => NOW })
-
-    const events = await store.list()
-    const valuations = events.filter((e) => e.event_type === 'holding_valuation_recorded')
-    expect(valuations).toHaveLength(1)
-
-    const val = valuations[0]
-    expect(val?.aggregate_type).toBe('holding')
-    expect(val?.aggregate_id).toBe('holding_aapl_fixture')
-    expect(val?.actor_type).toBe('worker')
-    expect(val?.actor_id).toBe('price_refresh')
-
-    const payload = val?.payload as Record<string, unknown>
-    expect(payload?.['holding_id']).toBe('holding_aapl_fixture')
-    expect(payload?.['price_per_share']).toBe(200)
-    expect(payload?.['shares']).toBe(10)
-    expect(payload?.['market_value']).toBe(2000)
-    // valued_at MUST be the date string (not a full ISO timestamp) so the accounting
-    // projection's `valued_at <= period_end` date-string comparison includes it.
-    expect((val!.payload as { valued_at: string }).valued_at).toBe('2026-07-05')
-    expect(payload?.['price_checked_at']).toBe('2026-01-15T10:00:00.000Z')
-    expect(payload?.['currency']).toBe('USD')
-    expect(payload?.['confidence']).toBe('market')
-    expect(payload?.['caveat']).toBe('Live market price')
-    expect(Array.isArray(payload?.['missing_data'])).toBe(true)
-    expect(payload?.['valued_by_actor_type']).toBe('worker')
-    expect(payload?.['valued_by_actor_id']).toBe('price_refresh')
-  })
-
-  it('idempotency key prevents duplicate holding_valuation_recorded on second call', async () => {
-    const store = new InMemoryEventStore()
-    await seedOpenHolding(store, { ticker: 'AAPL', shares: 10 })
-    const priceSource = fakePriceSource({ AAPL: 200 })
-
-    await runPriceRefresh(store, { priceSource, now: () => NOW })
-    await runPriceRefresh(store, { priceSource, now: () => NOW })
-
-    const events = await store.list()
-    const valuations = events.filter((e) => e.event_type === 'holding_valuation_recorded')
-    expect(valuations).toHaveLength(1)
-  })
-
-  it('emits both price_snapshot and holding_valuation for a holding ticker', async () => {
-    const store = new InMemoryEventStore()
-    await seedOpenHolding(store, { ticker: 'AAPL', shares: 5 })
-    const priceSource = fakePriceSource({ AAPL: 150 })
-
-    const result = await runPriceRefresh(store, { priceSource, now: () => NOW })
+    const result = await runPriceRefresh(store, { priceSource: fakePriceSource({ AAPL: 120 }), now: () => NOW })
     expect(result.refreshed).toContain('AAPL')
-
     const events = await store.list()
-    expect(events.filter((e) => e.event_type === 'price_snapshot_recorded')).toHaveLength(1)
-    expect(events.filter((e) => e.event_type === 'holding_valuation_recorded')).toHaveLength(1)
+    expect(events.some((e) => e.event_type === 'price_snapshot_recorded')).toBe(true)
+    expect(events.some((e) => e.event_type === 'holding_valuation_recorded')).toBe(false)
   })
+
+
+
 })

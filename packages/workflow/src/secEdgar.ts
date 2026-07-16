@@ -61,6 +61,12 @@ export type AnnualFacts = {
   gross_ppe_musd?: number
   sbc_musd?: number
   diluted_shares_m?: number
+  /**
+   * OPTION C (owner call, 2026-07-12): where the diluted share count came from. Absent = the normal
+   * companyfacts concepts; 'inline_xbrl_class_a' = recovered from the annual report's inline XBRL
+   * (a per-class filer whose share facts are all dimensioned — V-class). Display labels it.
+   */
+  diluted_shares_source?: 'inline_xbrl_class_a'
   shares_outstanding_m?: number
   total_debt_musd?: number
   cash_and_securities_musd?: number
@@ -77,6 +83,22 @@ export type AnnualFacts = {
   impermissible_income_lines?: ImpermissibleIncomeLine[]
   /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
   stockholders_equity_musd?: number
+  /**
+   * Gross profit (annual flow), $millions — direct `GrossProfit`, else derived revenue − COGS for
+   * years where BOTH sides are tagged (never fabricated from one side). Drives the standout moat
+   * test's company-side gross-margin series. Absent → the test degrades to not-computable.
+   */
+  gross_profit_musd?: number
+  /** Dividends paid (cash outflow, annual flow), $millions — payout discipline + retained-earnings test. */
+  dividends_paid_musd?: number
+  /** Net cash provided by operating activities (annual flow), $millions — the book's FCF = CFO − capex. */
+  cfo_musd?: number
+  /** Total current assets (instant), $millions — the current-ratio talent check. */
+  current_assets_musd?: number
+  /** Total current liabilities (instant), $millions — the current-ratio talent check. */
+  current_liabilities_musd?: number
+  /** Common-stock repurchases (cash outflow, annual flow), $millions — payout discipline. */
+  buybacks_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
   operating_income_musd?: number
   /** Income tax expense/benefit (annual flow), $millions — for the effective-tax-rate NOPAT proxy. */
@@ -166,6 +188,18 @@ export function ownerEarningsPerShareSeries(series: AnnualFacts[]): OwnerEarning
     const maintenanceCapex = Math.min(da!, capex!)
     const ownerEarnings = ni! + da! - maintenanceCapex - sbc
     out.push({ fiscal_year: a.fiscal_year, oe_ps: ownerEarnings / shares! })
+  }
+  return out
+}
+
+/** Per-year FCF per diluted share (the book basis: CFO − capex). Years missing any input are skipped. */
+export function fcfPerShareSeries(series: AnnualFacts[]): OwnerEarningsPerSharePoint[] {
+  const out: OwnerEarningsPerSharePoint[] = []
+  for (const a of series) {
+    const { cfo_musd: cfo, capex_musd: capex, diluted_shares_m: shares } = a
+    if (![cfo, capex, shares].every((v) => typeof v === 'number' && Number.isFinite(v))) continue
+    if (!(shares! > 0)) continue
+    out.push({ fiscal_year: a.fiscal_year, oe_ps: (cfo! - capex!) / shares! })
   }
   return out
 }
@@ -289,9 +323,10 @@ function theilSenSlope(points: { x: number; y: number }[]): number | undefined {
  */
 export function demonstratedOwnerEarningsGrowth(
   series: AnnualFacts[],
-  opts?: { windowYears?: number },
+  opts?: { windowYears?: number; metric?: 'owner_earnings' | 'fcf' },
 ): DemonstratedGrowthResult {
   const windowYears = opts?.windowYears ?? 10
+  const metric = opts?.metric ?? 'owner_earnings'
   const flags: string[] = []
 
   // Trailing window of the underlying AnnualFacts, ascending by fiscal year. We keep the AnnualFacts (not
@@ -342,8 +377,10 @@ export function demonstratedOwnerEarningsGrowth(
     flags.push(`split-adjusted ${formatSplitFactor(match.factor, match.forward)} at FY${cur.fiscal_year}`)
   }
 
-  // Recompute OE/share on the (possibly split-adjusted) facts via the canonical owner-earnings formula.
-  const pts = ownerEarningsPerShareSeries(adjustedFacts).sort((a, b) => a.fiscal_year - b.fiscal_year)
+  // Recompute the per-share metric on the (possibly split-adjusted) facts. E2: the 'fcf' metric is the
+  // book basis (CFO − capex, per diluted share) — no maintenance-capex proxy anywhere in it.
+  const pts = (metric === 'fcf' ? fcfPerShareSeries(adjustedFacts) : ownerEarningsPerShareSeries(adjustedFacts))
+    .sort((a, b) => a.fiscal_year - b.fiscal_year)
 
   // ---- Residual (non-split) per-share discontinuity flag ------------------------------------------
   // After split-adjustment, a remaining large year-over-year OE/share jump on positive points is a genuine
@@ -516,6 +553,35 @@ export function estimateMaintenanceCapex(series: AnnualFacts[]): MaintenanceCape
  * Owlfolio's valuation authority is owner earnings. This helper does NOT replace the OE bridge; it surfaces
  * when a reported-FCF/P-FCF calculator is probably conservative because total capex includes growth capex.
  */
+/** E2 survivor: the purely FACTUAL capex-vs-D&A read — no maintenance-capex proxy, no assumptions. */
+export type CapexVsDandANote = {
+  total_capex_musd?: number
+  d_and_a_musd?: number
+  capex_to_d_and_a?: number
+  /** capex ≥ 1.5× D&A — reported FCF likely understates steady-state owner economics for a grower. */
+  growth_capex_heavy: boolean
+  note: string
+}
+
+export function capexVsDandANote(latest: AnnualFacts | undefined): CapexVsDandANote {
+  const finite = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+  const capex = finite(latest?.capex_musd) ? latest!.capex_musd : undefined
+  const da = finite(latest?.d_and_a_musd) ? latest!.d_and_a_musd : undefined
+  const ratio = capex !== undefined && da !== undefined && da > 0 ? capex / da : undefined
+  const heavy = ratio !== undefined && ratio >= GROWTH_CAPEX_HEAVY_CAPEX_TO_DA_RATIO
+  return {
+    ...(capex !== undefined ? { total_capex_musd: capex } : {}),
+    ...(da !== undefined ? { d_and_a_musd: da } : {}),
+    ...(ratio !== undefined ? { capex_to_d_and_a: ratio } : {}),
+    growth_capex_heavy: heavy,
+    note: ratio === undefined
+      ? 'capex vs D&A not computable (capex or D&A untagged) — cannot read the reinvestment mix.'
+      : heavy
+        ? `FACT: total capex is ${ratio.toFixed(1)}x D&A — a heavy reinvestment mix; reported FCF likely understates steady-state owner economics for a grower. Advisory only.`
+        : `FACT: total capex is ${ratio.toFixed(1)}x D&A — a maintenance-weighted reinvestment mix.`,
+  }
+}
+
 export function ownerEarningsVsFcfDiagnostic(
   latest: AnnualFacts | undefined,
   maintenanceCapex?: number,
@@ -1024,11 +1090,25 @@ type ConceptMap = {
    */
   impermissibleIncome: { interest: string[]; dividend: string[]; combined: string[] }
   interest: string
-  stockholdersEquity: string
+  stockholdersEquity: string[]
   operatingIncome: string
   incomeTax: string
   /** Gross PP&E (instant) — for the Greenwald maintenance-capex proxy (Phase 1.2). Empty when unmapped. */
   grossPpe: string[]
+  /** Gross profit (annual flow) — direct concept; per-year fallback derives revenue − COGS. */
+  grossProfit: string[]
+  /** Cost of revenue/goods-sold variants, for the derived gross-profit fallback ONLY. */
+  costOfRevenue: string[]
+  /** Dividends paid (cash outflow), per-year precedence: common-stock concept first, combined fills gaps. */
+  dividendsPaid: string[]
+  /** Common-stock repurchases (cash outflow). */
+  buybacks: string[]
+  /** Net cash from operating activities (annual flow) — precedence-ordered per year. */
+  cfo: string[]
+  /** Total current assets (instant). */
+  currentAssets: string[]
+  /** Total current liabilities (instant). */
+  currentLiabilities: string[]
 }
 
 const US_GAAP_CONCEPTS: ConceptMap = {
@@ -1137,13 +1217,30 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     ],
   },
   interest: 'InterestExpense',
-  stockholdersEquity: 'StockholdersEquity',
+  // Equity: parent-only preferred; the NCI-inclusive variant is the fallback for filers that stopped
+  // tagging the parent-only concept (V's last parent-only year is FY2011 — without the fallback the
+  // ROIC series is empty and the capital-efficiency test + talent T0 die on a 16-year-tagged filer).
+  stockholdersEquity: ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
   operatingIncome: 'OperatingIncomeLoss',
   incomeTax: 'IncomeTaxExpenseBenefit',
   // Gross PP&E (instant): the canonical gross carrying amount first; then the gross-before-accumulated-
   // depreciation variant some filers tag. Net PP&E is intentionally NOT used (the Greenwald proxy needs
   // gross). Absent → Greenwald degrades to the D&A floor.
   grossPpe: ['PropertyPlantAndEquipmentGross', 'PropertyPlantAndEquipmentGrossExcludingCapitalizedComputerSoftwareCosts'],
+  // Gross profit: the direct income-statement concept; filers that tag only revenue + COGS resolve via
+  // the derived revenue − COGS fallback in buildAnnualSeries (both sides required per year).
+  grossProfit: ['GrossProfit'],
+  costOfRevenue: ['CostOfRevenue', 'CostOfGoodsAndServicesSold', 'CostOfGoodsSold'],
+  // Dividends: the common-stock concept first (parent-only); the combined `PaymentsOfDividends`
+  // (may include preferred/NCI — a documented conservative overcount for the payout view) fills
+  // years the specific concept omits.
+  dividendsPaid: ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends'],
+  buybacks: ['PaymentsForRepurchaseOfCommonStock'],
+  // CFO: the canonical total first; the continuing-operations variant fills years for filers that
+  // tag only it (mirrors the debt-rollup precedence pattern).
+  cfo: ['NetCashProvidedByUsedInOperatingActivities', 'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations'],
+  currentAssets: ['AssetsCurrent'],
+  currentLiabilities: ['LiabilitiesCurrent'],
 }
 
 // IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
@@ -1194,12 +1291,21 @@ const IFRS_CONCEPTS: ConceptMap = {
     combined: [],
   },
   interest: 'InterestExpense',
-  stockholdersEquity: 'Equity',
+  stockholdersEquity: ['Equity'],
   operatingIncome: 'ProfitLossFromOperatingActivities',
   incomeTax: 'IncomeTaxExpenseContinuingOperations',
   // IFRS gross PP&E (instant) best-effort: the gross cost-model carrying amount. Absent for many IFRS
   // filers (they disclose only net PP&E on the face) → Greenwald degrades to the D&A floor.
   grossPpe: ['PropertyPlantAndEquipmentGrossCarryingAmount', 'GrossCarryingAmountPropertyPlantAndEquipment'],
+  // IFRS payout/gross-profit best-effort (per the ifrs-full taxonomy's cash-flow examples); absent
+  // for a given filer → undefined, downstream degrades to not-computable exactly like grossPpe.
+  grossProfit: ['GrossProfit'],
+  costOfRevenue: ['CostOfSales'],
+  dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid'],
+  buybacks: ['PaymentsToAcquireOrRedeemEntitysShares'],
+  cfo: ['CashFlowsFromUsedInOperatingActivities'],
+  currentAssets: ['CurrentAssets'],
+  currentLiabilities: ['CurrentLiabilities'],
 }
 
 function conceptMapFor(taxonomy: Taxonomy): ConceptMap {
@@ -1466,7 +1572,23 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const impCombined = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.combined)
   // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
   const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
-  const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
+  // Gross profit: the direct concept per year; for years it omits, derive revenue − COGS ONLY when
+  // both sides report that year (never fabricated from one side). A tagged year is never overwritten.
+  const grossProfit = firstPopulatedByYear(facts, taxonomy, cm.grossProfit)
+  const costOfRevenue = firstPopulatedByYear(facts, taxonomy, cm.costOfRevenue)
+  for (const [fy, rev] of revenue) {
+    if (grossProfit.has(fy)) continue
+    const cogs = costOfRevenue.get(fy)
+    if (cogs !== undefined) grossProfit.set(fy, rev - cogs)
+  }
+  // Payout flows (cash outflows, positive magnitudes as tagged), per-year precedence.
+  const dividendsPaid = firstPopulatedByYear(facts, taxonomy, cm.dividendsPaid)
+  const buybacks = firstPopulatedByYear(facts, taxonomy, cm.buybacks)
+  // B1 (book alignment): CFO (flow) + current assets/liabilities (instant) for FCF + the current ratio.
+  const cfo = firstPopulatedByYear(facts, taxonomy, cm.cfo)
+  const currentAssets = firstPopulatedByYear(facts, taxonomy, cm.currentAssets)
+  const currentLiabilities = firstPopulatedByYear(facts, taxonomy, cm.currentLiabilities)
+  const stockholdersEquity = firstPopulatedByYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
   // Filing metadata (filed date + period end) per fiscal year. Prefer the income-statement fact; fall
@@ -1517,6 +1639,12 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
     set('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy)))
     set('operating_income_musd', toMusd(operatingIncome.get(fy)))
     set('income_tax_expense_musd', toMusd(incomeTax.get(fy)))
+    set('gross_profit_musd', toMusd(grossProfit.get(fy)))
+    set('dividends_paid_musd', toMusd(dividendsPaid.get(fy)))
+    set('buybacks_musd', toMusd(buybacks.get(fy)))
+    set('cfo_musd', toMusd(cfo.get(fy)))
+    set('current_assets_musd', toMusd(currentAssets.get(fy)))
+    set('current_liabilities_musd', toMusd(currentLiabilities.get(fy)))
     series.push(row)
   }
   return series
@@ -1652,6 +1780,107 @@ export function selectRecentReadableFilings(
 }
 
 // ---------------------------------------------------------------------------
+// Inline-XBRL share recovery (per-class filers — OPTION C, owner call 2026-07-12)
+// ---------------------------------------------------------------------------
+// LIVE FIND (V): Visa tags EVERY share/EPS concept with a StatementClassOfStockAxis member, and the
+// companyfacts API drops dimensioned facts — a per-class filer extracts NO share count and goes
+// honestly unpriced despite a fully tagged filing. Recovery: read the annual report primary document
+// (inline XBRL) and take the Class-A-member weighted-average DILUTED share fact whose full-year
+// duration matches the requested fiscal year. For a multi-class filer the LISTED class's diluted
+// count is the as-converted total (V FY2025: 1,966M — matches the published market-cap denominator).
+// FAIL-CLOSED: exactly ONE distinct candidate value, ≥300-day duration, shares-scaled and sane;
+// any ambiguity returns undefined and the dossier stays unpriced.
+
+const INLINE_SHARE_CONCEPT = /name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding"/i
+const CLASS_A_MEMBER = /us-gaap:CommonClassAMember/i
+
+export type InlineXbrlShareRecovery = {
+  shares_m: number
+  fiscal_year: number
+}
+
+export function recoverDilutedSharesHistoryFromInlineXbrl(html: string): InlineXbrlShareRecovery[] {
+  const factRe = /<ix:nonfraction\b[^>]*>/gi
+  // fiscal-year label → contextRef → value (deduped per context; the EPS note repeats the fact).
+  const byYear = new Map<number, Map<string, number>>()
+  const conflictedYears = new Set<number>()
+  for (const m of html.matchAll(factRe)) {
+    const tag = m[0]
+    if (!INLINE_SHARE_CONCEPT.test(tag)) continue
+    const ctxMatch = /contextref="([^"]+)"/i.exec(tag)
+    if (ctxMatch === null) continue
+    const contextRef = ctxMatch[1]!
+    const ctxBody = new RegExp(`<xbrli:context id="${contextRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</xbrli:context>`, 'i').exec(html)?.[1]
+    if (ctxBody === undefined) continue
+    if (!/StatementClassOfStockAxis/i.test(ctxBody) || !CLASS_A_MEMBER.test(ctxBody)) continue
+    const start = /<xbrli:startdate>([^<]+)</i.exec(ctxBody)?.[1]
+    const end = /<xbrli:enddate>([^<]+)</i.exec(ctxBody)?.[1]
+    if (start === undefined || end === undefined) continue
+    const days = (Date.parse(end) - Date.parse(start)) / 86_400_000
+    if (!(days >= 300 && days <= 400)) continue
+    const endYear = Number(end.slice(0, 4))
+    const endMonth = Number(end.slice(5, 7))
+    // The fiscal-year LABEL of an annual period: calendar/late-year ends carry the end year; an
+    // early-calendar end (Jan–Jun) belongs to the PRIOR label on the filers that use it.
+    const fiscalYear = endMonth <= 6 ? endYear - 1 : endYear
+    const valueStart = (m.index ?? 0) + tag.length
+    const valueEnd = html.indexOf('<', valueStart)
+    if (valueEnd < 0) continue
+    const raw = html.slice(valueStart, valueEnd).replace(/[,\s]/g, '')
+    if (raw.length === 0 || raw.includes('&#8212;') || raw === '—') continue
+    const scale = Number(/scale="([^"]+)"/i.exec(tag)?.[1] ?? '0')
+    const numeric = Number(raw)
+    if (!Number.isFinite(numeric) || !Number.isFinite(scale)) continue
+    const sharesM = (numeric * Math.pow(10, scale)) / 1_000_000
+    if (!(sharesM >= 1 && sharesM <= 100_000)) continue
+    const perYear = byYear.get(fiscalYear) ?? new Map<string, number>()
+    const existing = perYear.get(contextRef)
+    if (existing !== undefined && Math.abs(existing - sharesM) > 0.5) conflictedYears.add(fiscalYear) // conflicting repeats
+    perYear.set(contextRef, sharesM)
+    byYear.set(fiscalYear, perYear)
+  }
+  const out: InlineXbrlShareRecovery[] = []
+  for (const [fiscalYear, perYear] of byYear) {
+    if (conflictedYears.has(fiscalYear)) continue
+    // Exactly ONE distinct value across the year's contexts — two same-year contexts disagreeing is ambiguous.
+    const values = [...new Set([...perYear.values()].map((v) => Math.round(v * 10) / 10))]
+    if (values.length !== 1) continue
+    out.push({ shares_m: values[0]!, fiscal_year: fiscalYear })
+  }
+  return out.sort((a, b) => b.fiscal_year - a.fiscal_year)
+}
+
+export function recoverDilutedSharesFromInlineXbrl(html: string, fiscalYear: number): InlineXbrlShareRecovery | undefined {
+  return recoverDilutedSharesHistoryFromInlineXbrl(html).find((r) => r.fiscal_year === fiscalYear)
+}
+
+/** Fetch a raw EDGAR document (Archives HTML) with the same politeness/timeout conventions as fetchSecJson. */
+async function fetchSecText(rawUrl: string, deps?: SecEdgarDeps): Promise<string | undefined> {
+  let url: URL
+  try {
+    url = assertSecUrl(rawUrl)
+  } catch {
+    return undefined
+  }
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const timeoutMs = deps?.timeoutMs ?? SEC_DEFAULT_TIMEOUT_MS
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller.signal,
+      headers: { 'User-Agent': resolveUserAgent(deps), 'Accept': 'text/html' },
+    })
+    if (!response.ok) return undefined
+    return await response.text()
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -1694,6 +1923,33 @@ export async function fetchCompanyFundamentals(
     deps,
   )
   const filings = buildFilings(subs, cik10)
+
+  // OPTION C: a per-class filer with NO extractable share count (all share facts dimensioned) —
+  // recover the diluted counts from the annual reports' inline XBRL (fail-closed per year). Each
+  // 10-K carries ~3 fiscal years, so a stride-2 walk over older annual filings (≤3 docs total)
+  // yields a contiguous ~7-year span — enough for the retained-earnings test's anchor + 5. Older
+  // docs are only tried when the LATEST doc recovered something (a filer whose latest report has no
+  // per-class inline facts is not this shape — do not burn fetches on it).
+  if (latest_annual.diluted_shares_m === undefined) {
+    const annuals = filings.filter((x) => isAnnualForm(x.form))
+    for (const idx of [0, 2, 4]) {
+      const filing = annuals[idx]
+      if (filing === undefined) break
+      const missing = annual_series.some((a) => a.diluted_shares_m === undefined)
+      if (!missing) break
+      const doc = await fetchSecText(filing.url, deps)
+      const recovered = doc !== undefined ? recoverDilutedSharesHistoryFromInlineXbrl(doc) : []
+      for (const r of recovered) {
+        const row = annual_series.find((a) => a.fiscal_year === r.fiscal_year)
+        if (row !== undefined && row.diluted_shares_m === undefined) {
+          row.diluted_shares_m = r.shares_m
+          row.diluted_shares_source = 'inline_xbrl_class_a'
+        }
+      }
+      if (idx === 0 && latest_annual.diluted_shares_m === undefined) break // not the per-class shape
+    }
+  }
+
   const recent_filings = buildReadableRecentFilings(subs, cik10)
   const proxy_filings = buildProxyFilings(subs, cik10)
   const form4_filings = buildForm4Filings(subs, cik10)

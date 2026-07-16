@@ -7,10 +7,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 import { StrategyOverview } from '../StrategyOverview'
-import {
-  buffettMungerStrategy,
-  discountRate,
-} from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 
@@ -19,33 +16,30 @@ function render(): string {
 }
 
 describe('StrategyOverview', () => {
-  it('renders all five specialist lanes from the live lane list', () => {
+  it('renders the pillar lanes from the live lane list (S6)', () => {
     const html = render()
-    expect(buffettMungerDeepDiveLanes).toHaveLength(5)
+    expect([...buffettMungerDeepDiveLanes]).toEqual(['understand', 'moat', 'management'])
     for (const lane of buffettMungerDeepDiveLanes) {
       expect(html).toContain(`data-lane="${lane}"`)
     }
   })
 
-  it('describes what each lane assesses and that lanes are grounded agents', () => {
+  it('describes what each pillar lane assesses and that lanes are grounded agents', () => {
     const html = render()
     // a representative assessment phrase per the real lane focus
     expect(html).toContain('Durable competitive advantage')
-    expect(html).toContain('Owner-earnings normalization')
+    expect(html).toContain('How the business actually makes money')
+    expect(html).toContain('retained-earnings test')
     // grounding statement appears on the lane cards
     expect(html).toContain('grounded agent')
     expect(html).toContain('cited to a harness-captured source')
   })
 
-  it('renders the savings-anchored discount rate from the contract', () => {
+  it('E2c: renders the flat required return from the versioned valuation config', () => {
     const html = render()
-    // F.2 — the effective default discount is the compliant savings anchor (2%) + uniform premium (5.5%) = 7.5%.
-    const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 7.5%
-    expect(discountPct).toBe('7.5%')
-    // The panel renders the discount rounded to a whole percent (pct() digits=0) → 8%.
-    const discountPctRounded = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%` // 8%
-    expect(discountPctRounded).toBe('8%')
-    expect(html).toContain('8%')
+    // The book discount: the flat 15% required return (user-settable), NOT the savings anchor.
+    expect(html).toContain('15%')
+    expect(html.toLowerCase()).toContain('required return')
   })
 
   it('reframes the decision to model-proposes-buy-below + deterministic sanity-check + human-decides (R1)', () => {
@@ -71,29 +65,17 @@ describe('StrategyOverview', () => {
     expect(html).not.toContain('growth-points')
   })
 
-  it('leads with reverse-DCF and demotes the two-stage DCF to a labeled reference, not the decision (R1)', () => {
+  it('E2c: teaches the BOOK model — computed IV off FCF, the two cited judgments, the 30/50 margins', () => {
     const html = render()
     const lower = html.toLowerCase()
-    // Reverse-DCF is the PRIMARY lens: market-implied growth vs the model's judged sustainable growth.
-    expect(lower).toContain('reverse-dcf')
-    expect(lower).toContain('market’s implied growth')
-    expect(lower).toContain('judged sustainable')
-    // Two-stage framing + terminal fade survive, but as the labeled reference.
-    expect(html).toContain('two-stage')
-    expect(lower).toContain('terminal')
-    expect(lower).toContain('runway')
-    // The forward two-stage fair value is a labeled REFERENCE cross-check, NOT the decision engine.
-    expect(lower).toContain('labeled reference')
-    expect(lower).toContain('cross-check')
-    expect(lower).toContain('not the decision')
-    // Growth is the model's judged sustainable rate; the cap is a deterministic sanity flag, not the source.
-    expect(lower).toContain('sanity-check flags')
-    expect(lower).toContain('sanity flag')
-    // No stale single-stage equity-bond prose, and no stale "credited"/"forecasting-humility cap" framing.
-    expect(lower).not.toContain('equity bond')
-    expect(html).not.toContain('OE / (')
-    expect(lower).not.toContain('credited')
-    expect(lower).not.toContain('forecasting-humility')
+    expect(lower).toContain('free cash flow')
+    expect(lower).toContain('exit multiple')
+    expect(lower).toContain('rule 7')
+    expect(lower).toContain('rule 8')
+    expect(lower).not.toContain('market-implied growth') // F: the implied lens is retired
+    // The OE-era framing is gone.
+    expect(lower).not.toContain('owner-earnings fair value')
+    expect(lower).not.toContain('reverse-dcf first')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {
@@ -146,7 +128,7 @@ describe('StrategyOverview', () => {
     expect(html.toLowerCase()).toContain('screened out')
   })
 
-  it('describes admission discipline without overclaiming (circle CHECKED not inferred, size deferred, MoS provisional, admit human-decided, no recommendation panel)', () => {
+  it('describes admission discipline without overclaiming (circle CHECKED not inferred, size deferred, buy threshold computed, admit human-decided, no recommendation panel)', () => {
     const html = render().toLowerCase()
     // Discovery is the admission operation.
     expect(html).toContain('discovery is the admission operation')
@@ -164,46 +146,27 @@ describe('StrategyOverview', () => {
     // The admit judgment splits uncertainty vs permanent-loss risk + an independent bear case.
     expect(html).toContain('permanent-loss risk')
     expect(html).toContain('bear case')
-    // Admit is human-decided with a signed thesis + a provisional-MoS buy-below.
+    // Admit is human-decided with a signed thesis + a computed buy-below.
     expect(html).toContain('signed thesis')
-    expect(html).toContain('provisional')
+    expect(html).toContain('computed')
     // NO OVERCLAIM: the admit-recommendation panel does NOT exist yet.
     expect(html).toContain('does not yet present an admit-recommendation panel')
   })
 
-  it('renders the position-sizing target weights and entry tranches from the contract', () => {
+  it('renders the two book zones + the truck base (owner-locked: no weight table, no ladder)', () => {
     const html = render()
-    const targetMonopoly = `${buffettMungerStrategy.portfolio.target_weight_by_moat.monopoly * 100}%` // 10%
-    expect(targetMonopoly).toBe('10%')
-    expect(html).toContain('6%') // wide target weight
-    for (const tranche of buffettMungerStrategy.portfolio.entry_tranches) {
-      expect(html).toContain(tranche.id)
-    }
+    expect(buffettMungerStrategy.portfolio.target_weight_by_moat).toBeUndefined()
+    expect(buffettMungerStrategy.portfolio.entry_tranches).toBeUndefined()
+    expect(html).toContain('load up the truck')
+    expect(html).toContain('Buy zone (rule 7)')
+    expect(html).toContain('Load-up zone (rule 8)')
+    expect(html).toContain('risk rails')
   })
 
-  it('renders the Phase-5 conviction-sizing discipline: no Kelly, the two caps, savings first-class, worst-case-first', () => {
+  it('SCALE-DOWN S1: the conviction-sizing discipline section is retired — zones + rails only', () => {
     const html = render()
-    // target = conviction × base weight, explicitly NOT Kelly (no probability/odds/edge).
-    expect(html).toContain(`conviction × ${SIZING_PARAMS.base_target_weight * 100}%`)
-    expect(html).toContain('NOT Kelly')
-    expect(html).toContain('no win-probability, no odds, no edge')
-    // The two distinct caps: 15% deployment vs ~22% appreciation-review.
-    expect(html).toContain('Deployment cap')
-    expect(html).toContain(`${SIZING_PARAMS.per_name_cap * 100}%`)
-    expect(html).toContain('Appreciation review')
-    expect(html).toContain(`~${SIZING_PARAMS.concentration_review_threshold * 100}%`)
-    // Winners run / no force-trim.
-    expect(html).toContain('winners run')
-    expect(html).toContain('never force-trimmed')
-    // Savings as first-class + the triple-duty rate.
-    expect(html).toContain('Cash is a first-class position')
-    expect(html).toContain('triple duty')
-    expect(html).toContain('fat-pitch posture')
-    // Worst-case-in-front discipline.
-    expect(html).toContain('worst case')
-    // NO OVERCLAIM: advisory only + the discount already anchors on the savings rate (F.2 shipped).
-    expect(html).toContain('Advisory only')
-    expect(html).toContain('The discount already anchors on this savings rate')
-    expect(html).toContain('Treasury anchor is retired')
+    expect(html).not.toContain('conviction ×')
+    expect(html).toContain('The SIZE IS YOURS')
+    expect(html).toContain('act boldly — load up the truck')
   })
 })

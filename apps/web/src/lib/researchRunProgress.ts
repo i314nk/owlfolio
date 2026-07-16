@@ -43,7 +43,7 @@ export type ResolveRunProgressInput = {
  * it mirrors `buffettMungerDeepDiveLanes.length` in `@owlfolio/workflow` (kept in sync by intent).
  * Shariah runs as an always-on focused pass (not a parallel lane), so it is not counted here.
  */
-export const DEEP_DIVE_LANE_TOTAL = 5
+export const DEEP_DIVE_LANE_TOTAL = 3 // S6 pillar lanes: understand / moat / management
 
 const STAGE_ORDER: readonly ResearchRunStageKey[] = [
   'queued',

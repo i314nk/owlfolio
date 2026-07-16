@@ -1,4 +1,4 @@
-import { strategyContractSchema, type MoatClass, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
+import { strategyContractSchema, type MoatClass, type StrategyContract } from './strategyContract'
 import { VALUATION_PARAMS } from './valuationParams'
 
 /** Moat classes that pass the wide-moat gate (investable). */
@@ -418,40 +418,22 @@ const rawBuffettMungerStrategy = {
     max_position_weight: 0.15,
     cash_buffer_minimum: 0.03,
     concentration_style: 'concentrated',
-    // Conviction-tiered full position size by investable moat class.
-    // All values are ≤ max_position_weight (0.15).
-    // narrow/moderate are rejected before sizing, so only investable classes appear here.
-    target_weight_by_moat: {
-      wide: 0.06,
-      monopoly: 0.10,
-    },
-    // Price-laddered entry tranches: scale into a position across three price levels.
-    // Fractions are proportions of the target_weight_by_moat weight; they sum to 1.0.
-    // CONFIG ONLY — enforcement/execution logic is future work.
-    entry_tranches: [
-      { id: 'T1', fraction: 0.40, trigger: 'at_buy_price' },
-      { id: 'T2', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.10 },
-      { id: 'T3', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.20 },
-    ],
+    // OWNER-LOCKED (2026-07-13, the book verbatim): NO target-weight table and NO entry ladder —
+    // the book prescribes two ZONES (rule 7 buy / rule 8 "load up the truck") and boldness from the
+    // margin. Sizing lives in sizingParams (base_target_weight / load_up_target_weight × conviction);
+    // max_positions / max_position_weight / cash_buffer above are OUR risk rails, not book rules.
   },
 } satisfies StrategyContract
 
 export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMungerStrategy)
 
 /**
- * Look up the conviction-tiered target full position weight for a given moat class.
- * Only investable moat classes (wide, monopoly) have target weights.
- * narrow and moderate are rejected before sizing is considered.
- * Throws if called for a non-investable moat class.
+ * S5 (Phase 3, owner-locked 2026-07-11): the MANAGEMENT-pillar veto shape. Buffett's ordering —
+ * integrity, intelligence, energy; "no price compensates for management you can't trust." With
+ * 'clamp' (the owner default) a model BUY on a GROUNDED worst-tier management judgment (integrity
+ * red_flag OR poor talent) derates to RESEARCH_MORE, the reason NAMING the failed trait — an
+ * escalate-to-human, never an auto-PASS. 'flag' renders the dossier badge only (no verdict change).
+ * The resolver only ever grounds these tiers on cite-verified evidence, so the veto cannot fire on
+ * hallucination either way.
  */
-export function targetWeightForMoatClass(strategy: StrategyContract, moatClass: MoatClass): number {
-  const weights = strategy.portfolio.target_weight_by_moat as TargetWeightByMoat | undefined
-  if (!weights) {
-    throw new Error(`Strategy '${strategy.id}' has no target_weight_by_moat in its portfolio policy.`)
-  }
-  const weight = (weights as Record<string, number>)[moatClass]
-  if (weight === undefined) {
-    throw new Error(`No target weight for moat class '${moatClass}' — only investable classes (wide, monopoly) have target weights.`)
-  }
-  return weight
-}
+export const MANAGEMENT_PILLAR_POLICY: { integrity_veto: 'clamp' | 'flag' } = { integrity_veto: 'clamp' }

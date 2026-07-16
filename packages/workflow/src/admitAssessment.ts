@@ -25,11 +25,11 @@ import type { Fundamentals } from './secEdgar'
 
 /** Cheapness summary surfaced on the recommendation (Phase-1 OE / EV — the screen's reader output). */
 export type AdmitCheapnessSummary = {
-  /** Phase-1 normalized OE / EV (the cheap-yield), when computable. */
-  owner_earnings_yield?: number
+  /** Book FCF / EV (the cheap-yield), when computable. */
+  fcf_yield?: number
   /** Enterprise value ($M) = market_cap + total_debt − cash (when computable). */
   ev?: number
-  /** True when OE-yield ≥ threshold (computed independently of the gate). */
+  /** True when FCF-yield ≥ threshold (computed independently of the gate). */
   cheap: boolean
   /** Human-readable reason when the screen failed closed (absent when it computed cleanly). */
   reason?: string
@@ -102,13 +102,13 @@ export function isDeepDiveComplete(stage: string): boolean {
 
 /** Build the human-readable "why cheap" framing the judgment prompt leads with. */
 function buildCheapnessSummary(cheapness: CheapnessResult, ticker: string): string {
-  if (cheapness.owner_earnings_yield === undefined || cheapness.ev_musd === undefined) {
+  if (cheapness.fcf_yield === undefined || cheapness.ev_musd === undefined) {
     return `${ticker} surfaced for the admit judgment (cheapness not computable: ${cheapness.reason ?? 'missing inputs'}).`
   }
-  const yieldPct = (cheapness.owner_earnings_yield * 100).toFixed(1)
+  const yieldPct = (cheapness.fcf_yield * 100).toFixed(1)
   return (
-    `${ticker} screens cheap on Phase-1 owner-earnings yield ${yieldPct}% `
-    + `(normalized OE / EV; EV ≈ $${Math.round(cheapness.ev_musd)}M) on a gate-passing business.`
+    `${ticker} screens cheap on FCF yield ${yieldPct}% `
+    + `(book FCF (CFO − capex) / EV; EV ≈ $${Math.round(cheapness.ev_musd)}M) on a gate-passing business.`
   )
 }
 
@@ -171,7 +171,7 @@ export async function runAdmitAssessment(
 
   const cheapnessSummary: AdmitCheapnessSummary = {
     cheap: cheapness.cheap,
-    ...(cheapness.owner_earnings_yield === undefined ? {} : { owner_earnings_yield: cheapness.owner_earnings_yield }),
+    ...(cheapness.fcf_yield === undefined ? {} : { fcf_yield: cheapness.fcf_yield }),
     ...(cheapness.ev_musd === undefined ? {} : { ev: cheapness.ev_musd }),
     ...(cheapness.reason === undefined ? {} : { reason: cheapness.reason }),
   }

@@ -8,16 +8,9 @@ export type CommandCenterRecentActivity = {
   label: string
 }
 
-export type CommandCenterHoldingReviewPrompt = {
-  holding_id: string
-  label: string
-  next_review_at: string
-  status: 'due' | 'upcoming'
-  days_until_review: number
-}
-
 export type CommandCenterApprovalQueueItem = {
   id: string
+  // REVIEW RETIRED (2026-07-14): 'holding_review' items are no longer produced (legacy union value kept for readers).
   decision_type: 'watchlist_confirmation' | 'holding_review' | 'worker_proposal'
   group_label: string
   title: string
@@ -48,7 +41,6 @@ export type CommandCenterSummary = {
   primary_research_case_id?: string
   next_recommended_action: string
   approval_queue: CommandCenterApprovalQueueItem[]
-  holding_review_prompts: CommandCenterHoldingReviewPrompt[]
   recent_activity: CommandCenterRecentActivity[]
 }
 
@@ -57,7 +49,6 @@ export type CommandCenterProjectionOptions = {
 }
 
 type WatchlistItem = ReturnType<typeof projectWatchlist>[number]
-type HoldingItem = ReturnType<typeof projectHoldings>[number]
 
 function actorLabel(event: LedgerEventEnvelope<unknown>): string {
   return event.actor_id === undefined ? event.actor_type : `${event.actor_type}:${event.actor_id}`
@@ -94,9 +85,6 @@ function watchlistItemLabel(item: WatchlistItem): string {
   return item.ticker ?? item.company_id ?? item.watchlist_item_id
 }
 
-function holdingLabel(holding: HoldingItem): string {
-  return holding.ticker ?? holding.company_id ?? holding.holding_id
-}
 
 function shariahImpact(status: string | undefined, allowed: boolean | undefined): string {
   if (status === undefined) {
@@ -118,52 +106,9 @@ function auditHref(eventId: string): string {
   return `/audit?event_id=${eventId}#${eventId}`
 }
 
-function dateToUtcDay(date: string): number | undefined {
-  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (match === null) {
-    return undefined
-  }
 
-  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-}
 
-function daysBetween(asOf: string, target: string): number | undefined {
-  const asOfUtcDay = dateToUtcDay(asOf)
-  const targetUtcDay = dateToUtcDay(target)
-  if (asOfUtcDay === undefined || targetUtcDay === undefined) {
-    return undefined
-  }
 
-  return Math.round((targetUtcDay - asOfUtcDay) / 86_400_000)
-}
-
-function currentDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function buildHoldingReviewPrompts(
-  holdings: ReturnType<typeof projectHoldings>,
-  asOf: string,
-): CommandCenterHoldingReviewPrompt[] {
-  return holdings
-    .filter((holding) => holding.next_review_at !== undefined && holding.pending_review_id === undefined)
-    .map((holding) => {
-      const daysUntilReview = daysBetween(asOf, holding.next_review_at ?? '')
-      if (daysUntilReview === undefined || holding.next_review_at === undefined) {
-        return undefined
-      }
-
-      return {
-        holding_id: holding.holding_id,
-        label: holdingLabel(holding),
-        next_review_at: holding.next_review_at,
-        status: daysUntilReview <= 0 ? 'due' : 'upcoming',
-        days_until_review: daysUntilReview,
-      } satisfies CommandCenterHoldingReviewPrompt
-    })
-    .filter((prompt): prompt is CommandCenterHoldingReviewPrompt => prompt !== undefined)
-    .sort((left, right) => left.days_until_review - right.days_until_review || left.label.localeCompare(right.label))
-}
 
 function buildWatchlistApprovalItems(
   pendingDraftItems: WatchlistItem[],
@@ -201,53 +146,6 @@ function buildWatchlistApprovalItems(
   })
 }
 
-function buildHoldingReviewApprovalItems(
-  pendingHoldingReviewDrafts: HoldingItem[],
-  events: LedgerEventEnvelope<unknown>[],
-): CommandCenterApprovalQueueItem[] {
-  return pendingHoldingReviewDrafts.map((holding) => {
-    const reviewEvent = events.find((event) => {
-      if (event.event_type !== 'holding_review_drafted' || !isRecord(event.payload)) {
-        return false
-      }
-      const reviewId = getString(event.payload, 'review_id') ?? event.aggregate_id
-      const holdingId = getString(event.payload, 'holding_id') ?? event.correlation_id
-      return reviewId === holding.pending_review_id && holdingId === holding.holding_id
-    })
-    const payload = isRecord(reviewEvent?.payload) ? reviewEvent.payload : undefined
-    const label = holdingLabel(holding)
-    const providerReportId = payload === undefined ? undefined : getString(payload, 'provider_report_id')
-    const thesisHealth = holding.pending_review_thesis_health ?? 'UNKNOWN'
-    const actionStance = holding.pending_review_action_stance ?? 'UNKNOWN'
-    const nextReviewAt = holding.pending_review_next_review_at
-    const beforeSummary = holding.thesis_health === undefined && holding.action_stance === undefined
-      ? 'No confirmed thesis review exists yet.'
-      : `Current thesis health: ${holding.thesis_health ?? 'UNKNOWN'}; current action stance: ${holding.action_stance ?? 'UNKNOWN'}.`
-    const afterSummary = nextReviewAt === undefined
-      ? `Provider proposes thesis health ${thesisHealth}, action stance ${actionStance}.`
-      : `Provider proposes thesis health ${thesisHealth}, action stance ${actionStance}, next review ${nextReviewAt}.`
-
-    return {
-      id: `holding-review:${holding.holding_id}:${holding.pending_review_id ?? 'pending'}`,
-      decision_type: 'holding_review',
-      group_label: 'Holding review decisions',
-      title: `${label} strategy review draft`,
-      actor_label: reviewEvent === undefined ? 'provider' : actorLabel(reviewEvent),
-      target_label: label,
-      ...(providerReportId === undefined ? {} : { provider_report_id: providerReportId }),
-      href: `/portfolio#${holding.holding_id}`,
-      audit_event_id: reviewEvent?.event_id ?? holding.pending_review_id ?? holding.holding_id,
-      source_ids: reviewEvent?.source_ids ?? [],
-      before_summary: beforeSummary,
-      after_summary: afterSummary,
-      shariah_impact: shariahImpact(holding.shariah_gate_status, holding.shariah_gate_allowed),
-      accounting_impact: 'No accounting values change; only confirmed thesis/review schedule can change after user approval.',
-      approve_action_label: 'Apply provider draft',
-      reject_action_label: 'Reject provider draft',
-      override_action_label: 'Apply user override',
-    }
-  })
-}
 
 function buildWorkerProposalApprovalItems(events: LedgerEventEnvelope<unknown>[]): CommandCenterApprovalQueueItem[] {
   return events.flatMap((event) => {
@@ -305,22 +203,16 @@ export function priorityRank(item: CommandCenterApprovalQueueItem): number {
     return 2
   }
 
-  if (item.decision_type === 'holding_review') {
-    return 3
-  }
-
   // worker_proposal and anything else: reminders / informational.
   return 4
 }
 
 function buildApprovalQueue(
   pendingDraftItems: WatchlistItem[],
-  pendingHoldingReviewDrafts: HoldingItem[],
   events: LedgerEventEnvelope<unknown>[],
 ): CommandCenterApprovalQueueItem[] {
   const items = [
     ...buildWatchlistApprovalItems(pendingDraftItems, events),
-    ...buildHoldingReviewApprovalItems(pendingHoldingReviewDrafts, events),
     ...buildWorkerProposalApprovalItems(events),
   ]
 
@@ -333,34 +225,28 @@ function buildApprovalQueue(
 
 export function projectCommandCenterSummary(
   events: LedgerEventEnvelope<unknown>[],
-  { as_of: asOf = currentDate() }: CommandCenterProjectionOptions = {},
+  _options: CommandCenterProjectionOptions = {},
 ): CommandCenterSummary {
   const researchCases = projectResearchCases(events)
   const watchlist = projectWatchlist(events)
   const holdings = projectHoldings(events)
   const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
   const pendingDraftItems = watchlist.filter((item) => !item.user_approved)
-  const pendingHoldingReviewDrafts = holdings.filter((holding) => holding.pending_review_id !== undefined)
-  const approvalQueue = buildApprovalQueue(pendingDraftItems, pendingHoldingReviewDrafts, events)
-  const holdingReviewPrompts = buildHoldingReviewPrompts(holdings, asOf)
-  const dueHoldingReviewPrompt = holdingReviewPrompts.find((prompt) => prompt.status === 'due')
-  const upcomingHoldingReviewPrompt = holdingReviewPrompts.find((prompt) => prompt.status === 'upcoming')
+  // REVIEW RETIRED (owner, 2026-07-14): the drafted holding review + its schedule are gone — the
+  // quarterly check-in, the 10-K full-re-run prompt, and the zone board carry the duty. Legacy
+  // pending drafts remain readable in the audit timeline; they are no longer an approval queue item
+  // (the resolve routes were removed).
+  const approvalQueue = buildApprovalQueue(pendingDraftItems, events)
   const confirmedWatchlistItems = watchlist.filter((item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id))
   const nextRecommendedAction = pendingDraftItems[0] !== undefined
     // Phase 8 S6: legacy-only path — an unconfirmed draft predates the S4 atomic admit+confirm flow; the
     // confirm action no longer exists, so surface the legacy state, not a promise to confirm it.
     ? `${watchlistItemLabel(pendingDraftItems[0])} is a legacy unconfirmed watchlist draft — re-admit from research`
-    : pendingHoldingReviewDrafts[0] !== undefined
-      ? `Confirm the drafted strategy review for ${holdingLabel(pendingHoldingReviewDrafts[0])}`
-      : dueHoldingReviewPrompt !== undefined
-        ? `Run scheduled strategy review for ${dueHoldingReviewPrompt.label} (due ${dueHoldingReviewPrompt.next_review_at})`
-        : upcomingHoldingReviewPrompt !== undefined
-          ? `Next scheduled strategy review for ${upcomingHoldingReviewPrompt.label} is ${upcomingHoldingReviewPrompt.next_review_at}`
-          : confirmedWatchlistItems.length > 0
-            ? 'Monitor confirmed watchlist items for buy-zone and thesis updates'
-            : holdings.length > 0
-              ? 'Review opened holdings for thesis health and sizing'
-              : researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
+    : confirmedWatchlistItems.length > 0
+      ? 'Monitor confirmed watchlist items for buy-zone and thesis updates'
+      : holdings.length > 0
+        ? 'Check in held names against new filings (quarterly cadence)'
+        : researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
   const pendingUserActionCount = approvalQueue.length
 
   return {
@@ -374,7 +260,6 @@ export function projectCommandCenterSummary(
     ...(researchCases[0] === undefined ? {} : { primary_research_case_id: researchCases[0].research_case_id }),
     next_recommended_action: nextRecommendedAction,
     approval_queue: approvalQueue,
-    holding_review_prompts: holdingReviewPrompts,
     recent_activity: events
       .slice(-3)
       .reverse()

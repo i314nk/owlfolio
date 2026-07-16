@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
-import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -24,19 +23,6 @@ import { promoteResearchCaseToWatchlist } from '../workflow'
 // Sibling file (NOT workflow.test.ts) per the slice's test-placement guidance.
 // ---------------------------------------------------------------------------
 
-/** The expected frozen REFERENCE FV: forward two-stage FV at the sign-off assumed growth off the oe_ps. */
-function expectedReferenceFairValue(oe_ps: number, g: number): number {
-  return twoStageValuation({
-    oe_ps,
-    g,
-    terminal_g: VALUATION_PARAMS.terminal_growth,
-    discount: discountRate(buffettMungerStrategy),
-    ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
-    absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
-    horizon: VALUATION_PARAMS.stage1_horizon,
-    fade_years: VALUATION_PARAMS.growth_fade_years,
-  }).fair_value as number
-}
 
 
 function makeState(ledgerPath: string, sourceLedgerPath: string) {
@@ -118,41 +104,33 @@ describe('promoteResearchCaseToWatchlist — freeze a REFERENCE fair value at si
     dirs.length = 0
   })
 
-  it('freezes frozen_reference_fair_value + frozen_oe_ps, distinct from the discounted buy-below; NOT frozen_band_*', async () => {
+  it('E2: freezes the BOOK intrinsic value verbatim as frozen_reference_fair_value (no OE derive)', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-ref-'))
     dirs.push(projectDir)
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
     const state = makeState(ledgerPath, join(projectDir, 'data', 'source-ledger'))
 
-    // band_high 0.10 is the sign-off assumed growth used to derive the REFERENCE FV; oe_ps 10. The discounted
-    // buy_price_per_share (150) is frozen separately as locked_buy_below.
+    // The case carries the computed book IV (264.08) + the computed buy threshold (184.86).
     const { research_case_id } = await seedCase(ledgerPath, {
-      normalized_owner_earnings_per_share: 10,
-      buy_price_per_share: 150,
-      verdict_state: { band_low: 0.06, band_high: 0.10 },
+      intrinsic_value_per_share: 264.08,
+      buy_price_per_share: 184.86,
     })
 
     const promoted = await promoteResearchCaseToWatchlist(state, research_case_id)
 
-    expect(promoted.frozen_oe_ps).toBe(10)
     expect(promoted.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
-    // The frozen REFERENCE FV is the forward FV at the sign-off assumed growth off the oe_ps, NOT the buy-below.
-    expect(promoted.frozen_reference_fair_value).toBeCloseTo(expectedReferenceFairValue(10, 0.10), 6)
-    expect(promoted.locked_buy_below).toBe(150)
-    expect(promoted.frozen_reference_fair_value).not.toBe(promoted.locked_buy_below)
-    // The band fields are DROPPED from the freeze (scope-reframe — the band engine was removed).
+    // The frozen reference IS the book IV, snapshotted verbatim — distinct from the margined buy-below.
+    expect(promoted.frozen_reference_fair_value).toBe(264.08)
+    expect(promoted.locked_buy_below).toBe(184.86)
     expect((promoted as Record<string, unknown>).frozen_band_low).toBeUndefined()
     expect((promoted as Record<string, unknown>).frozen_band_high).toBeUndefined()
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
       const [item] = projectWatchlist(await store.list())
-      expect(item?.frozen_oe_ps).toBe(10)
-      expect(item?.frozen_reference_fair_value).toBeCloseTo(expectedReferenceFairValue(10, 0.10), 6)
+      expect(item?.frozen_reference_fair_value).toBe(264.08)
       expect(item?.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
-      expect(item?.locked_buy_below).toBe(150)
-      expect((item as Record<string, unknown> | undefined)?.frozen_band_low).toBeUndefined()
-      expect((item as Record<string, unknown> | undefined)?.frozen_band_high).toBeUndefined()
+      expect(item?.locked_buy_below).toBe(184.86)
     } finally {
       store.close()
     }

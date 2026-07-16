@@ -119,6 +119,7 @@ export type AutomationSettings = {
   /** Approval pause for the deep dive — applied BEHIND the cheap gates, before lane spend. */
   deep_dive_approval: 'automatic' | 'review'
   watchlist_monitoring: { enabled: boolean; cadence: AutomationCadenceWatchlist }
+  /** REVIEW RETIRED (2026-07-14): drives ONLY the quarterly re_review_check (the grounded check-in). */
   thesis_review: { enabled: boolean; cadence: AutomationCadenceThesisReview }
   reanalysis: { cadence: AutomationCadenceReanalysis }
   purification: { enabled: boolean; cadence: AutomationCadencePurification }
@@ -208,6 +209,10 @@ export type AppConfig = {
   strategy_id: StrategyId
   shariah: ShariahDefaults
   savings?: SavingsSleeveConfig
+  /** Phase 4 (book alignment): valuation knobs (required_return). Absent → defaults (15%). */
+  valuation?: Partial<ValuationConfig>
+  /** B7 (book alignment): the passive-sleeve plan (split + monthly DCA). Absent → defaults. */
+  passive?: Partial<PassiveSleeveConfig>
   market_universe: MarketUniverseConfig
   automation?: AutomationSettings
   circle_of_competence?: CircleOfCompetenceConfig
@@ -247,6 +252,130 @@ export const defaultSavingsSleeveConfig = (): SavingsSleeveConfig => ({
   savings_model: 'mudarabah',
   equity_risk_margin: DEFAULT_EQUITY_RISK_MARGIN,
 })
+
+// ---------------------------------------------------------------------------------------------------
+// B7 (Phase 4, book alignment): the PASSIVE SLEEVE — the book's step-2 foundation. Passive index
+// investing on the side via monthly dollar-cost averaging, with a chosen passive/active split.
+// Rules 1–3: (1) only commit an amount you can commit to REGULARLY; (2) buy on a consistent
+// schedule, no matter what; (3) treat it as a LIFELONG commitment — never be tempted to sell.
+// This config is the PLAN; actual contributions are user-authored ledger events
+// (passive_contribution_recorded) — local-first, no broker, plan-and-track only.
+// ---------------------------------------------------------------------------------------------------
+export const PASSIVE_SPLITS = ['80/20', '60/40', '100/0'] as const
+export type PassiveSplit = (typeof PASSIVE_SPLITS)[number]
+export const DEFAULT_PASSIVE_SPLIT: PassiveSplit = '80/20'
+/** Schedule day clamp band (1–28 so every month has the day). */
+export const PASSIVE_SCHEDULE_DAY_MIN = 1
+export const PASSIVE_SCHEDULE_DAY_MAX = 28
+export const DEFAULT_PASSIVE_SCHEDULE_DAY = 1
+
+export type PassiveSleeveConfig = {
+  /** The passive/active split (passive share first). */
+  split: PassiveSplit
+  /** Rule 1 — the monthly amount you can REGULARLY commit (0 = not configured yet). */
+  monthly_amount: number
+  /** Rule 2 — the day of month (1–28) contributions are due. */
+  schedule_day: number
+  /** VINTAGE: when the plan was last set to explicit non-default values ("not set" otherwise). */
+  passive_set_at?: string
+}
+
+export const defaultPassiveSleeveConfig = (): PassiveSleeveConfig => ({
+  split: DEFAULT_PASSIVE_SPLIT,
+  monthly_amount: 0,
+  schedule_day: DEFAULT_PASSIVE_SCHEDULE_DAY,
+})
+
+/** Merge a (potentially partial/invalid) passive sleeve — mirror of the savings/valuation merges. */
+export const mergePassiveSleeveConfig = (
+  partial?: Partial<PassiveSleeveConfig>,
+  options: { now?: string } = {},
+): PassiveSleeveConfig => {
+  if (partial === undefined) return defaultPassiveSleeveConfig()
+  const split: PassiveSplit = (PASSIVE_SPLITS as readonly string[]).includes(partial.split as string)
+    ? partial.split as PassiveSplit
+    : DEFAULT_PASSIVE_SPLIT
+  const monthly_amount = typeof partial.monthly_amount === 'number'
+    && Number.isFinite(partial.monthly_amount) && partial.monthly_amount >= 0
+    ? partial.monthly_amount
+    : 0
+  const schedule_day = typeof partial.schedule_day === 'number'
+    && Number.isInteger(partial.schedule_day)
+    && partial.schedule_day >= PASSIVE_SCHEDULE_DAY_MIN
+    && partial.schedule_day <= PASSIVE_SCHEDULE_DAY_MAX
+    ? partial.schedule_day
+    : DEFAULT_PASSIVE_SCHEDULE_DAY
+  const isConfigured = monthly_amount > 0
+  const stampsThisWrite = options.now !== undefined && isConfigured
+  const vintage = stampsThisWrite
+    ? options.now
+    : (typeof partial.passive_set_at === 'string' && !Number.isNaN(Date.parse(partial.passive_set_at)) ? partial.passive_set_at : undefined)
+  return {
+    split,
+    monthly_amount,
+    schedule_day,
+    ...(vintage === undefined ? {} : { passive_set_at: vintage }),
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Phase 4 (book alignment): the REQUIRED RETURN — the flat discount/hurdle for the 10-year FCF
+// valuation ("anything less, you might as well buy the index"). Default 15% (the book), user-set in
+// Settings; clamped FAIL-CLOSED-TO-DEFAULT like the savings rate. Distinct from the savings anchor
+// (which remains the deployment-hurdle baseline).
+// ---------------------------------------------------------------------------------------------------
+export const REQUIRED_RETURN_MIN = 0.05
+export const REQUIRED_RETURN_MAX = 0.40
+export const DEFAULT_REQUIRED_RETURN = 0.15
+
+export type ValuationConfig = {
+  /** The required annual return (decimal) used to discount the FCF projection. Default 0.15. */
+  required_return: number
+  /** VINTAGE: when required_return was last set to an explicit non-default value ("not set" otherwise). */
+  required_return_set_at?: string
+}
+
+export const defaultValuationConfig = (): ValuationConfig => ({ required_return: DEFAULT_REQUIRED_RETURN })
+
+const clampRequiredReturn = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_REQUIRED_RETURN
+  if (value < REQUIRED_RETURN_MIN || value > REQUIRED_RETURN_MAX) return DEFAULT_REQUIRED_RETURN
+  return value
+}
+
+/** Merge a (potentially partial/invalid) valuation config — mirror of mergeSavingsSleeveConfig. */
+export const mergeValuationConfig = (
+  partial?: Partial<ValuationConfig>,
+  options: { now?: string; previousRate?: number } = {},
+): ValuationConfig => {
+  if (partial === undefined) return defaultValuationConfig()
+  const required_return = clampRequiredReturn(partial.required_return)
+  const stampsThisWrite = options.now !== undefined
+    && required_return !== DEFAULT_REQUIRED_RETURN
+    && required_return !== options.previousRate
+  const vintage = stampsThisWrite ? options.now : normalizeVintageValue(partial.required_return_set_at)
+  return {
+    required_return,
+    ...(vintage === undefined ? {} : { required_return_set_at: vintage }),
+  }
+}
+
+/**
+ * The required return ONLY when the user actually set it (vintage-stamped), else undefined.
+ * B8 live finding: callers that thread `mergeValuationConfig(...).required_return` unconditionally
+ * make the engine stamp `required_return_basis: 'setting'` for users who never touched Settings —
+ * the merge returns the 0.15 book default either way, so "command carries a number" must mean
+ * "the user chose it". Thread THIS into research-run commands, never the bare merge result.
+ */
+export const userSetRequiredReturn = (partial?: Partial<ValuationConfig>): number | undefined =>
+  partial?.required_return_set_at !== undefined && normalizeVintageValue(partial.required_return_set_at) !== undefined
+    ? mergeValuationConfig(partial).required_return
+    : undefined
+
+const normalizeVintageValue = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || value.trim() === '') return undefined
+  return Number.isNaN(Date.parse(value)) ? undefined : value
+}
 
 /** Clamp a savings rate into [SAVINGS_RATE_MIN, SAVINGS_RATE_MAX], failing CLOSED TO DEFAULT (never to the ceiling). */
 const clampSavingsRate = (value: unknown, fallback: number): number => {

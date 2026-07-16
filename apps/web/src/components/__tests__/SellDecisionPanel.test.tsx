@@ -73,7 +73,7 @@ describe('SellDecisionPanel — Phase 6 S8b', () => {
     expect(html.indexOf('sell-worst-case')).toBeLessThan(html.indexOf('sell-reason-code'))
     // Reason code surfaced.
     expect(html).toContain('data-testid="sell-reason-code"')
-    expect(html).toContain('thesis broke')
+    expect(html).toContain('rule 10 (rotten) / rule 11 (changed)') // B6: reason codes speak the book's sell rules
     // Human sign-off prominently surfaced.
     expect(html).toContain('data-testid="sell-human-signoff"')
     expect(html).toContain('Requires your sign-off')

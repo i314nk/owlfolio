@@ -1,12 +1,12 @@
 // Phase 5 S5 — the DEPLOYMENT HURDLE: cash is a first-class position.
 //
 // Idle capital's default home is the Shariah-compliant savings sleeve (capital-stable Mudarabah). To
-// justify deploying that capital out of the sleeve and into a name, the candidate's owner-earnings yield
+// justify deploying that capital out of the sleeve and into a name, the candidate's FCF yield
 // at entry must clear a HURDLE above the EXPECTED (not guaranteed) savings rate — beating zero, or even
 // beating the savings rate alone, is NOT enough:
 //
 //     hurdle_rate = savings_expected_profit_rate + equity_risk_margin
-//     clears      = owner_earnings_yield >= hurdle_rate
+//     clears      = fcf_yield >= hurdle_rate
 //
 // CASH-IS-CORRECT FRAMING: when a candidate does NOT clear the hurdle (or there is no candidate), the
 // correct posture is to HOLD IN SAVINGS. That is the ACTIVE form of fat-pitch discipline, reported as the
@@ -27,7 +27,7 @@ export type DeploymentPosture = 'deploy' | 'hold_in_savings'
 export type DeploymentSeverity = 'ok'
 
 export type DeploymentHurdleResult = {
-  /** True iff owner_earnings_yield >= hurdle_rate (>= is inclusive). */
+  /** True iff fcf_yield >= hurdle_rate (>= is inclusive). */
   clears: boolean
   /** savings_expected_profit_rate + equity_risk_margin. */
   hurdle_rate: number
@@ -41,15 +41,15 @@ export type DeploymentHurdleResult = {
 const finite = (v: number): boolean => typeof v === 'number' && Number.isFinite(v)
 
 /**
- * Evaluate whether a candidate's owner-earnings yield clears the deployment hurdle above the savings rate.
+ * Evaluate whether a candidate's FCF yield clears the deployment hurdle above the savings rate.
  *
- * Fail-closed: a non-finite owner_earnings_yield does NOT deploy — it holds in savings (still the correct,
+ * Fail-closed: a non-finite fcf_yield does NOT deploy — it holds in savings (still the correct,
  * non-error posture). The hurdle binds: beating zero is not enough; the yield must clear
  * savings_expected_profit_rate + equity_risk_margin.
  */
 export function evaluateDeploymentHurdle(args: {
-  /** Candidate's owner-earnings yield at entry (from cheapnessScreen / the valuation core). */
-  owner_earnings_yield: number
+  /** Candidate's FCF yield at entry (from cheapnessScreen / the valuation core; E2: the book FCF basis). */
+  fcf_yield: number
   /** The ONE expected (NOT guaranteed) Mudarabah savings rate, from SavingsSleeveConfig. */
   savings_expected_profit_rate: number
   /** The margin a candidate must clear ABOVE the savings rate to justify deploying out of the sleeve. */
@@ -58,21 +58,21 @@ export function evaluateDeploymentHurdle(args: {
   const hurdleRate = args.savings_expected_profit_rate + args.equity_risk_margin
   const pct = (n: number): string => `${(n * 100).toFixed(2)}%`
 
-  if (!finite(args.owner_earnings_yield)) {
+  if (!finite(args.fcf_yield)) {
     return {
       clears: false,
       hurdle_rate: hurdleRate,
       posture: 'hold_in_savings',
       severity: 'ok',
       reason:
-        `owner-earnings yield is unavailable, so the deployment hurdle (${pct(hurdleRate)} = expected `
+        `FCF yield is unavailable, so the deployment hurdle (${pct(hurdleRate)} = expected `
         + `savings ${pct(args.savings_expected_profit_rate)} + equity risk margin `
         + `${pct(args.equity_risk_margin)}) is not cleared. Holding idle capital in the savings sleeve is `
         + 'the CORRECT posture (fat-pitch discipline), not an under-deployment warning.',
     }
   }
 
-  const clears = args.owner_earnings_yield >= hurdleRate
+  const clears = args.fcf_yield >= hurdleRate
 
   if (clears) {
     return {
@@ -81,7 +81,7 @@ export function evaluateDeploymentHurdle(args: {
       posture: 'deploy',
       severity: 'ok',
       reason:
-        `owner-earnings yield ${pct(args.owner_earnings_yield)} clears the deployment hurdle `
+        `FCF yield ${pct(args.fcf_yield)} clears the deployment hurdle `
         + `${pct(hurdleRate)} (expected savings ${pct(args.savings_expected_profit_rate)} + equity risk `
         + `margin ${pct(args.equity_risk_margin)}); deploying out of the savings sleeve is justified.`,
     }
@@ -93,7 +93,7 @@ export function evaluateDeploymentHurdle(args: {
     posture: 'hold_in_savings',
     severity: 'ok',
     reason:
-      `owner-earnings yield ${pct(args.owner_earnings_yield)} does NOT clear the deployment hurdle `
+      `FCF yield ${pct(args.fcf_yield)} does NOT clear the deployment hurdle `
       + `${pct(hurdleRate)} (expected savings ${pct(args.savings_expected_profit_rate)} + equity risk `
       + `margin ${pct(args.equity_risk_margin)}) — beating zero or the savings rate alone is not enough. `
       + 'Holding idle capital in the savings sleeve is the CORRECT posture (the active form of fat-pitch '

@@ -18,6 +18,7 @@ const supportedAggregateTypes = new Set<AggregateType>([
   'provider_run',
   'scheduled_task',
   'portfolio',
+  'passive_sleeve',
 ])
 
 const supportedActorTypes = new Set<ActorType>(['user', 'system', 'provider', 'worker'])

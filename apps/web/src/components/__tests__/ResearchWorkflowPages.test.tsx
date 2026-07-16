@@ -2,13 +2,61 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import type { ResearchCaseAdmitRecommendationProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { buildPositionPlan } from '../../lib/positionPlan'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
 import { getAppWatchlistItemsFromStore, type AppResearchCase, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
+
+describe('exit purification guidance (close form)', () => {
+  const baseHolding = {
+    holding_id: 'holding_cond_001',
+    watchlist_item_id: 'watch_cond_001',
+    research_case_id: 'rc_cond_001',
+    ticker: 'COND',
+    strategy_id: 'buffett-munger',
+    thesis_summary: 'Held thesis.',
+    shares: 1,
+    cost_basis_per_share: 100,
+    total_cost_basis: 100,
+    currency: 'USD',
+    opened_at: '2026-06-01',
+    updated_at: '2026-06-01T00:00:00.000Z',
+  }
+
+  it('renders the guidance (rate + entry anchor, no account) for a CONDITIONAL holding', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        shariah_gate_decision_id: 'gate_1',
+        shariah_gate_status: 'CONDITIONAL',
+        shariah_gate_allowed: true,
+        purificationPct: 0.002,
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).toContain('data-testid="exit-purification-guidance"')
+    expect(html).toContain('EXIT PURIFICATION — GUIDANCE, NOT AN ACCOUNT')
+    expect(html).toContain('~0.2% impermissible income')
+    expect(html).toContain('your exit price minus your entry ($100.00)')
+    // The CONDITIONAL row line also renders in the expansion.
+    expect(html).toContain('purify ~0.2% of any dividends')
+  })
+
+  it('renders NO guidance for a cleanly approved holding', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        shariah_gate_decision_id: 'gate_1',
+        shariah_gate_status: 'COMPLIANT',
+        shariah_gate_allowed: true,
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).not.toContain('exit-purification-guidance')
+    expect(html).not.toContain('Shariah-permissible to hold, with an obligation')
+  })
+})
 
 describe('research and watchlist workflow pages', () => {
   it('no longer renders a separate watchlist confirmation action (Phase 8 S4: admission is one gated step)', () => {
@@ -43,7 +91,7 @@ describe('research and watchlist workflow pages', () => {
     // admission lands the item user-confirmed in one gated step (signed thesis + checklist + Shariah).
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
     expect(personalDraftHtml).not.toContain('Confirm watchlist draft')
-    expect(personalConfirmedHtml).toContain('User confirmed')
+    expect(personalConfirmedHtml).toContain('Confirmed')
     expect(personalConfirmedHtml).not.toContain('Confirm watchlist draft')
     expect(personalConfirmedHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
   })
@@ -151,7 +199,7 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
     expect(html).toContain('data-testid="rereview-button"')
-    expect(html).toContain('Check new filings / re-review')
+    expect(html).toContain('Check-in vs new filings')
   })
 
   it('renders a personal-local open-holding action only for confirmed watchlist items without holdings', () => {
@@ -188,7 +236,9 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('method="post"')
     expect(personalConfirmedHtml).toContain('Open holding from confirmed watchlist state')
     expect(personalConfirmedHtml).toContain('Record initial holding')
-    expect(personalConfirmedHtml).toContain('name="shares"')
+    // SCALE-DOWN S5: share counts retired — the entry price is the anchor.
+    expect(personalConfirmedHtml).not.toContain('name="shares"')
+    expect(personalConfirmedHtml).toContain('name="cost_basis_per_share"')
     expect(personalConfirmedHtml).toContain('name="cost_basis_per_share"')
     expect(personalConfirmedHtml).toContain('name="currency"')
     expect(personalConfirmedHtml).toContain('name="opened_at"')
@@ -196,7 +246,10 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('color:#f7f8ff')
     expect(personalDraftHtml).not.toContain('Record initial holding')
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
-    expect(personalHeldHtml).toContain('Holding recorded')
+    // ONE HOME PER NAME (2026-07-14): a held name leaves the watchlist BOARD entirely — no row,
+    // no open-holding form; the ledger line points at the portfolio.
+    expect(personalHeldHtml).not.toContain('data-watchlist-row=')
+    expect(personalHeldHtml).toContain('Held — see portfolio')
     expect(personalHeldHtml).not.toContain('Record initial holding')
     expect(personalHeldHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
   })
@@ -464,17 +517,16 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('&lt; 30%')
     expect(html).toContain('&lt; 5%')
     expect(html).toContain('Purification: 0.4%')
-    // OE-bridge provenance (note + EDGAR chip).
-    expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
-    expect(html).toContain('SEC EDGAR')
+    // E2: the OE-bridge provenance display is retired (the FCF-basis block renders on new events).
+    expect(html).not.toContain('Owner earnings computed from SEC 10-K FY2025')
     // RELIGHTENED DECISION (R1): the dossier LEADS with the model decision panel — the model-proposed
     // buy-below (here falling back to buy_price_per_share) and the market-implied growth read. The retired
     // growth-axis band viz + band/gap labels are gone.
     expect(html).toContain('data-testid="decision-summary"')
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed)')
     expect(html).toContain('$147.00')
-    expect(html.toLowerCase()).toContain('the market implies')
-    expect(html).toContain('18.0%')
+    expect(html.toLowerCase()).not.toContain('the market implies')
+    expect(html).not.toContain('Market-implied growth') // F: the implied read is retired
     // forward-DCF removal: the dollar reference fair value (fair_value_per_share) is no longer surfaced — no
     // $210.00 figure, no "cross-check" label.
     expect(html).not.toContain('$210.00')
@@ -573,8 +625,6 @@ describe('research and watchlist workflow pages', () => {
         latest_valuation_source: 'mock-local-price-feed',
         latest_price_checked_at: '2026-06-01T07:00:00.000Z',
         latest_valuation_confidence: 'mock',
-        latest_valuation_caveat: 'Deterministic local price source for scheduled workflow verification.',
-        latest_valuation_source_ids: ['mock-price:MSFT:2026-06-01'],
         latest_valuation_missing_data: [],
         unrealized_gain_loss: 284.7,
         unrealized_gain_loss_percent: 10.78,
@@ -590,85 +640,37 @@ describe('research and watchlist workflow pages', () => {
         updated_at: '2026-06-30T12:00:00.000Z',
       }],
       mode: 'personal-local',
-      valuationRefresh: {
-        last_price_check_at: '2026-06-01T07:00:00.000Z',
-        next_scheduled_check: 'Weekdays at 07:00',
-        data_source: 'mock-local-price-feed',
-        confidence_caveat: 'Mock/local confidence — deterministic prices for local workflow verification.',
-        holdings_missing_data: ['MISSING'],
-      },
     }))
 
     expect(html).toContain('Portfolio')
-    expect(html).toContain('Portfolio operations cockpit')
-    expect(html).toContain('Current state')
-    expect(html).toContain('1 open holding · $2,925.00 current value')
-    expect(html).toContain('Last automation check')
-    expect(html).toContain('User action required')
-    expect(html).toContain('Resolve 1 holding with missing valuation data: MISSING')
+    // SCALE-DOWN S5: the ops cockpit + money totals are retired — the THESIS VIEW renders.
+    expect(html).toContain('held thesis')
+    expect(html).toContain('Your entry price')
+    expect(html).toContain('$812.40')
+    expect(html).not.toContain('Portfolio operations cockpit')
+    expect(html).not.toContain('current value')
     expect(html).toContain('id="holding_msft_001"')
     expect(html).toContain('MSFT')
-    expect(html).toContain('Shares')
-    expect(html).toContain('3.25')
-    expect(html).toContain('Cost basis / share')
-    expect(html).toContain('$812.40')
-    expect(html).toContain('Total cost basis')
-    expect(html).toContain('$2,640.30')
-    expect(html).toContain('class="owl-financial-table"')
-    expect(html).toContain('Position economics')
-    expect(html).toContain('Confirmed portfolio state')
+    // COMPACT REWORK (2026-07-14): the row is a small decision card — entry + latest ±% in the
+    // summary, thesis + review record + actions in the expansion. Provenance rows (opened-by actor,
+    // price-checked, audit ids) moved to the dossier; the money labels stay retired.
     expect(html).toContain('Opened')
     expect(html).toContain('2026-05-31')
-    expect(html).toContain('Current value')
-    expect(html).toContain('$2,925.00')
-    expect(html).toContain('Current price / share')
-    expect(html).toContain('$900.00')
-    expect(html).toContain('Unrealized P&amp;L')
-    expect(html).toContain('$284.70')
-    expect(html).toContain('10.78%')
-    expect(html).toContain('Concentration')
-    expect(html).toContain('100.00%')
-    expect(html).toContain('Valuation source')
-    expect(html).toContain('mock-local-price-feed')
-    expect(html).toContain('Scheduled valuation refresh')
-    expect(html).toContain('Last price check')
-    expect(html).toContain('2026-06-01T07:00:00.000Z')
-    expect(html).toContain('Next scheduled check')
-    expect(html).toContain('Weekdays at 07:00')
-    expect(html).toContain('Data source')
-    expect(html).toContain('Confidence / caveat')
-    expect(html).toContain('Mock/local confidence — deterministic prices for local workflow verification.')
-    expect(html).toContain('Holdings missing data')
-    expect(html).toContain('MISSING')
-    expect(html).toContain('Latest price check')
-    expect(html).toContain('Valuation confidence')
-    expect(html).toContain('mock')
-    expect(html).toContain('Valuation caveat')
-    expect(html).toContain('Deterministic local price source for scheduled workflow verification.')
-    expect(html).toContain('Valuation source IDs')
-    expect(html).toContain('mock-price:MSFT:2026-06-01')
-    expect(html).toContain('Opened by actor')
-    expect(html).toContain('user:user_local')
-    expect(html).toContain('Last reviewed')
-    expect(html).toContain('2026-06-30T12:00:00.000Z')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/valuation"')
-    expect(html).toContain('Manual fallback actions')
+    expect(html).toContain('now $900.00')
+    expect(html).toContain('+10.8%')
+    expect(html).not.toContain('Unrealized P&amp;L')
+    expect(html).not.toContain('Confirmed portfolio state')
+    expect(html).not.toContain('Opened by actor')
+    expect(html).toContain('Open the full analysis')
+    expect(html).toContain('href="/research/rc_msft_001"')
     expect(html).toContain('<summary')
-    expect(html).toContain('Manual valuation checkpoint')
-    expect(html).toContain('name="price_per_share"')
-    expect(html).toContain('name="valued_at"')
-    expect(html).toContain('background:var(--owl-color-panel-elevated)')
-    expect(html).toContain('color:#f7f8ff')
-    expect(html).toContain('Record valuation snapshot')
-    expect(html).toContain('Thesis health')
+    // REVIEW RETIRED (owner, 2026-07-14): no review forms, no schedule rows — a legacy recorded
+    // thesis-health still shows as the row badge (readable forever); the drafted-review ceremony is gone.
     expect(html).toContain('HEALTHY')
-    expect(html).toContain('Action stance')
-    expect(html).toContain('HOLD')
-    expect(html).toContain('The original Buffett-Munger thesis remains intact.')
-    expect(html).toContain('Next review')
-    expect(html).toContain('2026-09-30')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review"')
-    expect(html).toContain('Run Buffett-Munger review')
+    expect(html).not.toContain('Manual fallback actions')
+    expect(html).not.toContain('Run Buffett-Munger review')
+    expect(html).not.toContain('action="/api/portfolio/holding_msft_001/review"')
+    expect(html).not.toContain('Next review')
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#047857')
   })
@@ -760,76 +762,6 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('Buy below $')
   })
 
-  it('renders a pending strategy review confirmation action', () => {
-    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
-      holdings: [{
-        holding_id: 'holding_msft_001',
-        watchlist_item_id: 'watch_msft_001',
-        research_case_id: 'rc_msft_001',
-        ticker: 'MSFT',
-        strategy_id: 'buffett-munger',
-        thesis_summary: 'Watch MSFT until the margin of safety improves.',
-        shares: 3.25,
-        cost_basis_per_share: 812.4,
-        total_cost_basis: 2640.3,
-        currency: 'USD',
-        opened_at: '2026-05-31',
-        pending_review_id: 'review_holding_msft_001',
-        pending_review_thesis_health: 'HEALTHY',
-        pending_review_action_stance: 'HOLD',
-        pending_review_rationale: 'The original Buffett-Munger thesis remains intact.',
-        pending_review_next_review_at: '2026-09-30',
-        updated_at: '2026-06-30T12:00:00.000Z',
-      }],
-      mode: 'personal-local',
-    }))
-
-    expect(html).toContain('Strategy review drafted')
-    expect(html).toContain('Current confirmed thesis')
-    expect(html).toContain('No confirmed review yet')
-    expect(html).toContain('Provider-authored review draft')
-    expect(html).toContain('Pending thesis health')
-    expect(html).toContain('HEALTHY')
-    expect(html).toContain('Pending action stance')
-    expect(html).toContain('HOLD')
-    expect(html).toContain('Choose one auditable decision path')
-    expect(html).toContain('Pending review decision summary')
-    expect(html).toContain('Compare these paths quickly')
-    expect(html).toContain('href="#holding-review-path-confirm"')
-    expect(html).toContain('id="holding-review-path-confirm"')
-    expect(html).toContain('href="#holding-review-path-override"')
-    expect(html).toContain('id="holding-review-path-override"')
-    expect(html).toContain('id="holding-review-path-reject"')
-    expect(html).toContain('Apply provider draft')
-    expect(html).toContain('Applies the provider-authored thesis health, action stance, and next review date to portfolio state.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/confirm"')
-    expect(html).toContain('Apply user override')
-    expect(html).toContain('Applies your edited values instead of the provider draft and records a user-authored audit event.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/override"')
-    expect(html).toContain('Override thesis health')
-    expect(html).toContain('Override action stance')
-    expect(html).toContain('Override rationale (required)')
-    expect(html).toContain('Override evidence summary (required)')
-    expect(html).toContain('Override uncertainty (required)')
-    expect(html).toContain('Override next review date (required)')
-    // Audit-and-decide: both re-underwrite paths render the checklist as READ-ONLY marshaled findings gated
-    // by a single cognitive acknowledgement — never the old per-item author inputs.
-    expect(html).toContain('data-testid="checklist-finding-shariah_drift"')
-    expect(html).toContain('data-testid="checklist-finding-data_completeness"')
-    expect(html).toContain('name="cognitive_reflection_acknowledged"')
-    expect(html).not.toContain('checklist_note[')
-    expect(html).not.toContain('checklist_addressed[')
-    expect(html).not.toContain('Save override')
-    expect(html).toContain('Reject provider draft')
-    expect(html).toContain('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')
-    expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/reject"')
-    expect(html).toContain('Rejection reason (required)')
-    expect(html).toContain('Reject strategy review')
-    expect(html).not.toContain('#ecfdf5')
-    expect(html).not.toContain('#047857')
-  })
-
-
   it('surfaces conditional and blocked Shariah gate details on watchlist and holding cards', () => {
     const conditionalWatchlistHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
       items: [{
@@ -885,89 +817,21 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
 
-    expect(conditionalWatchlistHtml).toContain('Shariah gate')
-    expect(conditionalWatchlistHtml).toContain('Gate decision')
+    // COMPACT REWORK (2026-07-14): the boards carry the gate as a CHIP on the row summary; the
+    // reasons, required sources, and missing-evidence detail live in the dossier (the "specifics"
+    // the owner routed to the full analysis). The chip itself must stay truthful per state.
     expect(conditionalWatchlistHtml).toContain('CONDITIONAL')
-    expect(conditionalWatchlistHtml).toContain('Business activity requires conditional Shariah review with sourced evidence.')
-    expect(conditionalWatchlistHtml).toContain('Required Shariah sources')
-    expect(conditionalWatchlistHtml).toContain('src_cond_10k_2025')
-    expect(unknownWatchlistHtml).toContain('PENDING — gate decision pending')
+    expect(conditionalWatchlistHtml).not.toContain('Required Shariah sources')
+    expect(unknownWatchlistHtml).toContain('GATE PENDING')
     expect(unknownWatchlistHtml).not.toContain('PENDING — allowed')
-    expect(blockedHoldingHtml).toContain('Shariah gate')
-    expect(blockedHoldingHtml).toContain('NON_COMPLIANT')
-    expect(blockedHoldingHtml).toContain('Business activity is prohibited by the configured Shariah policy.')
-    expect(blockedHoldingHtml).toContain('Missing Shariah evidence')
-    expect(blockedHoldingHtml).toContain('non_compliant_income_ratio')
+    // A BLOCKED holding row must not silently render clean: the gate detail moved to the dossier,
+    // and the board keeps no false-positive chip (no APPROVED/derived verdict without the gate).
+    expect(blockedHoldingHtml).not.toContain('APPROVED')
+    expect(blockedHoldingHtml).toContain('BLCK')
   })
 
-  function sizeableResearchCase(): AppResearchCase {
-    return {
-      research_case_id: 'rc_msft_sizeable',
-      version: 1,
-      superseded: false,
-      archived: false,
-      stage: 'decision_drafted',
-      company_id: 'company_msft',
-      ticker: 'MSFT',
-      strategy_id: 'buffett-munger',
-      decision_id: 'decision_msft_sizeable',
-      decision: 'BUY',
-      investment_verdict: 'BUY',
-      valuation_status: 'FAIR',
-      valuation: {
-        moat_class: 'wide',
-        moat_passes_gate: true,
-        buy_price_per_share: 300,
-      },
-      next_required_action: 'Confirm the next user-authored transition.',
-      updated_at: '2026-06-08T12:00:00.000Z',
-      gate_checklist: [],
-      source_ids: [],
-      ledger_timeline: [],
-    }
-  }
 
-  it('renders the advisory position plan with T1 ungated and T2/T3 thesis-gated when capital + buy price + investable moat exist', () => {
-    const plan = buildPositionPlan({
-      moatClass: 'wide',
-      buyPricePerShare: 300,
-      investableCapital: 100000,
-    })
 
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: sizeableResearchCase(),
-      mode: 'personal-local',
-      positionPlan: plan,
-    }))
-
-    expect(html).toContain('Position plan · advisory')
-    expect(html).toContain('Target weight')
-    expect(html).toContain('Target value')
-    expect(html).toContain('T1')
-    expect(html).toContain('T2')
-    expect(html).toContain('T3')
-    // T2/T3 are thesis-gated; the badge must appear (exactly twice, not on T1).
-    const badgeCount = html.split('thesis re-check').length - 1
-    expect(badgeCount).toBe(2)
-    // Advisory notes mention the worker never trades and the entry cap.
-    expect(html).toContain('the worker never trades')
-    expect(html).toContain('entry cap')
-    // No hardcoded blue/purple.
-    expect(html).not.toContain('#4338ca')
-    expect(html).not.toContain('purple')
-  })
-
-  it('prompts to set investable capital when the case is sizeable but no capital is set', () => {
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: sizeableResearchCase(),
-      mode: 'personal-local',
-      promptForCapital: true,
-    }))
-
-    expect(html).toContain('Position plan · advisory')
-    expect(html).toContain('Set your investable capital on the Portfolio page to see position sizing.')
-    expect(html).not.toContain('thesis re-check')
-  })
 
   function admissionCandidateCase(): AppResearchCase {
     return {
@@ -987,6 +851,9 @@ describe('research and watchlist workflow pages', () => {
         moat_class: 'wide',
         moat_passes_gate: true,
         buy_price_per_share: 120,
+        // POLISH (owner-agreed, 2026-07-12): the admit-request control is ZONE-GATED — admission is
+        // on the table only when the price sits in a book zone (rule 7/8) or a recommendation exists.
+        in_buy_zone: true,
       },
       next_required_action: 'Consider the admit judgment.',
       updated_at: '2026-06-08T12:00:00.000Z',
@@ -1016,7 +883,7 @@ describe('research and watchlist workflow pages', () => {
         admittable: true,
         reason: 'High uncertainty with low permanent-loss risk is the opportunity; admittable.',
         buy_below: 120,
-        cheapness: { owner_earnings_yield: 0.085, ev: 4200, cheap: true, reason: 'Cheap on Phase-1 owner-earnings yield.' },
+        cheapness: { fcf_yield: 0.085, ev: 4200, cheap: true, reason: 'Cheap on Phase-1 owner-earnings yield.' },
         uncited_refs: ['some-blog-post'],
         recorded_at: '2026-06-08T12:30:00.000Z',
       },
@@ -1049,8 +916,8 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Advisory: admittable')
     expect(html).toContain('High uncertainty with low permanent-loss risk is the opportunity')
 
-    // Cheapness summary (OE yield / EV).
-    expect(html).toContain('Owner-earnings yield 8.5%')
+    // Cheapness summary (FCF yield / EV).
+    expect(html).toContain('FCF yield 8.5%')
     expect(html).toContain('EV ≈ $4,200M')
 
     // Uncited refs surfaced as a caveat (not hidden).
@@ -1076,116 +943,10 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('Advisory: admittable')
   })
 
-  // ── Phase 5 S7: sizing recommendation panel (worst-case-first, cash-is-correct) ──
-  function admitRecommendationForSizing(): ResearchCaseAdmitRecommendationProjection {
-    return {
-      admit_judgment_id: 'admit_admit_001',
-      uncertainty: { level: 'low' },
-      permanent_loss_risk: { level: 'low' },
-      admittable: true,
-      buy_below: 120,
-      downside_floor_per_share: 80,
-      downside_floor_basis: 'net_cash',
-      downside_floor_reliability: 'sound',
-    }
-  }
 
-  it('shows the on-demand sizing request (no fabricated size) for an admittable candidate', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('Position sizing')
-    expect(html).toContain('Request sizing')
-    expect(html).not.toContain('data-testid="sizing-recommendation"')
-  })
 
-  it('renders a SIZEABLE recommendation WORST-CASE FIRST (floor + basis + cluster) before the target weight', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_001',
-        status: 'sizeable',
-        conviction_factor: 0.8,
-        target_weight: 0.08,
-        sizeable_value: 8000,
-        binding_constraint: 'permanent_loss',
-        worst_case: {
-          downside_floor_per_share: 80,
-          downside_floor_basis: 'net_cash',
-          realistic_downside_per_share: 40,
-          aggregate_cluster_downside_fraction: 0.12,
-        },
-        ladder: [],
-        caveats: ['conviction scaled the target DOWN to 80% of base'],
-        recorded_at: '2026-06-08T13:00:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
 
-    expect(html).toContain('data-testid="sizing-recommendation"')
-    // Worst case appears, and its block appears BEFORE the target-weight metric in the DOM (worst-first).
-    expect(html).toContain('data-testid="sizing-worst-case"')
-    expect(html).toContain('Concrete downside floor $80.00/share')
-    expect(html).toContain('data-testid="sizing-floor-basis"')
-    expect(html).toContain('net cash') // the floor BASIS (net-cash-vs-stressed-book) is shown
-    expect(html).toContain('data-testid="sizing-cluster-downside"')
-    expect(html).toContain('12.0% of book NAV')
-    // binding_constraint surfaced.
-    expect(html).toContain('Binding constraint:')
-    expect(html).toContain('Permanent loss')
-    // Worst-case block precedes the target weight in the rendered order.
-    expect(html.indexOf('sizing-worst-case')).toBeLessThan(html.indexOf('Target weight'))
-  })
 
-  it('renders hold_in_savings as the CORRECT POSITIVE posture, NOT a yellow/red warning', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_002',
-        status: 'hold_in_savings',
-        reason: 'owner-earnings yield 3.0% does not clear the 4.5% deployment hurdle.',
-        expected_savings_return: 0.02,
-        recorded_at: '2026-06-08T13:30:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-
-    expect(html).toContain('data-sizing-status="hold_in_savings"')
-    expect(html).toContain('data-testid="sizing-hold-correct-posture"')
-    expect(html).toContain('Correct posture')
-    expect(html).toContain('fat-pitch discipline')
-    expect(html).toContain('~2.0% expected')
-    // POSITIVE posture: the emerald palette is used, NOT the gold/yellow caveat or red warning palette.
-    expect(html).toContain('#34d399') // emerald accent border
-    const holdBlock = html.slice(html.indexOf('data-sizing-status="hold_in_savings"'))
-    const panelEnd = holdBlock.indexOf('Re-run sizing')
-    const holdMarkup = holdBlock.slice(0, panelEnd === -1 ? undefined : panelEnd)
-    // No yellow warning gold accent and no red risk color inside the hold-in-savings block.
-    expect(holdMarkup).not.toContain('#f0d999')
-    expect(holdMarkup).not.toContain('rgba(214, 178, 94')
-    expect(holdMarkup).not.toContain('#fca5a5')
-  })
-
-  it('renders cannot_size fail-closed (a reason, never a fabricated number)', () => {
-    const researchCase: AppResearchCase = {
-      ...admissionCandidateCase(),
-      admit_recommendation: admitRecommendationForSizing(),
-      sizing_recommendation: {
-        sizing_recommendation_id: 'sizing_admit_003',
-        status: 'cannot_size',
-        reason: 'downside floor unavailable (S2 cannot_floor) — fail-closed, no size.',
-        recorded_at: '2026-06-08T13:45:00.000Z',
-      },
-    }
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('data-sizing-status="cannot_size"')
-    expect(html).toContain('fail-closed, no size')
-    expect(html).not.toContain('data-testid="sizing-worst-case"')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1282,46 +1043,46 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
     }
   }
 
-  it('renders the cited drivers, cited predictability-breakers, and the in-competence outcome', () => {
+  it('G/P1: renders the cited money-making mechanisms + key moving parts and the in-competence outcome', () => {
     const researchCase: AppResearchCase = {
       ...baseCircleCase(),
       circle_competence: {
         in_competence: true,
-        cashflow_predictability: 'durably_predictable',
-        model_claimed_predictability: 'durably_predictable',
+        judgment: 'understood',
+        model_claimed_judgment: 'understood',
         competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
-        cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
+        drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
     expect(html).toContain('data-testid="circle-competence"')
-    expect(html).toContain('Cashflows durably predictable')
+    expect(html).toContain('Business understood')
     expect(html).toContain('Recurring insurance float invested at scale')
     expect(html).toContain('Catastrophe-loss tail volatility')
-    expect(html).toContain('Predictability breakers (cited — the deeper test)')
+    expect(html).toContain('Key moving parts — what determines success or failure (cited)')
     expect(html).toContain('Understandable cashflow engine demonstrated from filings.')
   })
 
-  it('renders set-aside with the not-durably-predictable message for an understood-but-cyclical case (the MU case)', () => {
+  it('C1: renders set-aside with the not-understood message (durability is the moat pillar\u2019s job now)', () => {
     const researchCase: AppResearchCase = {
       ...baseCircleCase(),
       investment_verdict: 'PASS',
       valuation: { circle_competence_unmet: true, outside_circle: true },
       circle_competence: {
         in_competence: false,
-        cashflow_predictability: 'not_predictable',
-        model_claimed_predictability: 'not_predictable',
-        competence_reasoning: 'I understand the business but reject durable predictability — cyclical commodity cashflows.',
+        judgment: 'not_understood',
+        model_claimed_judgment: 'not_understood',
+        competence_reasoning: 'The core economic engine could not be explained from the filings.',
         circle_competence_unmet: true,
-        reason: 'circle_competence_unmet: the model judged the cashflows not durably predictable — set aside.',
-        cashflow_drivers: [{ driver: 'DRAM/NAND pricing cycle', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Commodity memory price collapses', citation: 'src_circle_breaker', grounded: true }],
+        reason: 'circle_competence_unmet: the model judged this business NOT understood — set aside.',
+        drivers: [{ driver: 'DRAM/NAND pricing cycle', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Commodity memory price collapses', citation: 'src_circle_breaker', grounded: true }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
-    expect(html).toContain('Outside competence — set aside (cashflows not durably predictable)')
-    expect(html).toContain('the model judged the cashflows not durably predictable')
+    expect(html).toContain('Outside competence — set aside (the business could not be explained from the filings)')
+    expect(html).toContain('the model judged this business NOT understood')
   })
 
   it('renders the legacy boolean event (in_competence:false, no enum) as set-aside', () => {
@@ -1335,8 +1096,8 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
         competence_reasoning: 'Legacy boolean case.',
         circle_competence_unmet: true,
         reason: 'circle_competence_unmet: the predictability_breakers citations did NOT verify — set aside.',
-        cashflow_drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],
-        predictability_breakers: [{ breaker: 'Breaker claim', citation: 'src_unverified', grounded: false }],
+        drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],
+        breakers: [{ breaker: 'Breaker claim', citation: 'src_unverified', grounded: false }],
       },
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))

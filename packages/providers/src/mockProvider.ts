@@ -129,7 +129,7 @@ function mockSourcesForTicker(ticker: string) {
 // CIRCLE-OF-COMPETENCE judgment (the sequential pre-deep-dive gate). The deterministic mock DEMONSTRATES
 // durable predictability by citing the grounded mock primary/secondary source_ids for BOTH clauses (with
 // substantive TEXT) so the harness cite-check verifies them and the gate PASSES — the deep dive proceeds
-// exactly as before. Reports cashflow_predictability='durably_predictable' (Bug B enum) so the test path
+// exactly as before. Reports business_understanding='understood' (Bug B enum) so the test path
 // is in-circle.
 function mockCircleCompetenceForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
@@ -139,16 +139,16 @@ function mockCircleCompetenceForTicker(ticker: string) {
   return {
     // Two cited clauses each: meets the circle-gate default evidence floor (min 2 grounded drivers +
     // 2 grounded breakers), mirroring what the hardened gate prompt asks a live model for.
-    cashflow_drivers: [
+    understanding_drivers: [
       { driver: `${companyLabel} recurring membership/subscription revenue grounded in the 10-K`, citation: primaryCite },
       { driver: `${companyLabel} installed-base renewal economics disclosed in the annual filing`, citation: primaryCite },
     ],
-    predictability_breakers: [
+    key_moving_parts: [
       { breaker: `Cyclicality or customer-concentration risk that would make ${companyLabel}'s cashflows unpredictable`, citation: secondaryCite },
       { breaker: `Competitive pricing pressure compressing ${companyLabel}'s unit economics`, citation: secondaryCite },
     ],
     competence_reasoning: `${companyLabel}'s cashflow engine is understandable and its cashflows are durably predictable, demonstrated from primary filings.`,
-    cashflow_predictability: 'durably_predictable',
+    business_understanding: 'understood',
     proposed_sources: groundedSources,
   }
 }
@@ -196,10 +196,21 @@ function mockMoatLaneForTicker(ticker: string) {
     confidence: 'medium' as const,
     caveats: [`Mock moat finding — not investment-grade; run a real provider before any decision.`],
     moat_drivers: [
-      { advantage: `${companyLabel} documented pricing power — price increases stick without volume loss.`, citation: primaryCite },
-      { advantage: `${companyLabel} sustained market-share gains versus funded entrants over the last decade.`, citation: secondaryCite },
-      { advantage: `${companyLabel} cost/scale + distribution advantage competitors cannot replicate.`, citation: primaryCite },
+      { advantage: `${companyLabel} documented pricing power — price increases stick without volume loss.`, citation: primaryCite, moat_type: 'brand' as const },
+      { advantage: `${companyLabel} sustained market-share gains versus funded entrants over the last decade.`, citation: secondaryCite, moat_type: 'scale_advantage' as const },
+      { advantage: `${companyLabel} cost/scale + distribution advantage competitors cannot replicate.`, citation: primaryCite, moat_type: 'cost_advantage' as const },
     ],
+    // S3 pillar extensions: a grounded stable direction + an in-line peer judgment (labeled model-asserted).
+    moat_direction: 'stable' as const,
+    direction_drivers: [
+      { evidence: `${companyLabel} share and price realization stable across the filing window.`, citation: primaryCite },
+    ],
+    direction_reasoning: `No cited evidence of erosion or widening for ${companyLabel}.`,
+    peer_standout: {
+      peers: [{ name: 'Mock Peer Co', gross_margin_note: '~30% FY2025 gross margin' }],
+      judgment: 'in_line' as const,
+      reasoning: `${companyLabel} gross margin sits roughly in line with the named mock peer.`,
+    },
     proposed_moat_class: 'monopoly' as const,
     moat_reasoning: `${companyLabel} combines durable pricing power, share durability, and a structural cost/scale advantage — a grounded monopoly-class moat.`,
     runway: 'proven' as const,
@@ -209,6 +220,64 @@ function mockMoatLaneForTicker(ticker: string) {
     ],
     proposed_runway: 'proven' as const,
     runway_reasoning: `${companyLabel} can deploy incremental capital at high ROIC for years with visible remaining headroom — a grounded proven runway.`,
+    proposed_sources: groundedSources,
+  }
+}
+
+// UNDERSTAND lane (B3, Phase 4): the book's seven-item one-pager distillation.
+function mockUnderstandLaneForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    finding_summary: `${companyLabel} understand lane: membership-driven bulk retail with fee-led profits.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock understand finding — not investment-grade; run a real provider before any decision.`],
+    one_pager: {
+      plain_english: `${companyLabel} sells memberships that grant access to low-priced bulk goods.`,
+      segments: ['Core operations', 'International', 'Digital'],
+      revenue_drivers: ['Membership fees', 'Merchandise sales at thin markups'],
+      most_profitable_segments: ['Membership fees (the bulk of operating profit)'],
+      strengths: ['Renewal economics', 'Scale purchasing power'],
+      weak_spots: ['Thin merchandise margins leave little room for error'],
+      growth_levers: ['New locations', 'Fee increases'],
+    },
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+// MANAGEMENT lane (S5, Phase 3 pillars): emits the two-trait judgment — integrity (communication +
+// DEF 14A comp structure) and talent (capital allocation reconciled with the injected T0 block) —
+// each cited to grounded mock source_ids so the resolver honors them.
+function mockManagementLaneForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  const groundedSources = mockSourcesForTicker(ticker)
+  const primaryCite = groundedSources[0].source_id
+  const secondaryCite = groundedSources[1].source_id
+  return {
+    finding_summary: `${companyLabel} management lane: candid communication, owner-aligned pay, disciplined capital allocation.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock management finding — not investment-grade; run a real provider before any decision.`],
+    integrity: {
+      communication_observations: [
+        { observation: `${companyLabel} MD&A discusses setbacks plainly and quantifies them.`, citation: primaryCite },
+      ],
+      comp_structure: {
+        summary: `Cash bonus on ROIC and per-share FCF growth; PSUs on 3-year relative TSR.`,
+        incentive_metrics: ['ROIC', 'FCF/share', 'relative TSR'],
+        alignment: 'aligned' as const,
+        citation: secondaryCite,
+      },
+      integrity_flags: [],
+      proposed_integrity: 'clean' as const,
+      integrity_reasoning: `${companyLabel} communicates candidly and pays on owner-aligned metrics.`,
+    },
+    talent: {
+      talent_drivers: [
+        { evidence: `${companyLabel} a decade of high returns on incremental capital through two cycles.`, citation: primaryCite },
+        { evidence: `${companyLabel} buybacks concentrated in drawdown years below intrinsic value.`, citation: secondaryCite },
+      ],
+      proposed_talent: 'excellent' as const,
+      talent_reasoning: `${companyLabel} capital-allocation record reconciles with the harness T0 observations.`,
+    },
     proposed_sources: groundedSources,
   }
 }
@@ -246,17 +315,6 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // the MOAT lane (mockMoatLaneForTicker) and the sector_status / impermissible_income overlay from the
     // SHARIAH lane (mockShariahLaneForTicker). The synthesis schema no longer carries them.
     growth_assumptions: `${companyLabel} is credited the demonstrated owner-earnings/share CAGR — here illustrated at a near-term rate of 0.08 (above the 0.03 GDP threshold, so flagged as a moat-durability claim that widens the margin of safety), passed through the named single_growth_cap of 0.15 (the agent may argue the rate down, never up; no reinvestment×ROIC band). Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr horizon, linear fade over years 6–10 to a uniform 1.5% terminal, flat 10% discount) → fair value ≈ $237.64/sh (implied ≈17.0× OE, under the 18× fv_cap_multiple — a surfaced cap_exceeded flag, not a hard truncation). Uniform 25% MoS → buy below ≈ $178.23.`,
-    owner_earnings_bridge: {
-      // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
-      // shares_outstanding 1000M → OE/sh = 14000/1000 = 14.
-      net_income: 14000,
-      depreciation_amortization: 4000,
-      maintenance_capex: 3000,
-      maintenance_capex_proxy_tier: '50' as const,
-      stock_based_comp: 2000,
-      normalized_working_capital_change: -1000,  // negative = structural WC release, adds to OE
-      shares_outstanding: 1000,
-    },
     roic: 0.25,
     // Normalized INCREMENTAL ROIC (fraction) — reported context (no longer drives a band verdict; R1).
     incremental_roic: 0.20,
@@ -289,10 +347,8 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     //   - other names: a modest, defensible assumed_growth (0.06) — a CLEAN case (no sanity flag).
     proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
     valuation_reasoning: {
-      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
-      // Founding-risk fix: ground both valuation claims in the decision agent's OWN proposed (and verified)
-      // primary source so the harness's deterministic synthesis own-grounding cite-check passes.
-      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
+      // E2: the OE basis/citation/bridge are retired — growth (cited) + the exit multiple are the
+      // model's remaining valuation judgments; the harness owns the FCF basis.
       assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
       assumed_growth_rationale: isCapitalLightMock(ticker)
         ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
@@ -300,8 +356,8 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
     },
     // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
-    // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker
-    // / schema BuffettMungerRedTeamResponse) — NOT this synthesis schema. The synthesis only echoes the
+    // strongest objection comes from the INVERSION pass (mockInversionForTicker / schema
+    // BuffettMungerInversion) — NOT this synthesis schema. The synthesis only echoes the
     // objection text (optional, no obligation).
     red_team_strongest_objection: `${companyLabel} revenue is concentrated in a few categories — a shock could compress the moat.`,
     proposed_sources: mockSourcesForTicker(ticker),
@@ -315,8 +371,6 @@ function mockValuationReasoningForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   return {
     valuation_reasoning: {
-      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
-      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
       assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
       assumed_growth_rationale: isCapitalLightMock(ticker)
         ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
@@ -324,47 +378,22 @@ function mockValuationReasoningForTicker(ticker: string) {
       assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
       proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
       valuation_status: 'EXPENSIVE' as const,
-      owner_earnings_bridge: {
-        net_income: 14000,
-        depreciation_amortization: 4000,
-        maintenance_capex: 3000,
-        maintenance_capex_proxy_tier: '50' as const,
-        stock_based_comp: 2000,
-        normalized_working_capital_change: -1000,
-        shares_outstanding: 1000,
-      },
+      industry_exit_multiple: { multiple: 15, basis_note: 'Mock industry norm: ~15× FCF (not investment-grade).' },
     },
     proposed_sources: mockSourcesForTicker(ticker),
   }
 }
 
-// judgment-objectivity-layer-spec Mechanism 5 — the dedicated red-team-RESPONSE call (the focused
-// decomposition). The mock answers the strongest objection with evidence cited to the grounded corpus so
-// the demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
-function mockRedTeamResponseForTicker(ticker: string) {
-  return {
-    synthesis_response: {
-      mode: 'answered_with_evidence' as const,
-      text: `Concentration is real but diversified across regions and members per the 10-K; renewal rates and pricing power (cited) keep the moat intact. No downgrade warranted.`,
-    },
-    proposed_sources: mockSourcesForTicker(ticker),
-  }
-}
-
-// judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass. The mock emits a plausible adversarial
-// output whose strongest objection is cited to the GROUNDED corpus (the same source_ids the harness
-// verifies), so the cite-check passes and the demo/tests render a real objection + synthesis response.
-function mockRedTeamForTicker(ticker: string) {
+// E1 — the Munger INVERSION pass (replaces the red team). The mock argues the case against itself with
+// a strongest objection cited to the GROUNDED corpus (the same source_ids the harness verifies), so the
+// cite-check passes and the demo/tests render a real cite-checked inversion on the case-against card.
+function mockInversionForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
   const primaryCite = groundedSources[0].source_id
   const secondaryCite = groundedSources[1].source_id
   return {
-    strongest_bear_case: `${companyLabel}'s premium valuation already prices in a decade of flawless execution; any reinvestment-runway disappointment compresses the multiple hard.`,
-    weakest_rubric_items: [
-      { lane: 'moat', item: 'M5', why: 'Customer-switching evidence rests on renewal rates, not contractual lock-in.' },
-      { lane: 'valuation', item: 'R2', why: 'Visible-headroom claim is qualitative, not quantified against TAM.' },
-    ],
+    strongest_case_against: `${companyLabel}'s premium valuation already prices in a decade of flawless execution; any reinvestment-runway disappointment compresses the multiple hard.`,
     moat_decay_scenario: `A well-funded entrant undercuts on price and erodes ${companyLabel}'s share over 5-7 years as switching costs prove softer than the lanes assume.`,
     growth_credit_attack: `The credited incremental ROIC assumes reinvestment at historical rates; if it mean-reverts toward the cost of capital, the credited growth and the fair value both fall sharply.`,
     shared_narrative_blindspots: [
@@ -379,23 +408,6 @@ function mockRedTeamForTicker(ticker: string) {
   }
 }
 
-function buffettMungerHoldingReviewForTicker(ticker: string) {
-  // Grounded contract: the holding review now runs through the grounded-agent path. The mock proposes
-  // real-shaped primary sources (the harness fetches + content-hashes them) and cites the SAME verified
-  // source_ids in its judgment, so the harness cite-check verifies them and the thesis_health is emitted
-  // as grounded (the deterministic demo/test path stays in-grounding, no fail-closed degrade).
-  const groundedSources = mockSourcesForTicker(ticker)
-  return {
-    thesis_health: 'HEALTHY',
-    action_stance: 'HOLD',
-    rationale: 'The original Buffett-Munger thesis remains intact: durable moat, aligned management, Shariah-compliant operations, and no evidence of thesis drift.',
-    evidence_summary: 'Reviewed the existing research case, source ledger references, holding cost basis, and latest valuation snapshot.',
-    uncertainty: 'Needs a refreshed primary-source review after the next quarterly filing.',
-    next_review_at: '2026-09-30',
-    source_ids: groundedSources.map((s) => s.source_id),
-    proposed_sources: groundedSources,
-  } as const
-}
 
 export class MockProvider implements Provider {
   readonly provider_id = 'mock-provider'
@@ -514,8 +526,6 @@ export class MockProvider implements Provider {
     if (request.response_format.kind === 'json-schema') {
       const ticker = extractTicker(request.prompt)
       switch (request.response_format.schema_name) {
-        case 'BuffettMungerHoldingReview':
-          return buffettMungerHoldingReviewForTicker(ticker)
         case 'BuffettMungerCircleCompetence':
           return mockCircleCompetenceForTicker(ticker)
         case 'BuffettMungerQuickScreen':
@@ -524,16 +534,18 @@ export class MockProvider implements Provider {
           return mockLaneFindingForTicker(ticker)
         case 'BuffettMungerMoatLane':
           return mockMoatLaneForTicker(ticker)
+        case 'BuffettMungerUnderstandLane':
+          return mockUnderstandLaneForTicker(ticker)
+        case 'BuffettMungerManagementLane':
+          return mockManagementLaneForTicker(ticker)
         case 'BuffettMungerShariahLane':
           return mockShariahLaneForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':
           return mockSynthesisDecisionForTicker(ticker)
         case 'BuffettMungerValuationReasoning':
           return mockValuationReasoningForTicker(ticker)
-        case 'BuffettMungerRedTeam':
-          return mockRedTeamForTicker(ticker)
-        case 'BuffettMungerRedTeamResponse':
-          return mockRedTeamResponseForTicker(ticker)
+        case 'BuffettMungerInversion':
+          return mockInversionForTicker(ticker)
         case 'BuffettMungerGroundedResearch':
           return mockGroundedResearchForTicker(ticker)
         default:

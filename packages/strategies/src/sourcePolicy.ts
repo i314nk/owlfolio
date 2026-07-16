@@ -75,8 +75,12 @@ const CLASSIFICATION_POLICY: LaneSourcePolicy = {
  * The frozen DEFAULT per-lane source policy (spec Mechanism 6 table). Bump `version` on any change.
  */
 export const SOURCE_POLICY: SourcePolicy = Object.freeze({
-  version: 'source-policy-2026-07-mechanism-6-v2-moat-proxy',
+  version: 'source-policy-2026-07-mechanism-6-v3-pillar-lanes',
   lanes: {
+    // S6 (Phase 3 pillars): 'understand' (Pillar 1) absorbs business_quality + financial_quality's
+    // accounting-quality duty — same primary-docs classification policy. The legacy lane keys below
+    // stay for HISTORICAL runs (persisted lane ids keep resolving their recorded policy).
+    understand: CLASSIFICATION_POLICY,
     business_quality: CLASSIFICATION_POLICY,
     // MOAT: classification policy + the definitive proxy statement (owner-approved widening, 2026-07):
     // dual-class structures, entrenchment, and governance ARE moat-relevant, and the DEF 14A is a

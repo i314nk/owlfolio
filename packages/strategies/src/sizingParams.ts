@@ -43,26 +43,6 @@ export type LadderId = 'cold' | 'normal'
  * The conviction sub-factor tables (Phase 5 S1). Each sub-factor is ≤ 1, so the conviction product can
  * only scale the position target DOWN from base_target_weight — nothing sizes ABOVE the base.
  */
-export type ConvictionMoatFactor = {
-  /** monopoly is full conviction; wide gets a sizing down-weight (the only surviving moat-tier use — a
-   *  sizing knob, NOT a valuation lever; F.13-consistent). */
-  monopoly: number
-  wide: number
-}
-
-export type ConvictionPermanentLossSubfactor = {
-  /** low permanent-loss → full size; medium → down-weight (`high` is not-admittable → never sized). */
-  low: number
-  medium: number
-}
-
-export type ConvictionUncertaintySubfactor = {
-  /** High uncertainty is a SOFT down-weight only (it is the opportunity, not a penalty — Pabrai P7). */
-  high: number
-  /** Applied for any non-high uncertainty level. */
-  default: number
-}
-
 /**
  * The full versioned sizing parameter set. Every number the sizing/tranche engine needs lives here.
  * Bump `version` on any change and (when wired to the ledger) log a sizing-config event diff.
@@ -70,36 +50,11 @@ export type ConvictionUncertaintySubfactor = {
 export type SizingParams = {
   /** Monotonic version string. Bump on every parameter change. */
   version: string
-  /**
-   * Base full-position target weight (Phase 5 S1): ~0.10. Position target = base_target_weight ×
-   * conviction_factor, where conviction_factor ∈ (0,1] only scales DOWN. Nothing targets above this.
-   */
-  base_target_weight: number
-  /** Conviction moat sub-factor table (Phase 5 S1): a sizing down-weight by investable moat class. */
-  conviction_moat_factor: ConvictionMoatFactor
-  /** Conviction permanent-loss sub-factor table (Phase 5 S1). */
-  conviction_permanent_loss_subfactor: ConvictionPermanentLossSubfactor
-  /** Conviction uncertainty sub-factor table (Phase 5 S1) — SOFT down-weight for high uncertainty only. */
-  conviction_uncertainty_subfactor: ConvictionUncertaintySubfactor
-  /**
-   * OFF-by-default flag (Phase 5 S1) for the optional discount-depth conviction sub-factor.
-   *
-   * Why OFF: discount depth ALREADY gates *whether* you buy (the deployment hurdle + the buy-below
-   * crossing). Letting it also scale *how much* double-counts the discount AND tilts the largest
-   * positions toward the deepest-fallen names, which are disproportionately real impairments — a
-   * permanent-loss-first system must NOT size UP on depth. Conviction tracks quality + safety (moat +
-   * how the floor holds), never how cheap it got. Ship OFF.
-   */
-  conviction_use_discount_depth: boolean
-  /**
-   * Discount-depth ramp constants (Phase 5 S1) — PRESENT BUT UNUSED while conviction_use_discount_depth
-   * is false. When enabled, depth = (buy_price − current_price)/buy_price is ramped linearly from
-   * `floor` (at depth 0) to 1.0 (at depth ≥ `full_at_depth`).
-   */
-  conviction_discount_depth_ramp: {
-    floor: number
-    full_at_depth: number
-  }
+  // SCALE-DOWN S1 (owner-locked 2026-07-13): the conviction sizing fields (base/truck target
+  // weights + the factor tables) are RETIRED with convictionFactor — the book gives zones and
+  // boldness, not weights. Survivors below serve the KEEPERS: the admit downside floor
+  // (book_value_haircut), the worker's monitors (concentration_review_threshold, ladders/rungs for
+  // the pullback re-anchoring), and the deployment-clock params.
   /**
    * Hard per-name DEPLOYMENT ceiling (spec §1): 15% per name. This is a ceiling on NEW BUYS/ADDS only —
    * the sizing engine's `per_name_cap_reached` gate blocks deploying more capital into a name once it is
@@ -163,13 +118,7 @@ export type SizingParams = {
  *   default ladder:  normal (used until the temperature overlay lands)
  */
 export const SIZING_PARAMS: SizingParams = Object.freeze({
-  version: 'sizing-2026-06-conviction-2-no-moat-tier',
-  base_target_weight: 0.10,
-  conviction_moat_factor: { monopoly: 1.0, wide: 0.85 },
-  conviction_permanent_loss_subfactor: { low: 1.0, medium: 0.7 },
-  conviction_uncertainty_subfactor: { high: 0.9, default: 1.0 },
-  conviction_use_discount_depth: false,
-  conviction_discount_depth_ramp: { floor: 0.6, full_at_depth: 0.30 },
+  version: 'sizing-2026-07-scaledown-1',
   per_name_cap: 0.15,
   book_recovery_threshold: 0.05,
   cluster_sic_digits: 2,

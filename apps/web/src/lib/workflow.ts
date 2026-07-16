@@ -34,7 +34,7 @@ import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
-import { mergeSavingsSleeveConfig } from '@owlfolio/shared/appConfig'
+import { mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared/appConfig'
 import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
 
 /** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
@@ -49,16 +49,14 @@ function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_
 import {
   assertShariahGateAllowsTransition,
   checkForNewFilings,
-  confirmHoldingReviewDraft,
+  closeHolding,
   confirmWatchlistDraft,
-  draftHoldingReview,
   draftThesisReReview,
   evaluateResearchCaseShariahGate,
   loadPriorThesis,
   openHoldingFromWatchlist,
-  overrideHoldingReviewDraft,
+  pruneWatchlistItem,
   recordHoldingValuationSnapshot,
-  rejectHoldingReviewDraft,
   defaultSourceLedgerStorage,
   type CheckForNewFilingsDeps,
   type InsiderClusterTrigger,
@@ -70,11 +68,6 @@ import { archiveResearchCase } from '@owlfolio/workflow/researchWorkflow'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { runAdmitAssessment, isDeepDiveComplete, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
 import {
-  computeSizingRecommendation,
-  type PersistedDownsideFloor,
-  type SizingAssessmentResult,
-} from '@owlfolio/workflow/sizingAssessment'
-import {
   computeSellDecision,
   type MinimumHoldTrigger,
   type SellAssessmentArgs,
@@ -83,20 +76,15 @@ import {
 } from '@owlfolio/workflow/sellAssessment'
 import { MINIMUM_HOLD_TRIGGERS as MINIMUM_HOLD_TRIGGER_LIST } from '@owlfolio/strategies/minimumHoldGuard'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
-import { screenCheapness } from '@owlfolio/workflow/cheapnessScreen'
 import {
   queueDiscoveryCandidateForQuickScreen,
   rejectDiscoveryCandidate as rejectDiscoveryCandidateEvent,
   promoteDiscoveryCandidateToResearchCase,
 } from '@owlfolio/workflow/discoveryCandidateWorkflow'
-import type { ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
-import type { MoatClass } from '@owlfolio/strategies/strategyContract'
-import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
-import { projectAccountingSnapshot } from '@owlfolio/ledger/projections/accountingProjection'
 import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
 import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
 import { runPriceRefresh, type PriceRefreshResult, type RunPriceRefreshDeps } from '@owlfolio/workflow/priceRefresh'
-import type { Fundamentals } from '@owlfolio/workflow/secEdgar'
+import type { FilingRef, Fundamentals } from '@owlfolio/workflow/secEdgar'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveModelRoleEnv } from './modelRoleEnv'
 import { buildAutoModelRoleOverrides } from './autoTierConfig'
@@ -150,6 +138,17 @@ export type AppWatchlistItem = WatchlistProjection & {
    * distance-to-buy-price, and a staleness indicator. Absent when the linked case has no valuation yet.
    */
   verdict?: AppWatchlistVerdict
+  /** OWNER-LOCKED (2026-07-14): the board DISPLAYS from the latest non-superseded case for the
+   * ticker — this is that case's id (the dossier link target). The item's own research_case_id
+   * remains the frozen audit pointer (what the user confirmed on). */
+  display_research_case_id?: string
+  /** The latest analysis's verdict + date — rendered honestly when that run produced no thresholds. */
+  latest_analysis_verdict?: string
+  latest_analysis_at?: string
+  /** The latest analysis's own thesis summary — the display text (the item's copy is the admitted-on draft). */
+  latest_analysis_thesis?: string
+  /** The harness-computed purification rate (= impermissible income / revenue) from the latest analysis. */
+  purification_pct?: number
 }
 
 /**
@@ -175,6 +174,9 @@ export type AppWatchlistVerdict = {
   market_price_per_share?: number
   /** Signed distance of market vs buy price as a PERCENT (negative = below buy price = in the window). */
   distance_to_buy_pct?: number
+  /** RULE 8 (owner-locked 2026-07-13): the load-up threshold (IV × 0.50) + the zone read at the live price. */
+  load_up_below?: number
+  in_load_up_zone?: boolean
   /** ISO timestamp of the price snapshot used for market_price_per_share (from the ledger snapshot). */
   price_as_of?: string
   /** The case's last-updated timestamp — basis for the staleness read. */
@@ -183,6 +185,10 @@ export type AppWatchlistVerdict = {
   is_stale?: boolean
   /** Market-implied near-term growth (reverse-DCF of today's price), fraction — the richness read. */
   market_implied_growth?: number
+  /** The DCF intrinsic value per share from the linked case — the ladder's top anchor. */
+  intrinsic_value_per_share?: number
+  /** The registrant's name from the linked case (EDGAR companyfacts); absent on legacy cases. */
+  entity_name?: string
 }
 
 /**
@@ -191,6 +197,14 @@ export type AppWatchlistVerdict = {
  */
 export const WATCHLIST_STALE_AFTER_MONTHS = 12
 
+/** First non-empty trimmed string — the dossier's verdict-summary fallback chain. */
+function firstNonEmptyText(values: (string | undefined)[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value
+  }
+  return undefined
+}
+
 export function enrichWatchlistItemsWithVerdict(
   items: AppWatchlistItem[],
   cases: ResearchCaseProjection[],
@@ -198,12 +212,35 @@ export function enrichWatchlistItemsWithVerdict(
   snapshots: Map<string, { price_per_share: number; as_of: string }> = new Map(),
 ): AppWatchlistItem[] {
   const caseById = new Map(cases.map((c) => [c.research_case_id, c]))
+  // OWNER-LOCKED (2026-07-14): zone thresholds are provider OBSERVATIONS, the same class as the
+  // refreshing price — so the board displays from the LATEST non-superseded, non-archived case for
+  // the ticker, not the (possibly superseded) case the item was admitted on. The admitted-on case id
+  // stays on the item as the frozen audit pointer; the confirmed/locked buy-below history is in the
+  // ledger. A latest case with NO valuation renders honestly (no thresholds, verdict surfaced) rather
+  // than silently keeping the old numbers.
+  const latestByTicker = new Map<string, ResearchCaseProjection>()
+  for (const c of cases) {
+    if (c.ticker === undefined || c.superseded || c.archived) continue
+    const best = latestByTicker.get(c.ticker)
+    if (best === undefined || c.updated_at > best.updated_at) latestByTicker.set(c.ticker, c)
+  }
   return items.map((item) => {
-    const linked = caseById.get(item.research_case_id)
+    const linked = (item.ticker === undefined ? undefined : latestByTicker.get(item.ticker))
+      ?? caseById.get(item.research_case_id)
+    const displayThesis = firstNonEmptyText([linked?.thesis_summary, linked?.evidence_summary, linked?.reason])
+    const displayFields = {
+      ...(linked?.research_case_id === undefined ? {} : { display_research_case_id: linked.research_case_id }),
+      ...(linked?.investment_verdict === undefined ? {} : { latest_analysis_verdict: linked.investment_verdict }),
+      ...(linked?.updated_at === undefined ? {} : { latest_analysis_at: linked.updated_at }),
+      // Mirror the dossier's verdict-summary chain (thesis → evidence → reason): the newest engine
+      // versions leave thesis_summary empty on some paths and the narrative lives downstream.
+      ...(displayThesis === undefined ? {} : { latest_analysis_thesis: displayThesis }),
+      ...(linked?.shariah_financial?.purification_pct === undefined ? {} : { purification_pct: linked.shariah_financial.purification_pct }),
+    }
     const valuation = linked?.valuation
     const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share
     if (valuation === undefined || buyBelow === undefined) {
-      return item
+      return { ...item, ...displayFields }
     }
     // RELIGHTENED DECISION (R1): carry the MODEL's verdict framing — valuation_status, the model-proposed
     // buy-below, the arithmetic in-buy-zone, and the flag-only sanity-check. The retired verdict_state.state
@@ -219,11 +256,26 @@ export function enrichWatchlistItemsWithVerdict(
       ...(valuation.sanity_flags === undefined ? {} : { sanity_flags: valuation.sanity_flags }),
       ...(valuation.market_implied_growth === undefined ? {} : { market_implied_growth: valuation.market_implied_growth }),
     }
+    // The ladder anchors + the display name ride the verdict so the board can render the small
+    // decision-card view without re-projecting the case.
+    const iv = (valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share
+    if (iv !== undefined) verdict.intrinsic_value_per_share = iv
+    if (linked?.entity_name !== undefined) verdict.entity_name = linked.entity_name
+    // RULE 8: the load-up threshold — from the linked case when present, else derived from the
+    // frozen reference IV (load_up = IV × (1 − load_up_margin); pure arithmetic, same provenance).
+    const linkedLoadUp = (linked?.valuation as { load_up_below?: number } | undefined)?.load_up_below
+    const frozenIv = (item as { frozen_reference_fair_value?: number }).frozen_reference_fair_value
+    const loadUpBelow = linkedLoadUp
+      ?? (typeof frozenIv === 'number' && Number.isFinite(frozenIv) && frozenIv > 0
+        ? Number((frozenIv * (1 - VALUATION_PARAMS.load_up_margin)).toFixed(2))
+        : undefined)
+    if (loadUpBelow !== undefined) verdict.load_up_below = loadUpBelow
     if (typeof item.ticker === 'string' && item.ticker.length > 0 && snapshots.has(item.ticker)) {
       const snap = snapshots.get(item.ticker)!
       verdict.market_price_per_share = snap.price_per_share
       verdict.distance_to_buy_pct = ((snap.price_per_share - buyBelow) / buyBelow) * 100
       verdict.in_buy_zone = snap.price_per_share <= buyBelow
+      if (loadUpBelow !== undefined) verdict.in_load_up_zone = snap.price_per_share <= loadUpBelow
       verdict.price_as_of = snap.as_of
     }
     const updatedAt = linked?.updated_at
@@ -232,7 +284,7 @@ export function enrichWatchlistItemsWithVerdict(
       const ageMonths = (now.getTime() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24 * 30.4375)
       verdict.is_stale = ageMonths > WATCHLIST_STALE_AFTER_MONTHS
     }
-    return { ...item, verdict }
+    return { ...item, ...displayFields, verdict }
   })
 }
 
@@ -275,19 +327,6 @@ export type RecordPersonalHoldingValuationInput = {
   price_per_share?: FormDataEntryValue | number | string | null
   currency?: FormDataEntryValue | string | null
   valued_at?: FormDataEntryValue | string | null
-}
-
-export type OverridePersonalHoldingReviewInput = {
-  thesis_health?: FormDataEntryValue | string | null
-  action_stance?: FormDataEntryValue | string | null
-  rationale?: FormDataEntryValue | string | null
-  evidence_summary?: FormDataEntryValue | string | null
-  uncertainty?: FormDataEntryValue | string | null
-  next_review_at?: FormDataEntryValue | string | null
-}
-
-export type RejectPersonalHoldingReviewInput = {
-  rejection_reason?: FormDataEntryValue | string | null
 }
 
 const pendingChecklist: AppGateChecklistItem[] = [
@@ -385,7 +424,7 @@ export async function enqueueDiscoveryRun(state: OnboardingState, deps: EnqueueD
 
 export async function enqueueResearchRun(
   state: OnboardingState,
-  input: { ticker: string; company_id?: string; supersedes_research_case_id?: string },
+  input: { ticker: string; company_id?: string; supersedes_research_case_id?: string; moat_gate_override?: boolean },
   deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
 ): Promise<{ research_case_id: string }> {
   if (
@@ -456,6 +495,10 @@ export async function enqueueResearchRun(
         // (which reads this event off the queue) threads it into the new case's `research_case_created`.
         // Without this the worker would not know to supersede the prior case for an explicit re-run.
         ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+        // S6: the USER-AUTHORED moat-gate override ("run remaining pillars anyway" on a gated dossier).
+        // Recorded on the user-authored request event — the audit trail of WHO chose to spend past the
+        // gate — and threaded to the swarm, which skips only the EARLY short-circuit (late rails gate).
+        ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
         // Defense-in-depth: the request records the provider/mode it was made under so the
         // worker can fail closed if it loads a different config (e.g. silent demo/mock fallback)
         // instead of silently substituting a mock/demo dossier for a real personal-local run.
@@ -496,6 +539,7 @@ export async function enqueueResearchRun(
         created_at: claimedAt,
         schema_version: 1,
       })
+      const userRequiredReturn = userSetRequiredReturn(state.config.valuation)
       await runStrategyResearchSwarm(
         store,
         provider,
@@ -511,6 +555,7 @@ export async function enqueueResearchRun(
           source_ledger_path: state.config.source_ledger_path,
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+          ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
           deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
           // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect
@@ -521,6 +566,9 @@ export async function enqueueResearchRun(
           // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
           // inline path as the worker paths.
           risk_free_rate: mergeSavingsSleeveConfig(state.config.savings).savings_expected_profit_rate,
+          // Phase 4: thread the required return ONLY when user-set (vintage-stamped) — an absent field
+          // lets the engine use the book default AND stamp required_return_basis 'book_default' honestly.
+          ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
@@ -693,6 +741,7 @@ export async function requestDeepDiveRun(
       const pendingRun = pendingRuns.find((r) => r.research_case_id === researchCaseId)
 
       if (pendingRun !== undefined) {
+        const userRequiredReturn = userSetRequiredReturn(state.config.valuation)
         await runResearchDeepDivePhase(
           store,
           provider,
@@ -711,6 +760,8 @@ export async function requestDeepDiveRun(
             model_role_env: await resolveModelRoleEnv(),
             model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
             circle_gate: resolveCircleGateSettings(state.config),
+            // Phase 4: the resume path threads the required return like the inline path (user-set only).
+            ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
           },
           { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
         )
@@ -771,6 +822,16 @@ export async function archiveAppResearchCase(
     store.close()
   }
 }
+
+// ---------------------------------------------------------------------------------------------------
+// B7 (Phase 4, book alignment): the PASSIVE SLEEVE — record a DCA contribution (user-authored,
+// append-only; a local record of an index purchase already made elsewhere) + the sleeve view
+// (recorded contributions + the active book's value for the drift read). Rule 3 by construction:
+// there is no withdrawal helper and no sell affordance anywhere in the sleeve.
+// ---------------------------------------------------------------------------------------------------
+
+// SCALE-DOWN S4 (owner-locked 2026-07-13): the passive contribution tracker is REMOVED — the
+// passive page is informative only. Legacy passive_contribution events stay readable.
 
 export async function getAppResearchCaseFromStore(
   store: EventStore,
@@ -1125,16 +1186,13 @@ export async function promoteResearchCaseToWatchlist(
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
 
-    // FREEZE the owner-earnings/share + a REFERENCE fair value at sign-off (scope-reframe — the band/gap
-    // engine was removed). The lightened valuation-inverted SELL is a LIGHT price-vs-this-reference sanity
-    // FLAG (advisory; the human decides), never a band engine. The REFERENCE is derived inside
-    // confirmWatchlistDraft as the forward two-stage FV off the frozen oe_ps + the sign-off assumed growth
-    // (the case's verdict-band high edge, used here only as the growth assumption — not a band). FAIL-CLOSED:
-    // when the oe_ps is absent at sign-off the reference is frozen as `undefined` and the sell returns
-    // cannot_assess. frozen_iv_valuation_version is the sign-off valuation provenance.
-    const assumedGrowth = researchCase.valuation?.verdict_state?.band_high
-    const frozenOePs = researchCase.valuation?.normalized_owner_earnings_per_share
-    const hasFrozenReference = assumedGrowth !== undefined && frozenOePs !== undefined
+    // E2: FREEZE the BOOK intrinsic value at sign-off — the computed FCF reference the method margins
+    // off, snapshotted verbatim (no recompute, no owner-earnings derive). The lightened valuation-
+    // inverted SELL is a LIGHT price-vs-this-reference sanity FLAG (advisory; the human decides).
+    // FAIL-CLOSED: an unpriced case freezes `undefined` and the sell returns cannot_assess. Legacy
+    // events keep their persisted OE-derived references (read-only).
+    const frozenIntrinsicValue = researchCase.valuation?.intrinsic_value_per_share
+    const hasFrozenReference = frozenIntrinsicValue !== undefined
 
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
@@ -1147,10 +1205,7 @@ export async function promoteResearchCaseToWatchlist(
       thesis_summary: thesisSummary,
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      ...(frozenOePs === undefined ? {} : { frozen_oe_ps: frozenOePs }),
-      // The sign-off assumed growth feeds the REFERENCE FV derivation inside confirmWatchlistDraft (not
-      // persisted; a derivation input only).
-      ...(assumedGrowth === undefined ? {} : { assumed_growth: assumedGrowth }),
+      ...(frozenIntrinsicValue === undefined ? {} : { frozen_reference_fair_value: frozenIntrinsicValue }),
       // The version provenance is the sign-off valuation provenance; recorded whenever the reference can be
       // derived.
       ...(hasFrozenReference ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),
@@ -1408,10 +1463,10 @@ export type RunReReviewDeps = {
 }
 
 export type RunReReviewOutcome =
-  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger; new_annual_filing?: FilingRef }
   | { status: 'no_recorded_thesis' }
   | { status: 'no_prior_corpus' }
-  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger; new_annual_filing?: FilingRef }
   | { status: 'fundamentals_unresolved' }
 
 /**
@@ -1474,8 +1529,44 @@ export async function runResearchCaseReReview(
     // A threshold-meeting insider-selling cluster (§3.3) is a STRONG signal in its own right — surface it
     // even when there are no new conventional filings, rather than silently reporting "no new filings".
     const insiderCluster = check.insider_cluster?.meets_threshold === true ? check.insider_cluster : undefined
+    // 10-K CADENCE (owner-approved 2026-07-14): a new ANNUAL filing resets everything the valuation
+    // stands on — the check-in is the wrong tool for it. Record a deterministic zero-spend detection
+    // OBSERVATION (idempotent per filing) so the monitor raises "full re-analysis recommended" with
+    // the one-click superseding re-run. Never auto-runs — the re-run spend stays user-authored.
+    const annual = check.new_annual_filing
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      await store.append({
+        event_id: `evt_annual_filing_${researchCaseId}_${formSlug}_${annual.filed}`,
+        event_type: 'research_case_annual_filing_detected',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        correlation_id: researchCaseId,
+        causation_id: researchCaseId,
+        actor_type: 'system',
+        actor_id: 'research_workflow',
+        payload: {
+          research_case_id: researchCaseId,
+          ticker,
+          form: annual.form,
+          filed: annual.filed,
+          url: annual.url,
+          checked_at: check.checked_at,
+          is_observation: true,
+        },
+        source_ids: [],
+        created_at: check.checked_at,
+        schema_version: 1,
+        idempotency_key: `annual_filing_${researchCaseId}_${formSlug}_${annual.filed}`,
+      })
+    }
     if (check.new_filings.length === 0) {
-      return { status: 'no_new_filings', checked_at: check.checked_at, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
+      return {
+        status: 'no_new_filings',
+        checked_at: check.checked_at,
+        ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }),
+        ...(annual === undefined ? {} : { new_annual_filing: annual }),
+      }
     }
 
     const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
@@ -1487,237 +1578,23 @@ export async function runResearchCaseReReview(
       check,
     }, deps.ground === undefined ? {} : { ground: deps.ground })
 
-    return { status: 'recorded', re_review: recorded.payload, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
+    return {
+      status: 'recorded',
+      re_review: recorded.payload,
+      ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }),
+      ...(annual === undefined ? {} : { new_annual_filing: annual }),
+    }
   } finally {
     store.close()
   }
 }
-
-/**
- * Dependency surface for the on-demand sizing recommendation (Phase 5 S7). Lets the route test inject a
- * fixture price + fundamentals (offline) while the live path resolves fresh SEC EDGAR + Yahoo data.
- */
-export type RecordSizingRecommendationDeps = {
-  /** Pre-resolved fundamentals (test fixture). Takes precedence over the live resolver. */
-  fundamentals?: Fundamentals
-  /** Override the current-price resolver (test fixture). Defaults to the live Yahoo adapter. */
-  resolvePrice?: (ticker: string) => Promise<PriceQuote>
-}
-
-export type RecordSizingRecommendationOutcome =
-  | { status: 'complete'; sizing_recommendation_id: string; recommendation: Record<string, unknown> }
-  | { status: 'not_a_sizing_candidate'; reason: string }
-
-const RISK_LEVELS = new Set(['low', 'medium', 'high'])
 
 function asRiskLevel(value: string | undefined): 'low' | 'medium' | 'high' | undefined {
-  return value !== undefined && RISK_LEVELS.has(value) ? (value as 'low' | 'medium' | 'high') : undefined
+  return value === 'low' || value === 'medium' || value === 'high' ? value : undefined
 }
 
-const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly'])
-
-/**
- * Compute + persist the SIZING recommendation for a research case ON-DEMAND (Phase 5 S7).
- *
- * This is the LIVE wiring that composes the S6 assembler (computeSizingRecommendation) into the
- * watched→held flow. It reads everything FRESH at call time:
- *   - the case FRESH from the ledger (the persisted admit recommendation = the S2 downside floor + its
- *     basis/reliability, the permanent-loss / uncertainty risk levels, the buy-below; valuation.moat_class),
- *   - the FRESH market price (the entry price + the candidate's owner-earnings yield via screenCheapness),
- *   - the user-set investable_capital, the accounting NAV (the S3/S4 BOOK-IMPAIRMENT denominator), the
- *     held book (the S4 cluster aggregation), and the savings config (the S5 deployment hurdle), then
- *   - emits ONE `sizing_recommendation_recorded` OBSERVATION (content-hash idempotency, like admit).
- *
- * It does NOT open the holding — openHoldingFromWatchlist stays human-authored/signed (the irreversible
- * boundary). Fail-closed: a non-candidate (no floor / not gate-passing / no buy-below / no price) is
- * surfaced, never a fabricated size. The newest recorded recommendation wins in the projection.
- */
-export async function recordSizingRecommendation(
-  state: OnboardingState,
-  researchCaseId: string,
-  deps: RecordSizingRecommendationDeps = {},
-): Promise<RecordSizingRecommendationOutcome> {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    const events = await store.list()
-    const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === researchCaseId)
-    if (researchCase === undefined) {
-      throw new Error(`Unknown research case: ${researchCaseId}`)
-    }
-
-    const ticker = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
-
-    // A sizing recommendation is only meaningful for a gate-passing admittable name with a locked
-    // buy-below + a recorded admit recommendation (which carries the S2 floor + risk levels). Gate the
-    // candidate from the projection BEFORE any fresh data fetch (a non-candidate spends zero feed reads).
-    const moatClassRaw = researchCase.valuation?.moat_class
-    const moatClass = moatClassRaw as MoatClass | undefined
-    if (moatClass === undefined || !INVESTABLE_MOAT_CLASSES.has(moatClass)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: `sizing is only live for a wide/monopoly-moat candidate (moat: ${moatClassRaw ?? 'unknown'}).`,
-      }
-    }
-    const admit = researchCase.admit_recommendation
-    if (admit === undefined) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'no admit recommendation recorded yet — run the admit judgment first (it carries the downside floor + risk levels sizing reads).',
-      }
-    }
-    const buyBelow = admit.buy_below ?? researchCase.valuation?.buy_price_per_share
-    if (buyBelow === undefined || !(buyBelow > 0)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'no locked buy-below price — sizing needs the entry price the ladder is laddered against.',
-      }
-    }
-    const permanentLossLevel = asRiskLevel(admit.permanent_loss_risk?.level)
-    const uncertaintyLevel = asRiskLevel(admit.uncertainty?.level)
-    if (permanentLossLevel === undefined || uncertaintyLevel === undefined) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: 'admit recommendation is missing the permanent-loss / uncertainty risk levels conviction reads.',
-      }
-    }
-
-    // The S2 floor read OFF the persisted admit recommendation (never recomputed). cannot_floor → the
-    // assembler fail-closes to cannot_size (the permanent-loss cap binds on a concrete floor, not a guess).
-    const downsideFloor: PersistedDownsideFloor =
-      admit.downside_floor_per_share !== undefined
-        && (admit.downside_floor_basis === 'net_cash' || admit.downside_floor_basis === 'stressed_book')
-        ? {
-            downside_floor_per_share: admit.downside_floor_per_share,
-            downside_floor_basis: admit.downside_floor_basis,
-            downside_floor_reliability: (admit.downside_floor_reliability ?? 'qualified') as 'sound' | 'qualified' | 'unreliable',
-          }
-        : { cannot_floor: true }
-
-    // FRESH price → the entry price + the candidate's owner-earnings yield (the S5 deployment hurdle input).
-    const fundamentals = deps.fundamentals ?? await resolveFundamentalsFreshForAdmit(ticker)
-    const resolvePrice = deps.resolvePrice ?? ((t: string) => resolveCurrentPrice({ ticker: t }))
-    let freshPrice: number | undefined
-    try {
-      const quote = await resolvePrice(ticker)
-      if (quote.available) freshPrice = quote.price_per_share
-    } catch {
-      freshPrice = undefined
-    }
-    if (freshPrice === undefined || !(freshPrice > 0)) {
-      return {
-        status: 'not_a_sizing_candidate',
-        reason: `cannot size ${ticker}: no fresh market price resolved (the entry price + OE yield are not computable).`,
-      }
-    }
-
-    // Candidate owner-earnings yield FRESH (screenCheapness over fresh fundamentals + fresh price). When
-    // fundamentals are unavailable the yield is 0 → the deployment hurdle does not clear → hold_in_savings
-    // (the CORRECT fail-closed posture), never a fabricated yield.
-    let ownerEarningsYield = 0
-    if (fundamentals !== undefined) {
-      const dilutedShares = fundamentals.latest_annual.diluted_shares_m
-      if (dilutedShares !== undefined && dilutedShares > 0) {
-        const cheap = screenCheapness({
-          fundamentals,
-          market_cap_musd: freshPrice * dilutedShares,
-          gate_passing: true,
-        })
-        ownerEarningsYield = cheap.owner_earnings_yield ?? 0
-      }
-    }
-
-    // Investable capital (the conviction TARGET + deployment-cap denominator) + accounting NAV (the
-    // S3/S4 BOOK-IMPAIRMENT denominator — NEVER crossed with investable) + the held book (S4 cluster).
-    const investableSnapshot = projectInvestableCapital(events)
-    const investable = investableSnapshot?.amount ?? 0
-    const currency = investableSnapshot?.currency ?? 'USD'
-    const nowIso = new Date().toISOString()
-    const accounting = projectAccountingSnapshot(events, {
-      snapshot_id: `sizing-asof-${researchCaseId}`,
-      period_start: '0000-01-01',
-      period_end: nowIso.slice(0, 10),
-      currency,
-      recorded_at: nowIso,
-    })
-    const bookNav = accounting.nav
-    const heldBook: ClusteredPosition[] = projectHoldings(events)
-      .filter((holding) => holding.currency === currency && holding.ticker !== undefined && holding.ticker !== ticker)
-      .map((holding) => ({
-        ticker: holding.ticker as string,
-        entry_price_per_share: holding.cost_basis_per_share,
-        position_value: holding.latest_market_value ?? holding.total_cost_basis,
-      }))
-
-    // The verified source corpus the recommendation is grounded to = the case's accumulated source_ids.
-    const timeline = projectResearchCaseTimeline(events, researchCaseId)
-    const corpusSourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
-
-    const savings = state.config.savings
-    const savingsRate = savings?.savings_expected_profit_rate ?? 0
-    const equityRiskMargin = savings?.equity_risk_margin ?? 0
-
-    const result: SizingAssessmentResult = computeSizingRecommendation({
-      candidate: {
-        ticker,
-        moat_class: moatClass,
-        permanent_loss_level: permanentLossLevel,
-        uncertainty_level: uncertaintyLevel,
-        entry_price_per_share: buyBelow,
-        owner_earnings_yield: ownerEarningsYield,
-      },
-      downside_floor: downsideFloor,
-      held_book: heldBook,
-      book_nav: bookNav,
-      investable_capital: investable,
-      savings_expected_profit_rate: savingsRate,
-      equity_risk_margin: equityRiskMargin,
-      buy_price_version: SIZING_PARAMS.version,
-    })
-
-    // Build the persisted payload. Idempotency keyed on case + the recommendation CONTENT (an identical
-    // recompute converges to one event; a changed recompute appends — newest wins in the projection).
-    const payloadCore = buildSizingPayloadCore(result)
-    const contentHash = createHash('sha256').update(JSON.stringify(payloadCore)).digest('hex').slice(0, 16)
-    const sizingRecommendationId = `sizing_${researchCaseId.replace(/^rc_/, '')}_${contentHash}`
-
-    const event: LedgerEventEnvelope<unknown> = {
-      event_id: `evt_sizing_recommendation_recorded_${sizingRecommendationId}`,
-      event_type: 'sizing_recommendation_recorded',
-      aggregate_type: 'research_case',
-      aggregate_id: researchCaseId,
-      correlation_id: researchCaseId,
-      actor_type: 'provider',
-      actor_id: state.config.provider.provider_id,
-      payload: {
-        sizing_recommendation_id: sizingRecommendationId,
-        research_case_id: researchCaseId,
-        ticker,
-        ...payloadCore,
-        // Worker/agent OBSERVATION discipline: this is an observation, NOT a recommendation to ACT, and it
-        // NEVER opens a holding — the buy stays the human-signed openHoldingFromWatchlist transition.
-        is_observation: true,
-        is_recommendation: false,
-      },
-      source_ids: corpusSourceIds,
-      created_at: nowIso,
-      schema_version: 1,
-      idempotency_key: `sizing-recommendation:${researchCaseId}:${contentHash}`,
-    }
-    await store.append(event)
-
-    return {
-      status: 'complete',
-      sizing_recommendation_id: sizingRecommendationId,
-      recommendation: event.payload as Record<string, unknown>,
-    }
-  } finally {
-    store.close()
-  }
-}
+// SCALE-DOWN S1 (owner-locked 2026-07-13): the on-demand sizing recommendation is REMOVED —
+// zones tell you when; the size is yours. Legacy sizing_recommendation events stay readable.
 
 // ---------------------------------------------------------------------------
 // Phase 6 S8a — the ON-DEMAND SELL DECISION (recordSellDecision).
@@ -1999,30 +1876,6 @@ export async function recordSellDecision(
   }
 }
 
-/** Flatten the S6 assembler result into the persisted payload core (status + size fields or reason). */
-function buildSizingPayloadCore(result: SizingAssessmentResult): Record<string, unknown> {
-  if (result.status === 'sizeable') {
-    const rec = result.recommendation
-    return {
-      status: 'sizeable' as const,
-      conviction_factor: rec.conviction_factor,
-      target_weight: rec.target_weight,
-      sizeable_value: rec.sizeable_value,
-      binding_constraint: rec.binding_constraint,
-      worst_case: rec.worst_case,
-      ladder: rec.ladder,
-      caveats: rec.caveats,
-    }
-  }
-  if (result.status === 'hold_in_savings') {
-    return {
-      status: 'hold_in_savings' as const,
-      reason: result.reason,
-      ...(result.expected_savings_return === undefined ? {} : { expected_savings_return: result.expected_savings_return }),
-    }
-  }
-  return { status: 'cannot_size' as const, reason: result.reason }
-}
 
 /** Resolve fundamentals fresh for the admit screen — fail-closed (undefined) on any error / offline. */
 async function resolveFundamentalsFreshForAdmit(ticker: string): Promise<Fundamentals | undefined> {
@@ -2137,166 +1990,6 @@ export async function recordPersonalHoldingValuation(
   }
 }
 
-export async function createPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    const holding = projectHoldings(await store.list()).find((candidate) => candidate.holding_id === holdingId)
-    if (holding === undefined) {
-      throw new Error(`Unknown holding: ${holdingId}`)
-    }
-
-    const reviewId = `review_${holding.holding_id}_${Date.now()}`
-    await assertConfiguredProviderIsReady(state)
-    const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
-    return await draftHoldingReview(store, provider, {
-      review_id: reviewId,
-      holding_id: holding.holding_id,
-      model_id: resolveModelIdForProvider(state.config),
-      causation_id: holding.latest_review_id === undefined
-        ? `evt_holding_opened_${holding.holding_id}`
-        : `evt_holding_review_confirmed_${holding.latest_review_id}`,
-      idempotency_key: `holding:${holding.holding_id}:review:${reviewId}:draft`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-export async function confirmPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  cognitiveAcknowledged = false,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    // AUDIT-AND-DECIDE (re-underwrite confirm): the SERVER marshals the business findings — one finding per
-    // business item, a PURE read of the HELD name's research-case projection — so a finding can never be
-    // authored or spoofed by the client. The human posts only their single cognitive acknowledgement. The
-    // COMPLETION-BLOCK still lives in confirmHoldingReviewDraft (throw-before-append): every business item
-    // must carry a non-empty finding AND `cognitive_acknowledged` must be true. Decision-NEUTRAL: no score/count.
-    const checklistAudit: ChecklistAudit = {
-      version: CHECKLIST_PARAMS.version,
-      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
-      cognitive_acknowledged: cognitiveAcknowledged,
-    }
-
-    return await confirmHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      checklist_audit: checklistAudit,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:confirm`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-/**
- * Resolve the research-case projection for a holding's re-underwrite so the server can marshal the business
- * findings (audit-and-decide). Prefers the holding's own linked case, falling back to the latest
- * non-superseded case for the same ticker — mirroring the portfolio loader. PURE read; no engine call.
- * Returns undefined when no case is found, in which case resolveBusinessFindings yields honest fallbacks.
- */
-async function resolveHoldingResearchCase(
-  store: EventStore,
-  holdingId: string,
-): Promise<ResearchCaseProjection | undefined> {
-  const events = await store.list()
-  const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
-  if (holding === undefined) {
-    return undefined
-  }
-  const linkedCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === holding.research_case_id)
-  if (linkedCase?.valuation?.buy_price_per_share !== undefined) {
-    return linkedCase
-  }
-  const fallback = holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)
-  return fallback ?? linkedCase
-}
-
-export async function overridePersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  input: OverridePersonalHoldingReviewInput,
-  cognitiveAcknowledged = false,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const override = parseHoldingReviewOverrideInput(input)
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    // AUDIT-AND-DECIDE (re-underwrite override): the override is the co-equal twin of confirm — it writes the
-    // SAME confirmed thesis state, so it is gated on the SAME server-marshaled audit. The SERVER marshals the
-    // business findings (a PURE read of the held name's projection); the human authors their substitute
-    // thesis fields + posts the single cognitive acknowledgement. The COMPLETION-BLOCK lives in
-    // overrideHoldingReviewDraft (throw-before-append). Gating only confirm would reopen the gap S3 closed.
-    const checklistAudit: ChecklistAudit = {
-      version: CHECKLIST_PARAMS.version,
-      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
-      cognitive_acknowledged: cognitiveAcknowledged,
-    }
-
-    return await overrideHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      thesis_health: override.thesis_health,
-      action_stance: override.action_stance,
-      rationale: override.rationale,
-      evidence_summary: override.evidence_summary,
-      uncertainty: override.uncertainty,
-      next_review_at: override.next_review_at,
-      checklist_audit: checklistAudit,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:override`,
-    })
-  } finally {
-    store.close()
-  }
-}
-
-export async function rejectPersonalHoldingReviewDraft(
-  state: OnboardingState,
-  holdingId: string,
-  reviewId: string,
-  input: RejectPersonalHoldingReviewInput,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const rejectionReason = parseRequiredText(input.rejection_reason, 'Rejection reason')
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    return await rejectHoldingReviewDraft(store, {
-      review_id: reviewId,
-      holding_id: holdingId,
-      causation_id: `evt_holding_review_drafted_${reviewId}`,
-      actor_id: 'user_local',
-      rejection_reason: rejectionReason,
-      idempotency_key: `holding:${holdingId}:review:${reviewId}:reject`,
-    })
-  } finally {
-    store.close()
-  }
-}
 
 export type SetInvestableCapitalInput = {
   amount?: FormDataEntryValue | number | string | null
@@ -2419,45 +2112,7 @@ function parseHoldingValuationInput(input: RecordPersonalHoldingValuationInput, 
   }
 }
 
-function parseHoldingReviewOverrideInput(input: OverridePersonalHoldingReviewInput): {
-  thesis_health: 'HEALTHY' | 'WATCH' | 'IMPAIRED' | 'EXIT_CANDIDATE'
-  action_stance: 'HOLD' | 'ADD_ON_PULLBACK' | 'REDUCE' | 'EXIT_REVIEW_NEEDED' | 'RESEARCH_MORE'
-  rationale: string
-  evidence_summary: string
-  uncertainty: string
-  next_review_at: string
-} {
-  const thesisHealth = parseRequiredText(input.thesis_health, 'Override thesis health')
-  const actionStance = parseRequiredText(input.action_stance, 'Override action stance')
-  const nextReviewAt = parseRequiredText(input.next_review_at, 'Override next review date')
 
-  if (!['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE'].includes(thesisHealth)) {
-    throw new Error('Override thesis health is invalid')
-  }
-  if (!['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE'].includes(actionStance)) {
-    throw new Error('Override action stance is invalid')
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextReviewAt)) {
-    throw new Error('Override next review date must use YYYY-MM-DD format')
-  }
-
-  return {
-    thesis_health: thesisHealth as 'HEALTHY' | 'WATCH' | 'IMPAIRED' | 'EXIT_CANDIDATE',
-    action_stance: actionStance as 'HOLD' | 'ADD_ON_PULLBACK' | 'REDUCE' | 'EXIT_REVIEW_NEEDED' | 'RESEARCH_MORE',
-    rationale: parseRequiredText(input.rationale, 'Override rationale'),
-    evidence_summary: parseRequiredText(input.evidence_summary, 'Override evidence summary'),
-    uncertainty: parseRequiredText(input.uncertainty, 'Override uncertainty'),
-    next_review_at: nextReviewAt,
-  }
-}
-
-function parseRequiredText(value: FormDataEntryValue | string | null | undefined, label: string): string {
-  const parsed = String(value ?? '').trim()
-  if (parsed.length === 0) {
-    throw new Error(`${label} is required`)
-  }
-  return parsed
-}
 
 function parseRequiredNumber(value: FormDataEntryValue | number | string | null | undefined, label: string): number {
   const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim())
@@ -2604,6 +2259,97 @@ function strategyLabelFor(item: Pick<ResearchCaseProjection, 'strategy_id' | 'st
 
 function sortPipelineItems(items: AppResearchPipelineItem[]): AppResearchPipelineItem[] {
   return [...items].sort((left, right) => left.label.localeCompare(right.label))
+}
+
+/**
+ * Remove a name from the watchlist (the human-authored prune — watchlist_item_pruned). The item
+ * leaves every active view; the raw events remain the audit record. A held name cannot be pruned —
+ * close the holding first (the position is the stronger commitment).
+ */
+export async function removePersonalWatchlistItem(
+  state: OnboardingState,
+  watchlistItemId: string,
+  input: { reason?: unknown } = {},
+) {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const reason = typeof input.reason === 'string' && input.reason.trim().length > 0
+    ? input.reason.trim()
+    : 'Removed from the watchlist by the user.'
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const item = buildPersonalWatchlistItems(events).find((candidate) => candidate.watchlist_item_id === watchlistItemId)
+    if (item === undefined) {
+      throw new Error(`Unknown watchlist item: ${watchlistItemId}`)
+    }
+    if (item.holding_id !== undefined) {
+      throw new Error(`Watchlist item is held: close the holding before removing ${watchlistItemId}`)
+    }
+    return await pruneWatchlistItem(store, {
+      watchlist_item_id: watchlistItemId,
+      ticker: item.ticker ?? item.company_id ?? watchlistItemId,
+      ...(item.research_case_id === undefined ? {} : { research_case_id: item.research_case_id }),
+      reason,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      idempotency_key: `watchlist:${watchlistItemId}:prune:v1`,
+    })
+  } finally {
+    store.close()
+  }
+}
+
+const CLOSE_REASON_CODES = new Set(['thesis_broken', 'valuation_inverted', 'better_opportunity_under_constraint', 'original_mistake', 'minimum_hold_released', 'unresolvable_shariah_breach'])
+
+/**
+ * Close a holding (the human-authored, irreversible exit — holding_closed). The position leaves
+ * every active view (and its watchlist item returns to plain watching); the raw events + any
+ * post-mortem remain the audit record.
+ */
+export async function closePersonalHolding(
+  state: OnboardingState,
+  holdingId: string,
+  input: { exit_price_per_share?: unknown; closed_at?: unknown; reason_code?: unknown; message?: unknown } = {},
+) {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const exitPrice = Number(input.exit_price_per_share)
+  if (!Number.isFinite(exitPrice) || exitPrice < 0) {
+    throw new Error('Exit price per share must be a non-negative number')
+  }
+  const reasonCode = typeof input.reason_code === 'string' && CLOSE_REASON_CODES.has(input.reason_code)
+    ? input.reason_code as 'thesis_broken' | 'valuation_inverted' | 'better_opportunity_under_constraint' | 'original_mistake' | 'minimum_hold_released' | 'unresolvable_shariah_breach'
+    : undefined
+  if (reasonCode === undefined) {
+    throw new Error('Close reason is required (pick one of the sell-discipline reasons)')
+  }
+  const closedAt = typeof input.closed_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.closed_at) ? input.closed_at : undefined
+  const message = typeof input.message === 'string' && input.message.trim().length > 0 ? input.message.trim() : undefined
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
+    if (holding === undefined) {
+      throw new Error(`Unknown holding: ${holdingId}`)
+    }
+    return await closeHolding(store, {
+      holding_id: holdingId,
+      exit_price_per_share: exitPrice,
+      reason_code: reasonCode,
+      ...(closedAt === undefined ? {} : { closed_at: closedAt }),
+      ...(message === undefined ? {} : { message }),
+      actor_type: 'user',
+      actor_id: 'user_local',
+      idempotency_key: `holding:${holdingId}:close:v1`,
+    })
+  } finally {
+    store.close()
+  }
 }
 
 function buildPersonalWatchlistItems(events: Awaited<ReturnType<EventStore['list']>>): AppWatchlistItem[] {

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
-import type { CertificationReport } from '@owlfolio/providers'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import {
@@ -21,18 +20,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { resolveAppConfigPath } from '../appConfigStore'
 import {
-  confirmPersonalHoldingReviewDraft,
-  createPersonalHoldingReviewDraft,
   enqueueResearchRun,
   getAppHoldingsFromStore,
   getAppResearchCaseFromStore,
   getAppResearchPipelineFromStore,
   getAppWatchlistItemsFromStore,
   openPersonalHoldingFromWatchlist,
-  overridePersonalHoldingReviewDraft,
   promoteResearchCaseToWatchlist,
   recordPersonalHoldingValuation,
-  rejectPersonalHoldingReviewDraft,
   requestDeepDiveRun,
   buildAdmitVerifiedCitationSet,
   resolveResearchCaseView,
@@ -567,22 +562,7 @@ describe('workflow helpers', () => {
       currency: 'USD',
       valued_at: '2026-06-01',
     })
-    const reviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
-    const reviewConfirmation = await confirmPersonalHoldingReviewDraft(state, openedHolding.holding_id, reviewDraft.review_id, true)
-    const secondReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
-    const reviewOverride = await overridePersonalHoldingReviewDraft(state, openedHolding.holding_id, secondReviewDraft.review_id, {
-      thesis_health: 'WATCH',
-      action_stance: 'RESEARCH_MORE',
-      rationale: 'User override: valuation requires another evidence pass before adding.',
-      evidence_summary: 'Compared provider draft to the manual valuation snapshot and original thesis.',
-      uncertainty: 'Need updated Shariah ratio review and concentration check.',
-      next_review_at: '2026-10-31',
-    }, true)
-    const rejectedReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
-    const reviewRejection = await rejectPersonalHoldingReviewDraft(state, openedHolding.holding_id, rejectedReviewDraft.review_id, {
-      rejection_reason: 'Reject stale draft after override; wait for new evidence.',
-    })
-
+    // REVIEW RETIRED (owner, 2026-07-14): the drafted holding review + attestation chain is gone.
     const store = new SQLiteEventStore(ledgerPath)
     try {
       expect(promoted).toMatchObject({
@@ -623,47 +603,6 @@ describe('workflow helpers', () => {
         valued_by_actor_type: 'user',
         valued_by_actor_id: 'user_local',
       })
-      expect(reviewDraft).toMatchObject({
-        holding_id: openedHolding.holding_id,
-        ticker: 'MSFT',
-        strategy_id: 'buffett-munger',
-        thesis_health: 'HEALTHY',
-        action_stance: 'HOLD',
-        user_approved: false,
-        reviewed_by_actor_type: 'provider',
-        reviewed_by_actor_id: 'mock-provider',
-        next_review_at: '2026-09-30',
-      })
-      expect(reviewConfirmation).toMatchObject({
-        review_id: reviewDraft.review_id,
-        holding_id: openedHolding.holding_id,
-        thesis_health: 'HEALTHY',
-        action_stance: 'HOLD',
-        user_approved: true,
-        confirmed_by_actor_type: 'user',
-        confirmed_by_actor_id: 'user_local',
-        next_review_at: '2026-09-30',
-      })
-      expect(reviewOverride).toMatchObject({
-        review_id: secondReviewDraft.review_id,
-        holding_id: openedHolding.holding_id,
-        thesis_health: 'WATCH',
-        action_stance: 'RESEARCH_MORE',
-        rationale: 'User override: valuation requires another evidence pass before adding.',
-        user_approved: true,
-        user_overrode_provider: true,
-        overridden_by_actor_type: 'user',
-        overridden_by_actor_id: 'user_local',
-        next_review_at: '2026-10-31',
-      })
-      expect(reviewRejection).toMatchObject({
-        review_id: rejectedReviewDraft.review_id,
-        holding_id: openedHolding.holding_id,
-        user_approved: false,
-        rejected_by_actor_type: 'user',
-        rejected_by_actor_id: 'user_local',
-        rejection_reason: 'Reject stale draft after override; wait for new evidence.',
-      })
       const watchlistItems = await getAppWatchlistItemsFromStore(store, 'personal-local')
       expect(watchlistItems).toHaveLength(1)
       expect(watchlistItems[0]).toMatchObject({
@@ -692,13 +631,6 @@ describe('workflow helpers', () => {
           unrealized_gain_loss: 284.7,
           unrealized_gain_loss_percent: 10.78,
           portfolio_weight: 100,
-          latest_review_id: secondReviewDraft.review_id,
-          thesis_health: 'WATCH',
-          action_stance: 'RESEARCH_MORE',
-          latest_review_rationale: 'User override: valuation requires another evidence pass before adding.',
-          latest_review_evidence_summary: 'Compared provider draft to the manual valuation snapshot and original thesis.',
-          latest_review_uncertainty: 'Need updated Shariah ratio review and concentration check.',
-          next_review_at: '2026-10-31',
           shariah_gate_status: 'COMPLIANT',
           shariah_gate_allowed: true,
           shariah_required_source_ids: ['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'],
@@ -825,67 +757,6 @@ describe('workflow helpers', () => {
       expect(promoted.watchlist_item_id).toMatch(/^watch_msft_/)
     } finally {
       store.close()
-    }
-  })
-
-  it('rejects provider-authored holding review drafts when the latest certification report is unsupported', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-holding-review-unsupported-provider-'))
-    dirs.push(projectDir)
-    const reportDir = join(projectDir, 'data', 'provider-certifications')
-    await mkdir(reportDir, { recursive: true })
-    await writeFile(join(reportDir, 'openrouter.latest.json'), JSON.stringify(unsupportedCompletedReport('openrouter')), 'utf8')
-
-    const previousCertificationDir = process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
-    const previousAnthropicKey = process.env.ANTHROPIC_API_KEY
-    process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR = reportDir
-    process.env.ANTHROPIC_API_KEY = 'credential-file-exists-but-live-certification-failed'
-
-    try {
-      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
-      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
-      const state = {
-        config: {
-          ...defaultPersonalLocalAppConfig(),
-          provider: {
-            provider_id: 'mock-provider' as const,
-            support_level: 'certified' as const,
-            model_id: 'mock-buffett-munger-demo',
-          },
-          initialized_at: '2026-06-02T12:00:00.000Z',
-          ledger_path: ledgerPath,
-          source_ledger_path: sourceLedgerPath,
-        },
-        is_initialized: true,
-      }
-
-      const created = await setupMsftResearchCaseInLedger(ledgerPath)
-      const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
-      const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id)
-      const unsupportedProviderState = {
-        ...state,
-        config: {
-          ...state.config,
-          provider: {
-            provider_id: 'openrouter' as const,
-            support_level: 'experimental' as const,
-            model_id: 'claude-sonnet-4',
-          },
-        },
-      }
-
-      await expect(createPersonalHoldingReviewDraft(unsupportedProviderState, openedHolding.holding_id))
-        .rejects.toThrow('Provider openrouter is not ready: 0/13 scenarios passed; provider support level is unsupported.')
-    } finally {
-      if (previousCertificationDir === undefined) {
-        delete process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
-      } else {
-        process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR = previousCertificationDir
-      }
-      if (previousAnthropicKey === undefined) {
-        delete process.env.ANTHROPIC_API_KEY
-      } else {
-        process.env.ANTHROPIC_API_KEY = previousAnthropicKey
-      }
     }
   })
 
@@ -1665,41 +1536,6 @@ describe('workflow helpers', () => {
   })
 })
 
-function unsupportedCompletedReport(providerId: 'openrouter' | 'openai-api'): CertificationReport {
-  return {
-    certification_report_id: `cert_${providerId}_unsupported_completed`,
-    provider_id: providerId,
-    target: {
-      provider_surface_id: providerId === 'openrouter' ? 'openrouter-api' : 'openai-api',
-      vendor_id: providerId === 'openrouter' ? 'openrouter' : 'openai',
-      runtime_kind: 'direct_api',
-      auth_mode: 'api_key',
-      model_id: providerId === 'openrouter' ? 'openrouter/auto' : 'gpt-5.5',
-      workflow_role: 'research_draft',
-      schema_version: 1,
-    },
-    run_status: 'completed',
-    support_level: 'unsupported',
-    generated_at: '2026-06-02T00:00:00.000Z',
-    capabilities: {
-      'text-generation': 'native',
-      'structured-output': 'native',
-      'tool-function-calling': 'unsupported',
-      'streaming-observability': 'adapter',
-      'multi-step-tool-loop': 'unsupported',
-      'source-grounding': 'adapter',
-      'citation-metadata': 'adapter',
-      'url-context': 'unsupported',
-      'file-context': 'adapter',
-      'source-bundle-production': 'adapter',
-      'code-execution': 'unsupported',
-      'computer-use': 'unsupported',
-      'browser-use': 'unsupported',
-    },
-    cases: [],
-    summary: '0/13 scenarios passed; provider support level is unsupported.',
-  }
-}
 
 /**
  * Sets up a minimal MSFT research case directly in the SQLite ledger at ledgerPath,

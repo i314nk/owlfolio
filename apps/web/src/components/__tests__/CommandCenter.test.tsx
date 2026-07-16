@@ -37,7 +37,6 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
     },
     next_recommended_action: 'Open latest research case',
     approval_queue: [],
-    holding_review_prompts: [],
     recent_activity: [],
     monitor_alerts: [],
     discovery_signals: [],
@@ -60,10 +59,8 @@ describe('AppNavigation', () => {
     expect(html).toContain('Watchlist')
     expect(html).toContain('href="/portfolio"')
     expect(html).toContain('Portfolio')
-    expect(html).toContain('href="/accounting/monthly"')
-    expect(html).toContain('Accounting')
-    expect(html).toContain('href="/purification"')
-    expect(html).toContain('Purification')
+    // SCALE-DOWN S2: the Accounting nav entry is removed.
+    expect(html).not.toContain('Accounting')
     expect(html).toContain('href="/audit"')
     expect(html).toContain('Audit')
     expect(html).toContain('href="/audit?focus=1"')
@@ -232,7 +229,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Open research cockpit')
       expect(html).toContain('href="/settings/providers"')
       expect(html).toContain('Operating ledger is empty')
-      expect(html).toContain('No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
+      expect(html).toContain('No research, watchlist, or holding activity has been recorded yet.')
     } finally {
       store.close()
     }
@@ -352,44 +349,22 @@ describe('CommandCenter', () => {
           pending_user_actions: 2,
         },
         next_recommended_action: 'COST is a legacy unconfirmed watchlist draft — re-admit from research',
-        holding_review_prompts: [
-          {
-            holding_id: 'holding_msft_001',
-            label: 'MSFT',
-            next_review_at: '2026-05-31',
-            status: 'due',
-            days_until_review: -2,
-          },
-        ],
-        accounting_alert: {
-          label: 'Monthly accounting report',
-          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
-          href: '/accounting/monthly',
-        },
         secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
       }),
     }))
 
     const pendingIndex = html.indexOf('Review pending watchlist drafts')
     const providerIndex = html.indexOf('Finish local assistant setup')
-    const reviewIndex = html.indexOf('Run due holding review')
-    const accountingIndex = html.indexOf('Review monthly accounting')
-    const purificationIndex = html.indexOf('Check purification obligations')
 
     expect(html).toContain('Next action queue')
     expect(html).toContain('2 drafts need explicit user confirmation before monitoring or portfolio actions.')
     expect(html).toContain('href="/watchlist"')
     expect(html).toContain('Finish local assistant setup')
     expect(html).toContain('href="/settings/providers"')
-    expect(html).toContain('MSFT is 2 days overdue')
-    expect(html).toContain('href="/portfolio#holding_msft_001"')
-    expect(html).toContain('June 2026 NAV: $2,925.00; 0 holdings missing valuations.')
-    expect(html).toContain('href="/purification"')
+    // REVIEW RETIRED (2026-07-14): no review-schedule card; check-ins + the 10-K prompt carry the duty.
+    expect(html).not.toContain('Run due holding review')
     expect(pendingIndex).toBeGreaterThan(-1)
     expect(providerIndex).toBeGreaterThan(pendingIndex)
-    expect(reviewIndex).toBeGreaterThan(providerIndex)
-    expect(accountingIndex).toBeGreaterThan(reviewIndex)
-    expect(purificationIndex).toBeGreaterThan(accountingIndex)
   })
 
   it('orders the priority cockpit before the activity and reminder modules', () => {
@@ -402,20 +377,6 @@ describe('CommandCenter', () => {
           open_holdings: 1,
           pending_user_actions: 1,
         },
-        holding_review_prompts: [
-          {
-            holding_id: 'holding_msft_001',
-            label: 'MSFT',
-            next_review_at: '2026-10-31',
-            status: 'upcoming',
-            days_until_review: 153,
-          },
-        ],
-        accounting_alert: {
-          label: 'Monthly accounting report',
-          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
-          href: '/accounting/monthly',
-        },
         recent_activity: [{ event_id: 'evt_review_override', label: 'holding_review_overridden by user:user_local' }],
         secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
       }),
@@ -423,16 +384,12 @@ describe('CommandCenter', () => {
 
     expect(html).toContain('aria-label="Command cockpit overview"')
     expect(html).toContain('aria-label="Your research agent"')
-    expect(html).toContain('aria-label="Portfolio and compliance"')
+    // REVIEW RETIRED (2026-07-14): the "Portfolio and compliance" review-schedule module is gone.
+    expect(html).not.toContain('aria-label="Portfolio and compliance"')
     expect(html).toContain('aria-label="Ledger activity reference module"')
     // The decisions cockpit leads; the agent and the reference modules follow.
     expect(html.indexOf('aria-label="Your research agent"')).toBeGreaterThan(html.indexOf('aria-label="Command cockpit overview"'))
-    expect(html.indexOf('aria-label="Portfolio and compliance"')).toBeGreaterThan(html.indexOf('aria-label="Your research agent"'))
-    expect(html.indexOf('aria-label="Ledger activity reference module"')).toBeGreaterThan(html.indexOf('aria-label="Portfolio and compliance"'))
-    // Within Portfolio & compliance, the accounting alert sits above the review schedule.
-    expect(html.indexOf('Holding review schedule')).toBeGreaterThan(html.indexOf('Monthly accounting report'))
-    expect(html).toContain('href="/accounting/monthly"')
-    expect(html).toContain('href="/portfolio#holding_msft_001"')
+    expect(html.indexOf('aria-label="Ledger activity reference module"')).toBeGreaterThan(html.indexOf('aria-label="Your research agent"'))
   })
 
   it('renders a single clean system status row of chips', () => {
@@ -449,11 +406,6 @@ describe('CommandCenter', () => {
   it('keeps Command Center accent markup in the Wahed x Hermes palette', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
-        accounting_alert: {
-          href: '/accounting/monthly',
-          label: 'Monthly accounting report',
-          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
-        },
         recent_activity: [],
       }),
     }))
@@ -473,27 +425,6 @@ describe('CommandCenter', () => {
     expect(html).not.toContain('rgba(59, 130, 246')
     expect(html).not.toContain('rgba(96,165,250')
     expect(html).not.toContain('rgba(96, 165, 250')
-  })
-
-  it('renders a direct action card for pending holding review drafts', () => {
-    const html = renderToStaticMarkup(createElement(CommandCenter, {
-      dashboard: makeDashboard({
-        pipeline_counts: {
-          research_cases: 2,
-          watchlist_drafts: 0,
-          confirmed_watchlist_items: 0,
-          open_holdings: 1,
-          pending_user_actions: 1,
-        },
-        next_recommended_action: 'Confirm the drafted strategy review for MSFT',
-        primary_action: { href: '/portfolio', label: 'Open portfolio' },
-      }),
-    }))
-
-    expect(html).toContain('Review pending strategy review draft')
-    expect(html).toContain('Confirm, override, or reject the provider-authored draft before changing confirmed portfolio state.')
-    expect(html).toContain('href="/portfolio"')
-    expect(html).toContain('Open holding review draft')
   })
 
   it('renders a grouped approval queue with diffs, actors, evidence, and supported decisions', () => {
@@ -613,86 +544,6 @@ describe('CommandCenter', () => {
     expect(html).not.toContain('watchlist_draft_created by user:user_local')
   })
 
-  it('renders a minimal accounting report hook when an accounting alert is present', () => {
-    const html = renderToStaticMarkup(createElement(CommandCenter, {
-      dashboard: {
-        product_name: 'Owlfolio',
-        setup_status: 'Personal local mode initialized',
-        provider_status: 'Provider: Mock provider personal local mode',
-        strategy_status: 'Strategy: Buffett-Munger default',
-        shariah_status: 'Shariah: enabled by default',
-        ledger_status: 'Ledger: SQLite durable event source',
-        pipeline_counts: {
-          research_cases: 1,
-          watchlist_drafts: 0,
-          confirmed_watchlist_items: 0,
-          open_holdings: 1,
-          pending_user_actions: 0,
-        },
-        next_recommended_action: 'Next scheduled strategy review for MSFT is 2026-10-31',
-        approval_queue: [],
-        holding_review_prompts: [],
-        accounting_alert: {
-          label: 'Monthly accounting report',
-          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
-          href: '/accounting/monthly',
-        },
-        recent_activity: [{ event_id: 'evt_accounting_snapshot_2026_06', label: 'accounting_snapshot_recorded by worker:monthly-accounting-worker' }],
-        monitor_alerts: [],
-        discovery_signals: [],
-        primary_action: { href: '/portfolio', label: 'Open portfolio' },
-      },
-    }))
-
-    expect(html).toContain('Accounting')
-    expect(html).toContain('Monthly accounting report')
-    expect(html).toContain('June 2026 NAV: $2,925.00; 0 holdings missing valuations.')
-    expect(html).toContain('href="/accounting/monthly"')
-  })
-
-  it('renders a ledger-backed holding review schedule when next review prompts are available', () => {
-    const html = renderToStaticMarkup(createElement(CommandCenter, {
-      dashboard: {
-        product_name: 'Owlfolio',
-        setup_status: 'Personal local mode initialized',
-        provider_status: 'Provider: Mock provider personal local mode',
-        strategy_status: 'Strategy: Buffett-Munger default',
-        shariah_status: 'Shariah: enabled by default',
-        ledger_status: 'Ledger: SQLite durable event source',
-        pipeline_counts: {
-          research_cases: 1,
-          watchlist_drafts: 0,
-          confirmed_watchlist_items: 0,
-          open_holdings: 1,
-          pending_user_actions: 0,
-        },
-        next_recommended_action: 'Next scheduled strategy review for MSFT is 2026-10-31',
-        approval_queue: [],
-        holding_review_prompts: [
-          {
-            holding_id: 'holding_msft_001',
-            label: 'MSFT',
-            next_review_at: '2026-10-31',
-            status: 'upcoming',
-            days_until_review: 153,
-          },
-        ],
-        recent_activity: [{ event_id: 'evt_review_override', label: 'holding_review_overridden by user:user_local' }],
-        monitor_alerts: [],
-        discovery_signals: [],
-        primary_action: { href: '/portfolio', label: 'Open portfolio' },
-        secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
-      },
-    }))
-
-    expect(html).toContain('Holding review schedule')
-    expect(html).toContain('MSFT')
-    expect(html).toContain('Upcoming')
-    expect(html).toContain('Next review: 2026-10-31')
-    expect(html).toContain('153 days')
-    expect(html).toContain('href="/portfolio#holding_msft_001"')
-    expect(html).toContain('Review MSFT')
-  })
 
   it('renders the "Needs your attention" rail with a monitor alert and a discovery signal as observations/drafts', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {

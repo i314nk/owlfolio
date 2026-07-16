@@ -140,7 +140,7 @@ Runtime data is local and sensitive. Backup manifests may include ledgers, sourc
 
 ```bash
 corepack pnpm worker -- --once --dry-run --define-defaults
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 

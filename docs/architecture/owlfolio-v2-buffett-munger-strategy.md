@@ -12,7 +12,7 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 
 - **Concentrated** — up to 20 positions, maximum 15 % per position, 3 % minimum cash buffer.
 - **Quality** — investable only when the business has a durable wide economic moat and positive normalized owner earnings.
-- **Value** — buy price derived from a two-stage owner-earnings DCF at a flat savings-anchored discount rate (the user's compliant savings anchor + the uniform 5.5 % equity premium — 9.5 % at a 4 % anchor; F.2), then discounted by a **uniform 25 % required margin of safety** (F.13, T0-graded). All conservatism beyond honest inputs lives in that single MoS knob, which **widens** with documented uncertainty (high terminal-value share, low maintenance-capex confidence, weak moat durability, sensitivity dispersion). The certainty difference between moat classes is captured by the human-weighted moat-durability input (and that widening rule), **not** by tiering the discount rate or the margin of safety.
+- **Value** — the book intrinsic value (2026-07 book alignment, `valuation-2026-07-book-alignment-1`): ten years of free cash flow (CFO − capex, tagged XBRL facts only) grown at the model's cited durable rate, discounted at the **15 % required return** (a user-changeable Setting; the default is the book's rate, not a market-derived one), plus a cite-checked **exit multiple anchored to named comparables** (median of the model's own comps, tilted conservative; 12× fallback only when absent or absurd — the book's 8–20× was an example, not a ceiling) on year-10 FCF, plus net cash − debt. Buy = **IV × 0.70** (rule 7, the 30 % required margin) and load-up = **IV × 0.50** (rule 8, the concentrated-sizing zone). A filer without a tagged CFO goes honestly **unpriced** — there is no proxy fallback. The certainty difference between moat classes is captured by the moat gate and sizing, **not** by tiering the discount rate or the margin.
 - **Shariah-first** — Shariah screening is the first hard gate; a non-compliant result stops the deep-dive before provider cost is incurred.
 
 ### Pipeline
@@ -21,21 +21,65 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 Discovery
   → Shariah gate (grounded sector judgment on the primary filing + deterministic AAOIFI ratios, pre-spend)
        ↓ closed: sector non-compliant or ratio FAIL → coherent set-aside dossier, zero lane spend
-  → Circle-of-competence gate (cite-verified predictability judgment; k-sample agreement)
+  → Circle-of-competence gate (P1 — the book's two questions, cite-verified + k-sample agreement:
+     how does this company make money, and what key moving parts determine its success or failure)
        ↓ outside circle (or ungroundable) → set aside
        ↓ both gates open: [Automatic | Review-before-deep-dive]
-  → Swarm deep dive (moat / financials / risk / management / risks specialists — parallel, grounded)
-  → Valuation judgment (dedicated grounded stage: judged OE bridge + assumed growth + buy-below, cite-checked;
-     the harness computes the T0 margin-of-safety GRADE against a uniform required margin, and converts
-     foreign-filer per-share values into the price currency deterministically)
-  → Synthesis & decision (reconciliation; moat ≥ wide gate enforced here)
+  → PILLAR lanes, staged (Phase 3): understand + moat run first (parallel, grounded)
+       ↓ MOAT GATE (early): a below-gate resolved moat ends the run HERE — grounded-narrow → set-aside
+         PASS, ungrounded claim → RESEARCH_MORE; Pillars 3–4 spend nothing. A user-authored override
+         ("run remaining pillars anyway", recorded on the request event) runs them — the verdict still gates.
+  → Management pillar lane (integrity: communication + DEF 14A comp; talent: reconciled against the
+     harness ROIC/payout/debt T0 block + the retained-earnings test). A GROUNDED worst-tier judgment
+     (integrity red_flag OR poor talent) vetoes an unattended BUY → RESEARCH_MORE naming the trait.
+  → Valuation judgment (dedicated grounded stage: the model judges the durable FCF growth rate and the
+     comps-anchored exit multiple, cite-checked; the harness computes the book intrinsic value — 10y discounted
+     FCF (CFO − capex) + exit-multiple terminal + net cash − debt at the 15% required return — plus the
+     rule-7 buy price (IV × 0.70), the rule-8 load-up price (IV × 0.50), and the T0 margin-of-safety
+     GRADE, converting foreign-filer per-share values deterministically; CFO-untagged filers go honestly
+     UNPRICED)
+  → Inversion pass (one adversarial cite-checked call — "invert, always invert": the strongest case
+     against, the strongest objection, and the consensus check; rendered on the dossier as the
+     case-against card, weighed by the synthesis, no obligation machinery)
+  → Synthesis & decision (reconciliation; the late moat gate stays as defense in depth)
   → User-confirmed watchlist entry
   → Holding open (separate explicit ledger transition)
 ```
 
+### The four pillars (Phase 3)
+
+The deep-dive lanes ARE Buffett's pillars: `understand` (P1 — business model, unit economics,
+accounting quality; absorbs the retired business_quality + financial_quality narrative duties),
+`moat` (P2), `management` (P3). Pillar 4 (value) is the always-on valuation stage. The retired
+`risks` lane's adversarial duty lives in the inversion pass; its web/consensus color is the
+inversion's cite-checked `consensus_check` (Munger's social-proof read). Historical 5-lane dossiers
+keep rendering forever (persisted lane ids are a stable contract).
+
+**The moat pillar** (owner calibration, 2026-07-12): a moat is **protection, not a strength** — it
+is what prevents a competent, well-funded competitor from taking share or replicating the model.
+Every driver must pass the **replication test** ("what specifically stops a funded rival from copying
+this?"); operational excellence, good products, growth, or buildable scale are strengths and are not
+emitted as drivers. The dossier titles the card "Likely moats — model-identified, cite-checked": a
+citation proves the mechanism is *real*, not that it *protects* — whether the protection shows up in
+the economics is the three tests' job. The pillar carries the owner's three named tests
+(harness-computed T0): **capital
+efficiency** (median-ROIC bands: ≥15 % excellent / 10–15 % solid / <10 % weak), **two-engine**
+(book-STRICT since the 2026-07 alignment: revenue growing AND operating margins **expanding** —
+OLS slope > +25 bps/yr, flat fails — with a four-quadrant diagnostic naming which engine is
+missing), and **standout** (gross margin vs industry peers — the company side is T0; the peer side
+is the moat lane's cited-or-labeled judgment until peer-filing grounding ships; a no-COGS filer —
+a payments network has no gross-profit line — falls back to **operating margin**, basis-labeled). Capital efficiency
++ two-engine ARE the mechanical moat anchor (they replaced M1/M2); standout is displayed, not
+scored. The lane
+also tags each grounded driver with a moat TYPE (brand, switching costs, network effect, intangible
+assets, toll bridge, cost advantage, scale advantage, barrier to entry, monopoly position — distinct
+from the WIDTH class) and judges the moat DIRECTION: a grounded `narrowing` derates a BUY to WATCH
+("a narrowing moat is a sell signal no matter how wide it still looks"); an ungrounded direction
+resolves `undetermined` and carries no weight.
+
 **Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
 
-Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, a dedicated valuation-judgment stage (`valuation_judgment_drafted` — it owns the owner-earnings bridge, assumed growth, buy-below, and valuation status; the monolithic synthesis no longer carries them), and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, a dedicated valuation-judgment stage (`valuation_judgment_drafted` — it owns the model's two cited judgments, the durable FCF growth rate and the industry exit multiple; the harness computes IV/buy/load-up and derives the valuation status arithmetically), the inversion pass, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
 
 ### Deep-dive approval gate (`deep_dive_approval`)
 
@@ -43,7 +87,7 @@ After BOTH front gates pass (Shariah + circle of competence) there are two modes
 
 | Mode | Behaviour | When used |
 |---|---|---|
-| **Automatic** | Gates pass → the 5-lane deep-dive swarm runs immediately in the same job | Scheduled / automated runs |
+| **Automatic** | Gates pass → the staged pillar-lane swarm runs immediately in the same job | Scheduled / automated runs |
 | **Review** | Gates pass → the research case pauses in an "awaiting deep-dive approval" state; the user triggers the lane swarm when ready (the recorded circle judgment is reused on resume — no re-spend) | Default for user-initiated runs |
 
 The mode is configured in the `automation` settings (app config / Settings page). The legacy
@@ -70,93 +114,94 @@ The moat class is assessed by the deep-dive moat specialist. The gate is enforce
 
 ---
 
-## 3. Flat discount rate + uniform margin of safety
+## 3. Required return + the two book margins
 
-**All investable moat classes use the same flat savings-anchored discount rate (F.2: anchor + uniform equity premium) AND the same uniform required margin of safety** (F.13). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
+**Every investable business is valued at the same flat required return and judged against the same
+two margin thresholds** (`valuation-2026-07-book-alignment-1`). Neither lever is moat-tiered — business quality is not a per-name valuation-loosening knob.
 
-| Discount rate | Base margin of safety |
-|---|---|
-| 10 % (uniform) | 25 % (uniform base) |
+| Required return (discount) | Buy margin (rule 7) | Load-up margin (rule 8) |
+|---|---|---|
+| 15 % default — user-changeable Setting | 30 % below IV (buy = IV × 0.70) | 50 % below IV (load-up = IV × 0.50) |
 
-The base 25 % MoS **widens** toward a ~50 % cap as documented uncertainties fire: a high terminal-value share, low maintenance-capex confidence, weak moat durability (above-GDP growth IS a moat-durability claim), and sensitivity dispersion. This is where all conservatism beyond honest inputs lives — one visible, config-driven number.
+The required return is a **Setting, not a market read**: the book's 15 % is the default, and the
+payload records the provenance (`required_return_basis: 'book_default' | 'setting'` — 'setting' only
+when the user actually changed it). The compliant **savings anchor** (F.2) survives as the
+**deployment hurdle only** — cash earning the savings rate is the alternative every deployment must
+beat — and no longer feeds the valuation discount.
 
-The certainty difference between a monopoly and a merely wide moat is **not** captured by a lower margin of safety. A stronger moat is a durability signal: it earns higher terminal value through the surfaced, **human-weighted moat-durability input** (terminal-value share), and a *weaker* durability *widens* the MoS — it never licenses a smaller one. (Moat class also informs position **sizing** — see §6 — but that is a separate knob from valuation.)
-
-The harness derives the base margin of safety via `marginOfSafetyForMoat(strategy, moatClass)` (which returns the uniform `base_margin_of_safety`; the `moatClass` argument only validates the investability gate) and widens it via `widenedMarginOfSafety(...)`. The model does not choose the rate or the margin; it supplies the moat class and the documented-uncertainty inputs.
+The margin of safety is **structural, not judged**: the harness computes both thresholds from IV and
+grades the current price against them (the T0 `margin_of_safety_grade`). There is no model-judged
+margin call and no widening machinery — conservatism lives in the honest FCF basis, the clamped exit
+multiple, and the two fixed zones.
 
 ---
 
-## 4. Valuation — equity-bond capitalization with owner-earnings bridge
+## 4. Valuation — the book intrinsic value on free cash flow
 
-### 4.1 Owner-earnings bridge (per share)
-
-```
-OE = NI + D&A − maintenance_capex − SBC − ΔWC
-```
-
-- `NI` — normalized net income per share.
-- `D&A` — depreciation and amortization per share.
-- `maintenance_capex` — capex required to maintain existing earnings power; proxy tier (20th/50th/80th percentile of D&A) is supplied to indicate judgment level.
-- `SBC` — stock-based compensation per share (real economic cost).
-- `ΔWC` — normalized working capital change per share, **signed**:
-  - Positive (use of cash) → WC is a cash drain; subtracting a positive value **reduces** OE.
-  - Negative (structural WC release) → WC is a natural source of cash (e.g. negative working capital model); subtracting a negative value **adds** to OE.
-
-The model judges each bridge component. The harness computes OE deterministically.
-
-### 4.2 Growth rate — one demonstrated path + one named cap
+### 4.1 Free cash flow basis (T0, fail-closed)
 
 ```
-g = clamp_to_cap( max(0, demonstrated_OE_per_share_CAGR), single_growth_cap )
+FCF = CFO − capex          (most recent fiscal year, tagged XBRL facts only)
 ```
 
-- The growth input is the **demonstrated historical owner-earnings-per-share CAGR** from the EDGAR series (the honest, falsifiable, near-recent-history rate) — floored at 0 (no negative-compounding credit; non-finite → 0, fail-closed).
-- A lane may argue the rate **lower**, never higher.
-- It is then clamped by the named **`single_growth_cap = 0.15`** — a forecasting-humility ceiling behind the durable-source requirement, never a license.
-- Any rate materially above the **`gdp_growth_threshold = 0.03`** (GDP-like) is treated as a **moat-durability claim**: it is flagged lowest-confidence and surfaced WITH the moat-durability input, and it **widens** the end-stage margin of safety (it is not silently accepted, and it is not haircut here — the single MoS carries the conservatism).
+- Both facts come from the grounded EDGAR series (`cfo_musd`, `capex`), never from the model.
+- **No proxy fallback**: a filer without a tagged CFO is honestly **UNPRICED** (`valuation_basis`
+  says so; the dossier renders the unpriced state instead of a number built on assumptions).
+- The owner-earnings bridge (maintenance-capex proxy, judged ΔWC) is fully retired.
+- A purely factual `capex_vs_da` note (capex relative to D&A) is surfaced as context — it feeds no
+  arithmetic.
 
-This replaces the retired stacked reinvestment×ROIC + growth-band-ceilings + ROIC-eligibility-gate stack: "one knob plus one named backstop, not five." ROIC is still assessed as business-quality evidence, but it is no longer a growth-eligibility gate or a growth multiplier.
+### 4.2 The model's two cited judgments
 
-### 4.3 Fair value — two-stage owner-earnings DCF with a linear growth fade
+The valuation stage asks the model for exactly two numbers, both cite-checked against the grounded
+corpus:
+
+- **Durable FCF growth rate** — the ten-year rate the filings support; the citation gate is the
+  single grounding requirement of the stage.
+- **Exit multiple — anchored to NAMED COMPARABLES** (owner rule, 2026-07-12): the model must name
+  the 2–4 closest comparable companies with the P/FCF each trades at, exclude structurally different
+  names with reasons, and set the multiple from the **median of the named set, tilted conservative**
+  and priced for the exit-state (year-10) business. An unnamed "industry average" or a bare number is
+  an incomplete answer (retry-forced). The basis note (comps + figures + exclusions) renders on the
+  dossier, and the comps also arrive STRUCTURED so the harness deterministically checks the chosen
+  multiple against **the median of the model's own named comps** (choosing above it is flagged —
+  the band IS the comps set; owner rule: the book's 8–20× was an example, and each industry carries
+  different multiples). Only an ABSURD value (outside [3×, 40×], a units/scale error) is discarded
+  for the conservative **12×** fallback (`exit_multiple_source` records which).
+
+### 4.3 Intrinsic value (harness-computed)
 
 ```
-OE_t  = OE × Π_{i=1..t}(1 + g_i),  g_i fades LINEARLY from g → terminal over the trailing fade_years
-FV    = Σ_{t=1..H} OE_t/(1+r)^t  +  [ OE_H × (1 + terminal_g) / (r − terminal_g) ] / (1+r)^H
+IV_ps = [ Σ_{t=1..10} FCF₀(1+g)^t / (1+r)^t  +  FCF₁₀ × exit_multiple / (1+r)^10  +  cash − debt ] / shares
 ```
 
-- `discount r = 0.10` (flat, from contract).
-- `stage1_horizon H = 10` years; `terminal_growth = 1.5 %` (uniform — F.13).
-- `growth_fade_years = 5`: the near-term `g` compounds flat over the plateau years (t ≤ H−F) then glides down to the terminal rate over years 6–10, so by year H the per-year rate equals terminal. The fade only bites **downward** (a low/no-growth name is never glided up).
-- **`fv_cap_multiple = 18`** is a **surfaced sanity FLAG, not a hard truncation** (Phase 1.6): when the raw FV exceeds 18× OE the harness sets a `cap_exceeded` flag (which **widens the MoS**) and KEEPS the value. Only at/above `fv_absurd_multiple = 100×` OE is the value discarded as a units/scale-error guard. (The old 18× hard cap is gone.)
-
-### 4.4 Buy price — uniform margin of safety
+with `r` the required return (§3), cash/debt/shares from the same tagged fact series. Then:
 
 ```
-buy_price = round( fair_value × (1 − MoS), 2 )
+buy_below    = IV_ps × 0.70     (rule 7)
+load_up_below = IV_ps × 0.50    (rule 8 — "load up the truck")
 ```
 
-where `MoS` is the **uniform 25 % base** from `marginOfSafetyForMoat(strategy, moatClass)`, widened by any documented uncertainty via `widenedMarginOfSafety(...)`. The numbers below use the base 25 % (no widening inputs fired); a fired widening input would raise the MoS and lower the buy price.
+The **valuation status is derived arithmetically** (no model call): price ≤ buy → ATTRACTIVE;
+≤ IV → FAIR; above → EXPENSIVE; unpriced → INSUFFICIENT_DATA.
 
-> The figures below are computed with the actual two-stage faded DCF (`twoStageValuation` / `twoStageFairValuePerShare`) at the current params (r = 10 %, H = 10, terminal 1.5 %, fade over years 6–10). They are not the old single-stage `OE/(r−g)` perpetuity.
+#### Worked example
 
-#### Example (monopoly): OE = 14, demonstrated OE/sh CAGR illustrated at 8 %
+FCF₀ = $2,000 M (CFO 2,600 − capex 600), 100 M shares, cited g = 6 %, judged exit 12×,
+cash $1,500 M, debt $1,500 M, r = 15 %:
 
 | Step | Calculation | Result |
 |---|---|---|
-| Owner earnings | 14 + 4 − 3 − 2 − (−1) | OE = 14 |
-| Growth (one path) | max(0, 0.08) ≤ `single_growth_cap` 0.15 → uncapped; 0.08 > GDP 0.03 → above-GDP moat-durability flag (widens MoS) | g = 0.08 |
-| Fair value (2-stage faded) | Σ + Gordon terminal at H = 10, terminal 1.5 %, fade yrs 6–10 → ≈ 121.96 + 115.69 | fair ≈ **237.64** |
-| 18× FV flag | 237.64 < 18 × 14 = 252 → `cap_exceeded = false` | not flagged |
-| Margin of safety | uniform base (no widening inputs fired here) | MoS = 0.25 |
-| Buy price | round(237.64 × 0.75, 2) | buy ≈ **178.23** |
+| Stage-1 PV | Σ FCF₀(1.06)^t/(1.15)^t, t = 1..10 | ≈ $13,128 M |
+| Year-10 FCF | 2,000 × 1.06¹⁰ | ≈ $3,582 M |
+| Terminal PV | 3,582 × 12 / 1.15¹⁰ | ≈ $10,624 M |
+| Net cash | 1,500 − 1,500 | $0 M |
+| Intrinsic value | (13,128 + 10,624 + 0) / 100 | **≈ $237.52 /sh** |
+| Buy below (rule 7) | 237.52 × 0.70 | **≈ $166.27** |
+| Load-up below (rule 8) | 237.52 × 0.50 | **≈ $118.76** |
 
-Implied multiple ≈ 17.0× OE. (If the above-GDP flag's widening increment fires, MoS rises above 0.25 and the buy price falls below 178.23.)
-
-#### Example (no demonstrated growth): OE = 14, g floored to 0
-
-When the demonstrated OE/share CAGR is unavailable or non-positive, growth floors to the honest no-growth `g = 0`:
-
-fair value (2-stage faded, g = 0) ≈ 86.02 + 64.45 = **150.48** (≈ 10.75× OE, well under the 18× flag of 252); uniform MoS = 25 % → buy = round(150.48 × 0.75, 2) ≈ **112.86**.
+Internal sanity rails (implied growth / implied exit multiple at today's price) still run and can
+raise flags, but they are engine rails only — the dossier shows the book figures.
 
 ---
 
@@ -176,42 +221,41 @@ Shariah is intentionally the **first** check at the quick-screen stage so a non-
 
 ---
 
-## 6. Position sizing — conviction-tiered × price-laddered
+## 6. Position sizing — the margin is the signal (owner-locked 2026-07-13)
 
-Position sizing is **capital-driven and advisory**, and it is now **wired**: when you set your investable capital on the Portfolio page and a research case clears the wide-moat gate with a buy-below price, the dossier shows a draft position plan (`buildPositionPlan` in `apps/web/src/lib/positionPlan.ts`, whose target weight is the S1 conviction factor × base weight). That display plan is the **conviction target only — not fully risk-checked**: the downside caps (permanent-loss, correlated-cluster, deployment hurdle) and the worst-case-first view are applied at **execution-time sizing** by the S6/S7 sizing assembler (`computeSizingRecommendation` in `@owlfolio/workflow/sizingAssessment`), computed on-demand and recorded as a `sizing_recommendation_recorded` observation. Both are advisory — **you author and sign the actual buys, and the worker never trades.**
+The book prescribes **no position counts, no target-weight tables, and no entry ladders**. Its
+sizing rule is the margin itself: buy when the margin of safety is ≥30 % (rule 7), and when the
+discount is deep, act boldly — *"Rule 8: Once you find a margin of safety, load up the truck."*
 
-### Diversified, conviction-tiered target full position weight
+| Zone | Trigger | Sizing base |
+|---|---|---|
+| Buy zone (rule 7) | price ≤ IV × 0.70 | `base_target_weight` (10 %) × conviction |
+| Load-up zone (rule 8) | price ≤ IV × 0.50 | `load_up_target_weight` (15 % — the position cap, "the truck") × conviction |
 
-| Moat class | Target full weight |
-|---|---|
-| `wide` | 6 % |
-| `monopoly` | 10 % |
+The load-up zone is the **only place anything sizes UP**; the conviction factor (anti-Kelly,
+`convictionFactor.ts`) still only scales DOWN from whichever base applies. retired per-moat-class (`target_weight_by_moat`) and the 40/30/30 entry ladder (`entry_tranches`) are gone
+from the contract; legacy holdings' pullback thesis-review rungs are the worker's own policy now.
 
-All values are at or below the `max_position_weight` of 15 %, and the portfolio targets ~20 names — the weights are deliberately diversified, not concentrated. `narrow` and `moderate` are not present because they are rejected before sizing is considered.
-
-The target weight is an **entry cap, not a rebalancing target**: it caps how much you deploy on the way in. Once a compounder is owned, **winners run** — the strategy never force-trims a position just because it has grown past its entry weight.
-
-Target dollar value is `target_weight × investable_capital`, so the plan scales with the capital you have actually set.
-
-### Price-laddered entry tranches
-
-| Tranche | Fraction of target weight | Trigger | Gate |
-|---|---|---|---|
-| T1 | 40 % | At the buy price | Entry |
-| T2 | 30 % | ~10 % below the buy price | Thesis re-check |
-| T3 | 30 % | ~20 % below the buy price | Thesis re-check |
-
-Fractions sum to 100 % of the target weight. **T2 and T3 are thesis-gated**: a lower price only justifies adding if the thesis still holds, so each lower tranche requires a fresh thesis re-check (tied to the thesis-review escalation) before deploying. This is explicitly **not** mechanical averaging-down — a broken thesis on the way down cancels the lower tranches rather than triggering an automatic add. The helper `targetWeightForMoatClass(strategy, moatClass)` returns the target weight for an investable moat class and throws for `narrow`/`moderate`.
+**The rails are ours, not the book's** (labeled as such everywhere): `max_positions: 20` (a cap,
+not a target), `max_position_weight: 15 %`, and the 3 % cash buffer. Downside caps (permanent-loss,
+correlated-cluster, deployment hurdle) are applied at execution-time sizing
+(`computeSizingRecommendation`) and still bind in the load-up zone — boldness never overrides the
+risk rails. Adding on the way down is thesis-gated: a falling price is re-checked, never chased.
+The target weight is an entry cap — **winners run**, never force-trimmed. Both surfaces are
+advisory: **you author and sign the actual buys, and the worker never trades.**
 
 ---
 
-## 7. Shariah and purification
+## 7. Shariah screening (SCALE-DOWN 2026-07-13: the payment ledger is retired)
 
-- Shariah screening is required (`shariah.required: true`).
-- Conditional investments are allowed by policy (`allow_conditional: true`) with the `CONDITIONAL` status triggering a purification obligation.
-- Accepted statuses: `COMPLIANT`, `CONDITIONAL`. Prohibited: `NON_COMPLIANT`.
-- Purification obligations and payments are separate auditable ledger events.
-- These screens are local-ledger/accounting aids, not professional legal, tax, or Shariah rulings.
+- Shariah screening is required (`shariah.required: true`) and fully grounded: the front gate's
+  sector judgment on the primary filing + the harness-recomputed AAOIFI ratios.
+- Conditional investments are allowed by policy (`allow_conditional: true`); a `CONDITIONAL` status
+  carries the computed **purification RATE** on the dossier as guidance ("purify ~X% of dividends").
+- Accepted statuses: `COMPLIANT`, `CONDITIONAL`. Prohibited: `NON_COMPLIANT` (never price-overridable).
+- The obligation/payment LEDGER is retired (owner-locked): its inputs are unverifiable by design.
+  Tracking and paying is the human's; legacy purification events stay readable in the audit timeline.
+- These screens are a local screening aid, not professional legal, tax, or Shariah rulings.
 
 ---
 
@@ -223,18 +267,21 @@ Fractions sum to 100 % of the target weight. **T2 and T3 are thesis-gated**: a l
 | Thesis-intact review | Quarterly (configurable) | Scheduled worker task | Lightweight check; escalates to full swarm if thesis breaks |
 | Intrinsic valuation + full reanalysis | Annual (or on demand) | Annual schedule or user-initiated re-run | Full swarm deep dive; new versioned investment-case ledger event; refreshed buy price |
 
-Market price polling sole purpose: is current price ≤ stored `buy_price_per_share`? The equity-bond buy price is not recomputed on every price tick — only on a full swarm deep dive.
+Market price polling sole purpose: is current price ≤ stored `buy_price_per_share`? The book buy price is not recomputed on every price tick — only on a full swarm deep dive.
 
 ---
 
-## 9. F.2 discount-anchor swap (SHIPPED)
+## 9. F.2 savings anchor — deployment hurdle only (valuation anchor RETIRED)
 
-The discount/hurdle anchor is the one Shariah-compliant Mudarabah **savings rate** — this is the F.2 swap, now implemented:
+The one Shariah-compliant Mudarabah **savings rate** remains the deployment-hurdle and idle-capital
+anchor (F.2) — cash earning the savings rate is the alternative every deployment must beat, and the
+sizing/hurdle engines read it from app config. Since the 2026-07 book alignment it **no longer feeds
+the valuation discount**: intrinsic value is computed at the flat 15 % required return (§3), a
+Setting with `book_default` provenance until the user changes it. The interest-bearing
+`10y Treasury` anchor remains retired (a compliant investor cannot hold it).
 
-- **Today:** `discount = savings_rate + equity_premium` (§3 / §4.3). The single compliant savings rate does triple duty — idle-capital return, the deployment-hurdle floor, AND the risk-free valuation anchor. It is a flat, uniform, human-set global config, never an agent input. This is the same anchor the /strategy "Cash is a first-class position" copy describes.
-- **Retired:** the interest-bearing `10y Treasury + equity_premium` anchor. A non-interest-bearing investor cannot actually hold the Treasury yield, so it was never the right risk-free; it has been removed.
-
-**One-grep manifest:** every discount-anchor touchpoint is marked with the greppable token `ANCHOR-SWAP-F2:`. Run `grep -rn ANCHOR-SWAP-F2` to enumerate the sites (the param config, `discountRate()`, the live swarm discount computation, and the /strategy reference comment).
+**One-grep manifest:** discount-anchor touchpoints are marked with the greppable token
+`ANCHOR-SWAP-F2:` — today those sites serve the hurdle/sizing lane, not the DCF.
 
 ---
 

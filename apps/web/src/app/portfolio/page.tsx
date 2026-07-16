@@ -1,16 +1,16 @@
 import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
-import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
+import { PortfolioPanel, type PortfolioHolding } from '../../components/PortfolioPanel'
 import { RefreshPricesButton } from '../../components/RefreshPricesButton'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
-import { humanizeCron } from '../../lib/schedule'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
+import { projectLatestPriceSnapshots } from '@owlfolio/ledger/projections/priceSnapshotProjection'
 
-import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
-import { resolveBusinessFindings } from '../../lib/checklistEvidence'
+import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
+import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -18,8 +18,6 @@ export default async function PortfolioPage() {
     return <UnconfiguredNotice feature="Portfolio" />
   }
   const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)
-  const valuationRefresh = buildValuationRefreshSummary(holdings)
-  const investableCapital = await getInvestableCapital(state.config.ledger_path)
 
   return (
     <main className="owl-route-frame owl-route-frame-wide">
@@ -33,9 +31,7 @@ export default async function PortfolioPage() {
       <PortfolioPanel
         holdings={holdings}
         mode={state.config.mode}
-        valuationRefresh={valuationRefresh}
         alerts={alerts}
-        {...(investableCapital !== undefined ? { investableCapital } : {})}
       />
     </main>
   )
@@ -57,22 +53,24 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
       projectResearchCases(events).map((researchCase) => [researchCase.research_case_id, researchCase]),
     )
 
+    // Display-name backfill for legacy cases (see displayNames.ts) — the stamped name always wins.
+    const displayNames = await resolveDisplayNamesForTickers(holdings.map((holding) => holding.ticker))
+    // SCALE-DOWN S2 follow-through: holding_valuation_recorded is RETIRED, so the projection's
+    // latest_price only exists on legacy holdings. The live price now comes from the poll's
+    // price_snapshot_recorded (ticker-keyed) — join the latest snapshot per held ticker, preferring
+    // it over any stale legacy valuation.
+    const priceSnapshots = projectLatestPriceSnapshots(events)
     const enrichedHoldings = holdings.map((holding) => {
-      // Prefer the holding's own linked research case; fall back to the latest
-      // non-superseded case for the same ticker when that case has no valuation.
+      // OWNER-LOCKED (2026-07-14): the row DISPLAYS from the latest non-superseded case for the
+      // ticker — thresholds are provider observations, and a superseding re-run must show up here.
+      // The holding's own research_case_id stays as the frozen audit pointer; a latest case with no
+      // valuation renders honestly (entry-vs-market chip, latest-verdict line) instead of silently
+      // keeping the superseded numbers.
       const linkedCase = researchCasesById.get(holding.research_case_id)
-      const linkedBuyBelow = linkedCase?.valuation?.buy_price_per_share
-      const valuationCase = linkedBuyBelow !== undefined && linkedCase !== undefined
-        ? linkedCase
-        : (holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)) ?? linkedCase
+      const valuationCase = (holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)) ?? linkedCase
       const buyBelow = valuationCase?.valuation?.buy_price_per_share
 
       const enriched: PortfolioHolding = { ...holding }
-      // Marshal the re-underwrite business findings as a PURE read of the held name's research-case
-      // projection (the holding's linked case, with the valuation fallback). No engine call. The forms
-      // render these read-only (audit-and-decide); the server independently recomputes them at sign-off.
-      const findingsCase = valuationCase ?? linkedCase
-      enriched.reviewBusinessFindings = resolveBusinessFindings(findingsCase)
       if (buyBelow !== undefined) {
         enriched.buyBelowPricePerShare = buyBelow
         const moatClass = valuationCase?.valuation?.moat_class
@@ -83,6 +81,30 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         if (discountRate !== undefined) {
           enriched.hurdleRate = discountRate
         }
+        // The ladder anchors (IV + rule-8 load-up) ride along so the holding row can render the
+        // small decision-card view.
+        const iv = (valuationCase?.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share
+        if (iv !== undefined) enriched.intrinsicValuePerShare = iv
+        const loadUp = (valuationCase?.valuation as { load_up_below?: number } | undefined)?.load_up_below
+        if (loadUp !== undefined) enriched.loadUpBelow = loadUp
+      }
+      const snapshot = holding.ticker === undefined ? undefined : priceSnapshots.get(holding.ticker)
+      if (snapshot !== undefined) {
+        enriched.latest_price_per_share = snapshot.price_per_share
+        enriched.latest_price_checked_at = snapshot.as_of
+      }
+      const purificationPct = (valuationCase ?? linkedCase)?.shariah_financial?.purification_pct
+      if (purificationPct !== undefined) enriched.purificationPct = purificationPct
+      const entityName = (valuationCase ?? linkedCase)?.entity_name ?? (holding.ticker === undefined ? undefined : displayNames.get(holding.ticker.toUpperCase()))
+      if (entityName !== undefined) enriched.entityName = entityName
+      if (valuationCase !== undefined) {
+        enriched.displayResearchCaseId = valuationCase.research_case_id
+        if (valuationCase.investment_verdict !== undefined) enriched.latestAnalysisVerdict = valuationCase.investment_verdict
+        enriched.latestAnalysisAt = valuationCase.updated_at
+        // Mirror the dossier's verdict-summary chain (thesis → evidence → reason).
+        const displayThesis = [valuationCase.thesis_summary, valuationCase.evidence_summary, valuationCase.reason]
+          .find((text) => typeof text === 'string' && text.trim().length > 0)
+        if (displayThesis !== undefined) enriched.latestAnalysisThesis = displayThesis
       }
       return enriched
     })
@@ -90,29 +112,4 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
   } finally {
     store.close()
   }
-}
-
-function buildValuationRefreshSummary(holdings: PortfolioHolding[]): PortfolioValuationRefreshSummary {
-  const priceChecks = holdings
-    .map((holding) => holding.latest_price_checked_at)
-    .filter((checkedAt): checkedAt is string => checkedAt !== undefined)
-    .sort()
-  const missing = holdings
-    .filter((holding) => holding.latest_price_checked_at === undefined)
-    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
-
-  const lastPriceCheckAt = priceChecks.at(-1)
-  const hasPriceCheck = lastPriceCheckAt !== undefined
-  const summary: PortfolioValuationRefreshSummary = {
-    next_scheduled_check: humanizeCron('0 7 * * 1-5'),
-    data_source: hasPriceCheck ? 'mock-local-price-feed' : 'awaiting-first-price-check',
-    confidence_caveat: hasPriceCheck
-      ? 'Mock/local confidence — deterministic prices for local workflow verification.'
-      : 'No price check has run yet — record a manual valuation snapshot or wait for the scheduled check.',
-    holdings_missing_data: missing,
-  }
-  if (lastPriceCheckAt !== undefined) {
-    summary.last_price_check_at = lastPriceCheckAt
-  }
-  return summary
 }

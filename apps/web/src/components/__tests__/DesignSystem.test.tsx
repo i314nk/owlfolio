@@ -316,11 +316,9 @@ describe('phase 3 design system primitives', () => {
 
   it('keeps workflow route pages inside the phase-3 dark shell instead of legacy full-page light/green surfaces', () => {
     const pagePaths = [
-      'apps/web/src/app/accounting/monthly/page.tsx',
       'apps/web/src/app/audit/page.tsx',
       'apps/web/src/app/portfolio/page.tsx',
       'apps/web/src/app/providers/page.tsx',
-      'apps/web/src/app/purification/page.tsx',
       'apps/web/src/app/research/[caseId]/page.tsx',
       'apps/web/src/app/settings/data-safety/page.tsx',
       'apps/web/src/app/research/new/ResearchIntakeForm.tsx',

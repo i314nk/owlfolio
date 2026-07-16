@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
-import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { ResearchCaseActions } from './ResearchCaseActions'
@@ -13,14 +12,11 @@ import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { resolveRunProgress } from '../../../lib/researchRunProgress'
-import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { isUnconfiguredForUser } from '../../../lib/modeView'
 import { getOnboardingState } from '../../../lib/onboarding'
-import { getInvestableCapital, resolveResearchCaseView } from '../../../lib/workflow'
-import type { ResearchCaseView } from '../../../lib/workflow'
+import { resolveResearchCaseView, type ResearchCaseView } from '../../../lib/workflow'
 import type { MarketQuote } from '../../../components/ResearchCasePanel'
 
-const INVESTABLE_MOAT_CLASSES: ReadonlySet<string> = new Set(['wide', 'monopoly'])
 
 export type ResearchCasePageProps = {
   params: Promise<{ caseId: string }>
@@ -157,24 +153,8 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
     // Advisory position plan: only when the case has an investable moat + a buy price.
     // When investable capital is set, compute the draft plan; otherwise flag a prompt so
     // the panel can nudge the user to set capital on the Portfolio page.
-    const moatClass = researchCase.valuation?.moat_class
-    const buyPrice = researchCase.valuation?.buy_price_per_share
-    const moatIsInvestable = moatClass !== undefined && INVESTABLE_MOAT_CLASSES.has(moatClass)
 
-    let positionPlan: PositionPlan | undefined
-    let promptForCapital = false
-    if (moatIsInvestable && buyPrice !== undefined) {
-      const investableCapital = await getInvestableCapital(state.config.ledger_path)
-      if (investableCapital !== undefined) {
-        positionPlan = buildPositionPlan({
-          moatClass: moatClass as MoatClass,
-          buyPricePerShare: buyPrice,
-          investableCapital: investableCapital.amount,
-        })
-      } else {
-        promptForCapital = true
-      }
-    }
+    // SCALE-DOWN S1: the position plan is removed — zones tell you when; the size is yours.
 
     // Engine-version staleness (mirror buildEngineVersionMarker): a run is STALE when its engine_version
     // is absent (pre-versioning) or differs from the current ENGINE_VERSION. Drives the re-run emphasis.
@@ -193,6 +173,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           ticker={researchCase.ticker}
           isArchived={researchCase.archived === true}
           engineStale={engineStale}
+          moatGated={researchCase.moat_gate_short_circuited === true}
         />
         {researchCase.archived === true ? (
           <p
@@ -215,8 +196,6 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           configuredProviderId={state.config.provider.provider_id}
           {...(state.config.savings !== undefined ? { savings: state.config.savings } : {})}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
-          {...(positionPlan !== undefined ? { positionPlan } : {})}
-          promptForCapital={promptForCapital}
         />
       </main>
     )

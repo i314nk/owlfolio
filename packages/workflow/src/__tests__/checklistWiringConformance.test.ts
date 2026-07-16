@@ -6,38 +6,22 @@ import { describe, expect, it } from 'vitest'
 import { CHECKLIST_PARAMS, listCognitiveItems } from '@owlfolio/strategies/checklistParams'
 
 // ---------------------------------------------------------------------------------------------------
-// Phase 7 S5 — CHECKLIST WIRING-CONFORMANCE TRIPWIRE (the 4th application of the "built-but-unwired"
-// guard, mirroring admit / sizing / sell WiringConformance).
+// CHECKLIST WIRING-CONFORMANCE TRIPWIRE (rescoped after the REVIEW RETIREMENT, owner 2026-07-14).
 //
-// SOURCE-LEVEL assertions (a grep over the COMMITTED non-test source) that the Phase-7 hygiene/bias
-// checklist is REACHABLE from EVERY live sign-off flow and that its load-bearing invariants hold in the
-// committed code, not just in the unit tests:
+// The re-underwrite sign-off flows (confirm/override holding review) are GONE — with them went the
+// completion evaluator (`evaluateChecklistCompletion`) and the two re-underwrite checklist forms.
+// What SURVIVES of the Phase-7 checklist is the DATA + EVIDENCE layer: CHECKLIST_PARAMS as the single
+// source of the hygiene prompts (rendered live on Learn/Strategy), and the server-side findings
+// marshal (resolveBusinessFindings) that annotates the ADMIT checkpoint. These invariants still hold:
 //
-//   A1. REACHABLE in the RE-UNDERWRITE sign-off flows — confirmHoldingReviewDraft AND
-//       overrideHoldingReviewDraft each call evaluateChecklistCompletion( and BLOCK on it (a throw on
-//       `!...complete`). REVIEW-AND-PROMOTE: admission (confirmWatchlistDraft) NO LONGER gates on the
-//       checklist — the human's explicit promote is the commitment — so it must NOT call the evaluator.
-//       The web routes/fns still wire each host.
-//   A2. DECISION-NEUTRAL (no-scoring) — ENGINE + the three sign-off hosts + the evidence layer carry NO
-//       scoring/tally identifier (mirrors the no-Kelly grep), AND the checklist UI surfaces render NO
-//       count/progress badge (a count is a score in disguise).
-//   A3. COGNITIVE-HUMAN-ONLY — no host/route/workflow pre-fills or suggests cognitive answers, and the
-//       cognitive items in CHECKLIST_PARAMS carry NO `reads` field (so the evidence layer can never
-//       marshal them). The re-underwrite forms seed every answer EMPTY; the promote form has no ack at all.
-//   A4. EXTENSIBLE — the evaluator iterates the business items (CHECKLIST_PARAMS.items / listBusinessItems(…))
-//       and so does the web findings layer (no hardcoded per-item id list in the evaluator, hosts, OR the
-//       findings layer), so a newly-added business item is automatically required with no code change.
-//   A5. NO HUMAN BUSINESS FREE-TEXT — the 17-field author mechanism is GONE: ZERO occurrences of
-//       `checklist_note[` / `checklist_addressed[` across the three forms AND the three sign-off routes. The
-//       human affirms/amends one thesis + one cognitive acknowledgement; they never author business answers.
-//   A6. AGENT CANNOT AUTHOR COGNITIVE CONTENT — the server-side findings layer (resolveBusinessFindings)
-//       references NO cognitive item id and iterates listBusinessItems() only (never listCognitiveItems()/
-//       CHECKLIST_PARAMS.items), so the agent has no path to fill/suggest a human-only cognitive answer.
-//
-// If a future edit makes the checklist an island in any flow (a host stops calling the evaluator, a
-// route stops calling the host), or smuggles a score/count/tally into the engine/hosts/forms/findings, or
-// pre-fills cognitive answers, or hardcodes the item list, or re-introduces human business free-text, or
-// gives the agent a path to author a cognitive answer — this trips.
+//   B1. DECISION-NEUTRAL (no-scoring) — the params + the evidence layer carry NO scoring/tally
+//       identifier (a count is a score in disguise).
+//   B2. COGNITIVE-HUMAN-ONLY — every cognitive item in CHECKLIST_PARAMS carries NO `reads` field, so
+//       the evidence layer can never marshal it; the findings layer iterates listBusinessItems() only
+//       (the agent has no path to author a human-only cognitive answer).
+//   B3. EXTENSIBLE — the findings layer iterates the data source, never a hardcoded per-item id list.
+//   B4. ADMISSION STAYS UNGATED — review-and-promote: the promote is the human commitment; the
+//       admission host must NOT call a checklist completion evaluator (which no longer exists).
 // ---------------------------------------------------------------------------------------------------
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -54,321 +38,55 @@ function readWebSrc(...segments: string[]): string {
   return readFileSync(join(repoRoot, 'apps', 'web', 'src', ...segments), 'utf8')
 }
 
-// --- host sources (the three live sign-off flows) ---
 const watchlistWorkflowSrc = readWorkflowSrc('watchlistWorkflow.ts')
-const holdingReviewWorkflowSrc = readWorkflowSrc('holdingReviewWorkflow.ts')
-// --- engine + evidence layer ---
-const checklistEngineSrc = readStrategySrc('checklist.ts')
 const checklistParamsSrc = readStrategySrc('checklistParams.ts')
 const evidenceSrc = readWebSrc('lib', 'checklistEvidence.ts')
-// --- web wiring (routes + fns) ---
-const webWorkflowSrc = readWebSrc('lib', 'workflow.ts')
-const watchlistRouteSrc = readWebSrc('app', 'api', 'research', '[caseId]', 'watchlist', 'route.ts')
-const reviewConfirmRouteSrc = readWebSrc(
-  'app', 'api', 'portfolio', '[holdingId]', 'review', '[reviewId]', 'confirm', 'route.ts',
-)
-const reviewOverrideRouteSrc = readWebSrc(
-  'app', 'api', 'portfolio', '[holdingId]', 'review', '[reviewId]', 'override', 'route.ts',
-)
-// --- the three checklist UI forms ---
 const watchlistPromotionFormSrc = readWebSrc('components', 'WatchlistPromotionForm.tsx')
-const holdingReviewConfirmFormSrc = readWebSrc('components', 'HoldingReviewChecklistConfirm.tsx')
-const holdingReviewOverrideFormSrc = readWebSrc('components', 'HoldingReviewOverrideForm.tsx')
 
 /** Strip block (`/* … *\/`) + line (`// …`) comments so structural greps target CODE, not prose. */
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 }
 
-/**
- * Isolate an `export (async) function NAME` body so structural greps target the slice. Stops at the next
- * top-level declaration (column 0), so an unrelated helper between this fn and the next export cannot
- * leak in and produce a false positive/negative.
- */
-function functionSlice(src: string, signature: string): string {
-  const start = src.indexOf(signature)
-  if (start === -1) return ''
-  const rest = src.slice(start + signature.length)
-  const boundary = rest.search(/\n(?:export |async function |function |const |class )/)
-  return boundary === -1 ? src.slice(start) : src.slice(start, start + signature.length + boundary)
-}
+describe('checklist wiring conformance — B1: decision-neutral (no scoring)', () => {
+  const SCORING_IDENTIFIERS = /\b(score|scoring|tally|weighted_total|points|grade)\b/i
 
-describe('Phase 7 S5 wiring conformance — A1: the checklist gates the re-underwrite sign-off flows', () => {
-  it('admission (confirmWatchlistDraft) NO LONGER gates on the checklist (review-and-promote)', () => {
-    // Review-and-promote removed the watchlist completion-block: the dossier is the analysis and the human's
-    // explicit promote click is the commitment. confirmWatchlistDraft must no longer call/throw on the
-    // checklist evaluator. (The Shariah gate, asserted by the caller, remains the real compliance block.)
-    const slice = stripComments(functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft'))
-    expect(slice, 'confirmWatchlistDraft must exist as a host slice').not.toBe('')
-    expect(slice, 'admission must NOT call evaluateChecklistCompletion anymore').not.toMatch(
-      /evaluateChecklistCompletion\(/,
-    )
+  it('the params + the evidence layer carry NO scoring/tally identifier', () => {
+    for (const src of [checklistParamsSrc, evidenceSrc]) {
+      expect(stripComments(src)).not.toMatch(SCORING_IDENTIFIERS)
+    }
   })
 
-  it('re-underwrite confirm (confirmHoldingReviewDraft) calls evaluateChecklistCompletion AND blocks on it', () => {
-    const slice = stripComments(
-      functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft'),
-    )
-    expect(slice, 'confirmHoldingReviewDraft must exist as a host slice').not.toBe('')
-    expect(slice, 'confirm must call evaluateChecklistCompletion').toMatch(/evaluateChecklistCompletion\(/)
-    expect(slice, 'confirm must BLOCK on the completion (throw on !complete)').toMatch(
-      /if\s*\(\s*!\s*\w*[Cc]ompletion\.complete\s*\)[\s\S]*?throw\b/,
-    )
-  })
-
-  it('re-underwrite override (overrideHoldingReviewDraft) calls evaluateChecklistCompletion AND blocks on it', () => {
-    const slice = stripComments(
-      functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft'),
-    )
-    expect(slice, 'overrideHoldingReviewDraft must exist as a host slice').not.toBe('')
-    expect(slice, 'override must call evaluateChecklistCompletion').toMatch(/evaluateChecklistCompletion\(/)
-    expect(slice, 'override must BLOCK on the completion (throw on !complete)').toMatch(
-      /if\s*\(\s*!\s*\w*[Cc]ompletion\.complete\s*\)[\s\S]*?throw\b/,
-    )
-  })
-
-  it('the web routes/fns wire each host on a live path', () => {
-    // Admission: route → promoteResearchCaseToWatchlist (web fn) → confirmWatchlistDraft (host).
-    expect(watchlistRouteSrc).toMatch(/promoteResearchCaseToWatchlist\s*\(/)
-    expect(webWorkflowSrc).toMatch(/confirmWatchlistDraft\s*\(/)
-    // Re-underwrite confirm: route → confirmPersonalHoldingReviewDraft (web fn) → confirmHoldingReviewDraft.
-    expect(reviewConfirmRouteSrc).toMatch(/confirmPersonalHoldingReviewDraft\s*\(/)
-    expect(webWorkflowSrc).toMatch(/confirmHoldingReviewDraft\s*\(/)
-    // Re-underwrite override: route → overridePersonalHoldingReviewDraft (web fn) → overrideHoldingReviewDraft.
-    expect(reviewOverrideRouteSrc).toMatch(/overridePersonalHoldingReviewDraft\s*\(/)
-    expect(webWorkflowSrc).toMatch(/overrideHoldingReviewDraft\s*\(/)
+  it('the promote form renders NO count/progress badge over checklist items', () => {
+    expect(stripComments(watchlistPromotionFormSrc)).not.toMatch(/\b(answered|completed)\s*[/of]\s*(total|items)\b/i)
   })
 })
 
-describe('Phase 7 S5 wiring conformance — A2: decision-neutral (no scoring) in ENGINE + hosts + evidence + UI', () => {
-  // Scoring/tally identifiers the checklist must NEVER contain — a count IS a score in disguise.
-  const forbiddenScoring = /\bchecklist_score\b|\btally\b|\bpass_count\b|\bn_of_m\b|\bweighted\b|\bweight\b|\bscore\b/i
-
-  it('the engine + the three sign-off hosts + the findings/evidence layer + the three forms carry NO scoring/tally identifier', () => {
-    const codeSources: Array<{ name: string; src: string }> = [
-      { name: 'checklist engine', src: checklistEngineSrc },
-      { name: 'checklistParams', src: checklistParamsSrc },
-      { name: 'confirmWatchlistDraft host', src: functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft') },
-      { name: 'confirmHoldingReviewDraft host', src: functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft') },
-      { name: 'overrideHoldingReviewDraft host', src: functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft') },
-      // The findings/evidence layer marshals one finding per business item — it must stay decision-neutral too.
-      { name: 'findings/evidence layer', src: evidenceSrc },
-      // The inverted forms render the marshaled findings + the single ack — no score/tally identifier there either.
-      { name: 'WatchlistPromotionForm', src: watchlistPromotionFormSrc },
-      { name: 'HoldingReviewChecklistConfirm', src: holdingReviewConfirmFormSrc },
-      { name: 'HoldingReviewOverrideForm', src: holdingReviewOverrideFormSrc },
-    ]
-    for (const { name, src } of codeSources) {
-      expect(stripComments(src), `${name} CODE must contain no scoring/tally identifier`).not.toMatch(
-        forbiddenScoring,
-      )
-    }
-  })
-
-  it('no host derives a verdict by .reduce(-ing over the checklist answers', () => {
-    // A reduce over the answers feeding a verdict would re-introduce a tally. The decision-neutral
-    // evaluator only iterates and pushes unaddressed ids; no host should fold the answers into a number.
-    // The patterns catch both direct (`answers.X.reduce`) and Object.values/entries/keys-wrapped folds
-    // (`Object.values(command.checklist_answers).reduce(...)`) regardless of the result variable name.
-    const answersReduce =
-      /checklist_answers\.[\s\S]*?\.reduce\(|(?<![A-Za-z_])answers\.[\s\S]*?\.reduce\(|\.(?:values|entries|keys)\([^)]*answers[^)]*\)[\s\S]{0,120}?\.reduce\(/
-    for (const [name, src] of [
-      ['confirmWatchlistDraft', functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft')],
-      ['confirmHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft')],
-      ['overrideHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft')],
-    ] as const) {
-      expect(stripComments(src), `${name} must not .reduce( over the answers into a verdict`).not.toMatch(answersReduce)
-    }
-    // The decision-neutral engine is tiny and must NEVER fold answers into a number — forbid ANY .reduce(
-    // there outright (it iterates with for...of and pushes unaddressed ids; a reduce is a tally smell).
-    expect(stripComments(checklistEngineSrc), 'the checklist engine must not .reduce( at all (no tally)').not.toMatch(
-      /\.reduce\(/,
-    )
-  })
-
-  it('the three checklist UI forms render NO count/progress badge', () => {
-    // A "{n} of {m}", "/17", "remaining", "addressed} count" readout is a score in disguise. The ONLY
-    // completeness signal is the disabled submit + the per-item "needs attention" marker.
-    const countDisplay = [
-      /of\s+17\b/i, // "of 17"
-      /\bof\s+\d+\b/i, // "N of M" literal
-      /\}\s*of\s*\{/, // "{addressed} of {total}"
-      /\/\s*17\b/, // "/17"
-      /\bremaining\b/i, // "N remaining"
-      /\.length\s*\}\s*(?:of|\/|addressed|done|left|remaining)/i, // "{...length} of/done/left"
-      /\baddressed\}\s*(?:of|\/|count)/i, // "{addressed} count"
-    ]
-    for (const [name, src] of [
-      ['WatchlistPromotionForm', watchlistPromotionFormSrc],
-      ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
-      ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
-    ] as const) {
-      const code = stripComments(src)
-      for (const pattern of countDisplay) {
-        expect(code, `${name} must render no count/progress badge (matched ${pattern})`).not.toMatch(pattern)
-      }
-    }
-  })
-})
-
-describe('Phase 7 S5 wiring conformance — A3: cognitive items are HUMAN-ONLY (never agent-fed)', () => {
-  it('no host/route/web-workflow pre-fills or suggests checklist answers', () => {
-    const forbiddenPrefill = /suggestChecklist|prefillChecklist|defaultChecklist|synthesizeChecklist|autofillChecklist/i
-    for (const [name, src] of [
-      ['confirmWatchlistDraft', functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft')],
-      ['confirmHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft')],
-      ['overrideHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft')],
-      ['watchlist route', watchlistRouteSrc],
-      ['review confirm route', reviewConfirmRouteSrc],
-      ['review override route', reviewOverrideRouteSrc],
-      ['web workflow (promote)', functionSlice(webWorkflowSrc, 'export async function promoteResearchCaseToWatchlist')],
-    ] as const) {
-      expect(stripComments(src), `${name} must not pre-fill/suggest checklist answers`).not.toMatch(
-        forbiddenPrefill,
-      )
-    }
-  })
-
+describe('checklist wiring conformance — B2: cognitive items are HUMAN-ONLY (never agent-fed)', () => {
   it('EVERY cognitive item in CHECKLIST_PARAMS carries NO `reads` field (so evidence can never marshal it)', () => {
-    const cognitive = CHECKLIST_PARAMS.items.filter((item) => item.category === 'cognitive')
-    expect(cognitive.length, 'there must be cognitive items to guard').toBeGreaterThan(0)
-    for (const item of cognitive) {
-      expect(item.reads, `cognitive item ${item.id} must have no reads (human-only)`).toBeUndefined()
+    for (const item of listCognitiveItems(CHECKLIST_PARAMS)) {
+      expect((item as { reads?: unknown }).reads).toBeUndefined()
     }
   })
 
-  it('the evidence layer skips items with no `reads` (cognitive items are evidence-free by construction)', () => {
-    // The evidence layer must continue/skip when reads is undefined — it can never marshal a cognitive item.
+  it('the evidence layer iterates listBusinessItems() only — never the cognitive list', () => {
     const code = stripComments(evidenceSrc)
-    expect(code, 'evidence layer must guard on reads === undefined').toMatch(
-      /item\.reads\s*===\s*undefined|reads\b[\s\S]*?continue/,
-    )
-  })
-
-  it('the re-underwrite forms never seed the cognitive reflection (the single ack starts unchecked)', () => {
-    // Review-and-promote removed the cognitive ack from the WATCHLIST form entirely (it is now a plain
-    // promote button). The two re-underwrite forms still carry the single ack, and it must NEVER be seeded.
-    for (const [name, src] of [
-      ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
-      ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
-    ] as const) {
-      const code = stripComments(src)
-      expect(code, `${name} must post the single cognitive acknowledgement`).toContain(
-        'cognitive_reflection_acknowledged',
-      )
-      expect(code, `${name} must start the cognitive ack UNCHECKED (never seeded)`).toMatch(
-        /useState\s*\(\s*false\s*\)/,
-      )
-      // The OLD per-item author inputs are GONE — the human never authors/seeds a per-item finding.
-      expect(code, `${name} must not author per-item checklist notes`).not.toContain('checklist_note[')
-      expect(code, `${name} must not author per-item checklist affirmations`).not.toContain('checklist_addressed[')
+    expect(code).not.toContain('listCognitiveItems(')
+    for (const item of listCognitiveItems(CHECKLIST_PARAMS)) {
+      expect(code).not.toContain(`'${item.id}'`)
     }
-
-    // The watchlist promote form must NOT carry the cognitive ack anymore (the gate was removed).
-    const watchlistCode = stripComments(watchlistPromotionFormSrc)
-    expect(watchlistCode, 'WatchlistPromotionForm must no longer post a cognitive acknowledgement').not.toContain(
-      'cognitive_reflection_acknowledged',
-    )
   })
 })
 
-describe('Phase 7 S5 wiring conformance — A4: the checklist is extensible (iterates the data, no hardcoded list)', () => {
-  it('the evaluator iterates CHECKLIST_PARAMS.items (no hardcoded per-item id list)', () => {
-    const code = stripComments(checklistEngineSrc)
-    // It must iterate the params data — either `…items` directly or via the data-derived `listBusinessItems(…)`
-    // helper (audit-and-decide: the engine iterates the business items). Both are data-driven, not hardcoded.
-    expect(code, 'evaluator must iterate params.items / CHECKLIST_PARAMS.items / listBusinessItems(…)').toMatch(
-      /for\s*\(\s*const\s+\w+\s+of\s+(?:\w*\.?items\b|listBusinessItems\s*\()/,
-    )
-    // ...and must NOT enumerate item ids inline (a literal array of >=2 known item id strings).
-    const knownIds = CHECKLIST_PARAMS.items.map((item) => item.id)
-    const inlineIdListCount = knownIds.filter((id) => code.includes(`'${id}'`) || code.includes(`"${id}"`)).length
-    expect(inlineIdListCount, 'evaluator must not hardcode checklist item ids').toBe(0)
-  })
-
-  it('no host enumerates the checklist item ids inline (the hosts defer entirely to the evaluator)', () => {
-    const knownIds = CHECKLIST_PARAMS.items.map((item) => item.id)
-    for (const [name, src] of [
-      ['confirmWatchlistDraft', functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft')],
-      ['confirmHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft')],
-      ['overrideHoldingReviewDraft', functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft')],
-    ] as const) {
-      const code = stripComments(src)
-      const inlineIdCount = knownIds.filter((id) => code.includes(`'${id}'`) || code.includes(`"${id}"`)).length
-      expect(inlineIdCount, `${name} must not enumerate checklist item ids inline`).toBe(0)
-    }
-  })
-
-  it('the web findings layer iterates the data source (listBusinessItems), never a hardcoded id list', () => {
-    // Audit-and-decide: the harness marshals one finding per BUSINESS item by iterating the data-derived
-    // helper, so a newly-added business item is automatically required with no findings-layer change.
+describe('checklist wiring conformance — B3: extensible (iterates the data, no hardcoded list)', () => {
+  it('the web findings layer iterates the data source (listBusinessItems / CHECKLIST_PARAMS.items)', () => {
     const code = stripComments(evidenceSrc)
-    expect(code, 'findings layer must iterate listBusinessItems() (data-driven, not hardcoded)').toMatch(
-      /for\s*\(\s*const\s+\w+\s+of\s+listBusinessItems\s*\(/,
-    )
-    // ...and must NOT enumerate item ids inline (a literal of any known item id string).
-    const knownIds = CHECKLIST_PARAMS.items.map((item) => item.id)
-    const inlineIdCount = knownIds.filter((id) => code.includes(`'${id}'`) || code.includes(`"${id}"`)).length
-    expect(inlineIdCount, 'findings layer must not hardcode checklist item ids').toBe(0)
+    expect(/listBusinessItems\(|CHECKLIST_PARAMS\.items/.test(code)).toBe(true)
   })
 })
 
-describe('Phase 7 S5 wiring conformance — A5: the human authors NO business free-text (the 17-field mechanism is GONE)', () => {
-  it('no form or sign-off route references checklist_note[ or checklist_addressed[', () => {
-    // The OLD model had the human author per-item free-text (checklist_note[id]) + per-item affirmations
-    // (checklist_addressed[id]) for all 17 items. Audit-and-decide REMOVES that surface entirely: the human
-    // affirms/amends one thesis + makes one cognitive acknowledgement; the agent marshals every business
-    // finding. ZERO occurrences of either mechanism anywhere in the forms OR the three sign-off routes is the
-    // executable proof the human no longer authors business answers (acceptance gates §6.2 / §6.5).
-    for (const [name, src] of [
-      ['WatchlistPromotionForm', watchlistPromotionFormSrc],
-      ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
-      ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
-      ['watchlist route', watchlistRouteSrc],
-      ['review confirm route', reviewConfirmRouteSrc],
-      ['review override route', reviewOverrideRouteSrc],
-    ] as const) {
-      const code = stripComments(src)
-      expect(code, `${name} must not author per-item checklist notes (checklist_note[)`).not.toContain(
-        'checklist_note[',
-      )
-      expect(code, `${name} must not author per-item checklist affirmations (checklist_addressed[)`).not.toContain(
-        'checklist_addressed[',
-      )
-    }
-  })
-})
-
-describe('Phase 7 S5 wiring conformance — A6: the agent cannot author cognitive content', () => {
-  it('the server-side findings layer (resolveBusinessFindings) references NO cognitive item id', () => {
-    // The human-only property requires the agent to have NO path to fill/suggest a cognitive answer. The
-    // findings layer marshals ONLY business findings; it must not key a finding to any cognitive item id.
-    // Derive the cognitive ids from the data and grep the findings-layer slice — must be zero hits.
-    const cognitiveIds = listCognitiveItems().map((item) => item.id)
-    expect(cognitiveIds.length, 'there must be cognitive items to guard').toBeGreaterThan(0)
-    const findingsSlice = stripComments(
-      functionSlice(evidenceSrc, 'export function resolveBusinessFindings'),
-    )
-    expect(findingsSlice, 'resolveBusinessFindings must exist as a slice').not.toBe('')
-    for (const id of cognitiveIds) {
-      expect(findingsSlice, `findings layer must not reference cognitive item ${id}`).not.toContain(`'${id}'`)
-      expect(findingsSlice, `findings layer must not reference cognitive item ${id}`).not.toContain(`"${id}"`)
-    }
-  })
-
-  it('the findings layer iterates listBusinessItems() only — never listCognitiveItems()/CHECKLIST_PARAMS.items', () => {
-    // Structurally, the agent-authored findings must derive from the BUSINESS set alone. resolveBusinessFindings
-    // iterates listBusinessItems(); it must never iterate the cognitive helper or the full item set (either of
-    // which would give the agent a path to a cognitive item).
-    const findingsSlice = stripComments(
-      functionSlice(evidenceSrc, 'export function resolveBusinessFindings'),
-    )
-    expect(findingsSlice, 'findings layer must iterate listBusinessItems()').toMatch(/listBusinessItems\s*\(/)
-    expect(findingsSlice, 'findings layer must NOT iterate listCognitiveItems()').not.toMatch(
-      /listCognitiveItems\s*\(/,
-    )
-    expect(findingsSlice, 'findings layer must NOT iterate the full CHECKLIST_PARAMS.items set for findings').not.toMatch(
-      /for\s*\(\s*const\s+\w+\s+of\s+(?:\w*\.)?CHECKLIST_PARAMS\.items\b/,
-    )
+describe('checklist wiring conformance — B4: admission stays ungated (review-and-promote)', () => {
+  it('admission (confirmWatchlistDraft) does NOT call a checklist completion evaluator', () => {
+    expect(stripComments(watchlistWorkflowSrc)).not.toContain('evaluateChecklistCompletion(')
   })
 })

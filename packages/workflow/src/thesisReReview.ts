@@ -23,7 +23,7 @@ import { z } from 'zod'
 
 import { runGroundedAgentWithTools, mergeReadCorpus, type GroundFn } from './groundedAgent'
 import type { NewFilingsCheck, WeightedNewFiling } from './reReviewTrigger'
-import { discoverEightKExhibits } from './secEdgar'
+import { discoverEightKExhibits, type FilingRef } from './secEdgar'
 import { groundProposedSources, groundProposedSourcesDeterministic, mergeCapturedIntoCorpus, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
 import { loadPersistedReadCorpus } from './sourceLedgerRead'
 
@@ -198,6 +198,8 @@ export type ThesisReReviewRecordedPayload = {
   skipped_filings: WeightedNewFiling[]
   prior_corpus_size: number
   checked_at: string
+  /** A new ANNUAL filing (10-K/20-F/40-F) landed since the decision — the full re-analysis is due. */
+  new_annual_filing?: FilingRef
   re_review_ungrounded?: boolean
   ungrounded_reason?: string
   reviewed_by_actor_type: 'provider'
@@ -444,6 +446,7 @@ export async function draftThesisReReview(
     skipped_filings: skippedFilings,
     prior_corpus_size: command.check.prior_corpus_size,
     checked_at: command.check.checked_at,
+    ...(command.check.new_annual_filing === undefined ? {} : { new_annual_filing: command.check.new_annual_filing }),
     ...(isGrounded || ungroundedReason === undefined ? {} : { re_review_ungrounded: true, ungrounded_reason: ungroundedReason }),
     reviewed_by_actor_type: 'provider',
     reviewed_by_actor_id: provider.provider_id,

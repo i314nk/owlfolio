@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
-import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergePassiveSleeveConfig, mergeSavingsSleeveConfig, mergeValuationConfig } from '@owlfolio/shared'
 
 import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
@@ -74,6 +74,29 @@ export async function updateOnboardingConfig(update: OnboardingConfigUpdate, opt
             ...(current.savings?.savings_expected_profit_rate === undefined
               ? {}
               : { previousRate: current.savings.savings_expected_profit_rate }),
+          },
+        ),
+      }),
+    // B7 (book alignment): the passive-sleeve plan — same merge shape.
+    ...(update.passive === undefined
+      ? {}
+      : {
+        passive: mergePassiveSleeveConfig(
+          { ...current.passive, ...update.passive },
+          { now: options.now ?? new Date().toISOString() },
+        ),
+      }),
+    // Phase 4 (book alignment): the required-return setting — same vintage-stamping merge shape.
+    ...(update.valuation === undefined
+      ? {}
+      : {
+        valuation: mergeValuationConfig(
+          { ...current.valuation, ...update.valuation },
+          {
+            now: options.now ?? new Date().toISOString(),
+            ...(current.valuation?.required_return === undefined
+              ? {}
+              : { previousRate: current.valuation.required_return }),
           },
         ),
       }),

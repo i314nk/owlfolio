@@ -5,7 +5,7 @@ import { evaluateDeploymentHurdle } from '../deploymentHurdle'
 describe('evaluateDeploymentHurdle', () => {
   it('computes hurdle_rate = savings_expected_profit_rate + equity_risk_margin', () => {
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: 0.1,
+      fcf_yield: 0.1,
       savings_expected_profit_rate: 0.02,
       equity_risk_margin: 0.05,
     })
@@ -14,7 +14,7 @@ describe('evaluateDeploymentHurdle', () => {
 
   it('clears when OE yield >= savings_rate + equity_risk_margin', () => {
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: 0.07,
+      fcf_yield: 0.07,
       savings_expected_profit_rate: 0.02,
       equity_risk_margin: 0.05,
     })
@@ -25,7 +25,7 @@ describe('evaluateDeploymentHurdle', () => {
   it('does NOT clear when OE yield only beats zero / the savings rate but not the full hurdle', () => {
     // 6% yield beats both zero AND the 2% savings rate, but is below the 7% hurdle — beating zero is not enough.
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: 0.06,
+      fcf_yield: 0.06,
       savings_expected_profit_rate: 0.02,
       equity_risk_margin: 0.05,
     })
@@ -34,7 +34,7 @@ describe('evaluateDeploymentHurdle', () => {
 
   it('CASH-IS-CORRECT framing: a non-clearing candidate is hold_in_savings (CORRECT posture), not a warning/error', () => {
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: 0.03,
+      fcf_yield: 0.03,
       savings_expected_profit_rate: 0.02,
       equity_risk_margin: 0.05,
     })
@@ -51,7 +51,7 @@ describe('evaluateDeploymentHurdle', () => {
 
   it('clears exactly at the hurdle (>= is inclusive)', () => {
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: 0.07,
+      fcf_yield: 0.07,
       savings_expected_profit_rate: 0.03,
       equity_risk_margin: 0.04,
     })
@@ -59,13 +59,13 @@ describe('evaluateDeploymentHurdle', () => {
   })
 
   it('is pure/deterministic — same inputs give the same result', () => {
-    const args = { owner_earnings_yield: 0.09, savings_expected_profit_rate: 0.02, equity_risk_margin: 0.05 }
+    const args = { fcf_yield: 0.09, savings_expected_profit_rate: 0.02, equity_risk_margin: 0.05 }
     expect(evaluateDeploymentHurdle(args)).toEqual(evaluateDeploymentHurdle(args))
   })
 
   it('fails closed (does not deploy) on non-finite OE yield', () => {
     const result = evaluateDeploymentHurdle({
-      owner_earnings_yield: Number.NaN,
+      fcf_yield: Number.NaN,
       savings_expected_profit_rate: 0.02,
       equity_risk_margin: 0.05,
     })

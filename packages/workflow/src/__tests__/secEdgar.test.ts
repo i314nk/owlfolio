@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
+import { recoverDilutedSharesFromInlineXbrl, recoverDilutedSharesHistoryFromInlineXbrl, __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
 
 beforeEach(() => {
   // The ticker map is cached module-side; reset so fail-closed fetch-error tests are not masked
@@ -554,6 +554,177 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // FIX (live find, V/rc_v_1783859004568): Visa stopped tagging parent-only `StockholdersEquity`
+  // after FY2011 and carries only the NCI-INCLUSIVE variant since — leaving 0 usable ROIC years
+  // (capital-efficiency test + talent T0 dead) despite 16 years of tagged equity. The equity field
+  // resolves per-year with the parent-only concept preferred, the NCI-inclusive variant as fallback.
+  it('falls back to the NCI-inclusive equity concept for a filer that stopped tagging parent-only equity (V)', async () => {
+    const facts = {
+      entityName: 'ClassShareCo',
+      facts: {
+        'us-gaap': {
+          Revenues: annualFacts({ 2021: 100, 2022: 110, 2023: 120, 2024: 130, 2025: 140 }),
+          NetIncomeLoss: annualFacts({ 2021: 30, 2022: 33, 2023: 36, 2024: 40, 2025: 44 }),
+          OperatingIncomeLoss: annualFacts({ 2021: 40, 2022: 44, 2023: 48, 2024: 53, 2025: 58 }),
+          IncomeTaxExpenseBenefit: annualFacts({ 2021: 8, 2022: 9, 2023: 10, 2024: 11, 2025: 12 }),
+          // Parent-only equity: only an OLD year (the V shape — nothing after the switch).
+          StockholdersEquity: instantFacts({ 2021: 200 }),
+          // NCI-inclusive equity: the full modern span.
+          StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest:
+            instantFacts({ 2021: 205, 2022: 215, 2023: 230, 2024: 245, 2025: 260 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000002', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // The parent-only concept wins where tagged; the NCI-inclusive variant fills the rest.
+    const eq = Object.fromEntries(f.annual_series.map((a) => [a.fiscal_year, a.stockholders_equity_musd]))
+    expect(eq[2021]).toBeCloseTo(200, 0)
+    expect(eq[2025]).toBeCloseTo(260, 0)
+    expect(eq[2023]).toBeCloseTo(230, 0)
+  })
+
+  // OPTION C (owner call, 2026-07-12 — the V share gap): a per-class filer (Visa) tags EVERY share
+  // concept with a StatementClassOfStockAxis member, and companyfacts DROPS dimensioned facts — so no
+  // share count extracts and the dossier goes unpriced despite a fully tagged filing. Recovery: parse
+  // the latest annual report's INLINE XBRL and take the Class-A-member weighted-average DILUTED share
+  // fact for the latest fiscal year (the listed class's diluted count is the as-converted total —
+  // V FY2025: 1,966M matches the published market-cap denominator). FAIL-CLOSED on ambiguity.
+  describe('inline-XBRL share recovery (per-class filers)', () => {
+    const INLINE_XBRL_FIXTURE = `<html><body>
+<div style="display:none">
+<xbrli:context id="c-2"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2024-10-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-10"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">v:CommonClassB1Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2024-10-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-30"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2023-10-01</xbrli:startDate><xbrli:endDate>2024-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="c-q4"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001403161</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2025-07-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+</div>
+<p>Weighted-average diluted shares (Class A, FY2025): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-2" unitRef="shares" scale="6" decimals="-6" format="ixt:num-dot-decimal">1,966</ix:nonFraction></p>
+<p>Class B-1 (FY2025): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-10" unitRef="shares" scale="6">5</ix:nonFraction></p>
+<p>Class A (FY2024): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-30" unitRef="shares" scale="6">2,029</ix:nonFraction></p>
+<p>EPS-note duplicate of the FY2025 Class A fact (same context, same value — must dedupe): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-2" unitRef="shares" scale="6">1,966</ix:nonFraction></p>
+<p>A QUARTERLY Class A fact (short duration — must be ignored): <ix:nonFraction name="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding" contextRef="c-q4" unitRef="shares" scale="6">1,951</ix:nonFraction></p>
+</body></html>
+`
+
+    it('recovers the FY-matched Class-A diluted share count (dedupes the EPS-note repeat; ignores quarters and other classes)', () => {
+      const r = recoverDilutedSharesFromInlineXbrl(INLINE_XBRL_FIXTURE, 2025)
+      expect(r).toBeDefined()
+      expect(r?.shares_m).toBeCloseTo(1966, 0)
+      expect(r?.fiscal_year).toBe(2025)
+    })
+
+    it('fails closed when two DISTINCT Class-A diluted values exist for the same fiscal year', () => {
+      const conflicted = INLINE_XBRL_FIXTURE.replace(
+        'contextRef="c-2" unitRef="shares" scale="6">1,966</ix:nonFraction></p>\n<p>A QUARTERLY',
+        'contextRef="c-2" unitRef="shares" scale="6">1,999</ix:nonFraction></p>\n<p>A QUARTERLY',
+      )
+      expect(recoverDilutedSharesFromInlineXbrl(conflicted, 2025)).toBeUndefined()
+    })
+
+    it('fails closed when no Class-A diluted fact matches the fiscal year', () => {
+      expect(recoverDilutedSharesFromInlineXbrl(INLINE_XBRL_FIXTURE, 2022)).toBeUndefined()
+    })
+
+    it('recovers the FULL year history a doc carries (multi-year map)', () => {
+      const all = recoverDilutedSharesHistoryFromInlineXbrl(INLINE_XBRL_FIXTURE)
+      expect(all).toEqual([
+        { fiscal_year: 2025, shares_m: 1966 },
+        { fiscal_year: 2024, shares_m: 2029 },
+      ])
+    })
+
+    // The retained-earnings test needs ≥6 usable years (anchor + 5). One 10-K carries 3 fiscal years,
+    // so the recovery walks OLDER annual filings (stride 2 → contiguous coverage, ≤3 docs) and fills
+    // every still-missing series year — each filled row stamped with the provenance marker.
+    it('walks older annual reports to fill the share history (retained-earnings fuel)', async () => {
+      const OLDER_DOC = INLINE_XBRL_FIXTURE
+        .replaceAll('2024-10-01', '2022-10-01').replaceAll('2025-09-30', '2023-09-30')
+        .replaceAll('2023-10-01', '2021-10-01').replaceAll('2024-09-30', '2022-09-30')
+        .replaceAll('2025-07-01', '2023-07-01')
+        .replaceAll('>1,966<', '>2,141<').replaceAll('>2,029<', '>2,183<').replaceAll('>1,951<', '>2,100<')
+      const years: Record<number, number> = { 2020: 25, 2021: 28, 2022: 31, 2023: 34, 2024: 40, 2025: 44 }
+      const facts = {
+        entityName: 'ClassShareCo',
+        facts: {
+          'us-gaap': {
+            Revenues: annualFacts(Object.fromEntries(Object.entries(years).map(([y, v]) => [y, v * 3]))),
+            NetIncomeLoss: annualFacts(years),
+            NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 60 }),
+            PaymentsToAcquirePropertyPlantAndEquipment: annualFacts({ 2025: 10 }),
+          },
+        },
+      }
+      const subs = {
+        filings: {
+          recent: {
+            form: ['10-K', '10-K', '10-K'],
+            filingDate: ['2025-11-15', '2024-11-15', '2023-11-15'],
+            accessionNumber: ['0000000002-25-000001', '0000000002-24-000001', '0000000002-23-000001'],
+            primaryDocument: ['co-20250930.htm', 'co-20240930.htm', 'co-20230930.htm'],
+          },
+        },
+      }
+      const fetches: string[] = []
+      const fetchImpl: typeof fetch = (async (input: string | URL | Request) => {
+        const u = String(input)
+        if (u.includes('companyfacts')) return new Response(JSON.stringify(facts), { status: 200 })
+        if (u.includes('submissions')) return new Response(JSON.stringify(subs), { status: 200 })
+        if (u.endsWith('co-20250930.htm')) { fetches.push('2025'); return new Response(INLINE_XBRL_FIXTURE, { status: 200 }) }
+        if (u.endsWith('co-20230930.htm')) { fetches.push('2023'); return new Response(OLDER_DOC, { status: 200 }) }
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch
+      const f = await fetchCompanyFundamentals('0000000002', { fetchImpl })
+      expect(f).toBeDefined()
+      const shareYears = Object.fromEntries((f?.annual_series ?? []).filter((a) => a.diluted_shares_m !== undefined).map((a) => [a.fiscal_year, a.diluted_shares_m]))
+      // Doc 1 (latest) fills 2025+2024; the stride-2 walk fetches the 2023 doc → 2023+2022.
+      expect(shareYears).toEqual({ 2025: 1966, 2024: 2029, 2023: 2141, 2022: 2183 })
+      expect(fetches).toEqual(['2025', '2023'])
+      const fy2022 = f?.annual_series.find((a) => a.fiscal_year === 2022)
+      expect(fy2022?.diluted_shares_source).toBe('inline_xbrl_class_a')
+    })
+
+    it('wires into fetchCompanyFundamentals: a factless-shares filer recovers the count from the annual report doc', async () => {
+      const facts = {
+        entityName: 'ClassShareCo',
+        facts: {
+          'us-gaap': {
+            Revenues: annualFacts({ 2021: 100, 2022: 110, 2023: 120, 2024: 130, 2025: 140 }),
+            NetIncomeLoss: annualFacts({ 2021: 30, 2022: 33, 2023: 36, 2024: 40, 2025: 44 }),
+            NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 60 }),
+            PaymentsToAcquirePropertyPlantAndEquipment: annualFacts({ 2025: 10 }),
+            // NO share or EPS concepts — the per-class filer shape.
+          },
+        },
+      }
+      const subs = {
+        filings: {
+          recent: {
+            form: ['10-K'],
+            filingDate: ['2025-11-15'],
+            accessionNumber: ['0000000002-25-000001'],
+            primaryDocument: ['co-20250930.htm'],
+          },
+        },
+      }
+      const fetchImpl: typeof fetch = (async (input: string | URL | Request) => {
+        const u = String(input)
+        if (u.includes('companyfacts')) return new Response(JSON.stringify(facts), { status: 200 })
+        if (u.includes('submissions')) return new Response(JSON.stringify(subs), { status: 200 })
+        if (u.endsWith('co-20250930.htm')) return new Response(INLINE_XBRL_FIXTURE, { status: 200 })
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch
+      const f = await fetchCompanyFundamentals('0000000002', { fetchImpl })
+      expect(f).toBeDefined()
+      expect(f?.latest_annual.diluted_shares_m).toBeCloseTo(1966, 0)
+      expect(f?.latest_annual.diluted_shares_source).toBe('inline_xbrl_class_a')
+      // Every year the doc carries fills (multi-year), each stamped with the provenance marker.
+      const fy2024 = f?.annual_series.find((a) => a.fiscal_year === 2024)
+      expect(fy2024?.diluted_shares_m).toBeCloseTo(2029, 0)
+      expect(fy2024?.diluted_shares_source).toBe('inline_xbrl_class_a')
+    })
+  })
+
   // Shariah purification input: impermissible-income LINES extracted deterministically from XBRL (no
   // filing has an "impermissible income" line; the AAOIFI-computable components are disclosed interest
   // income, dividend income, and cash-instrument investment income). Each line is itemized (concept +
@@ -990,5 +1161,167 @@ describe('10-Q numbers are quarantined from the annual recompute (Slice B)', () 
     expect(f!.latest_annual.fiscal_year).toBe(2025)
     // The 10-K value (1e9 / 1e6 = 1000), NOT the 10-Q's 999,000 — interim numbers stay out of the recompute.
     expect(f!.latest_annual.net_income_musd).toBe(1000)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// S1 (Phase 3 pillars): payout + gross-profit T0 foundations. The management-talent block and the
+// three named moat tests need gross profit (standout test), dividends and buybacks (payout
+// discipline, retained-earnings test) — none of which the adapter extracted before. All three are
+// OPTIONAL AnnualFacts fields: a filer that does not tag them yields undefined and every downstream
+// consumer must degrade to { computable: false } (fail-closed), mirroring gross_ppe_musd.
+// ---------------------------------------------------------------------------------------------------
+describe('S1 — gross profit, dividends, buybacks extraction', () => {
+  const M = 1_000_000
+  function annualFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({
+        start: `${year}-01-01`, end: `${year}-12-31`, val: val * scale,
+        form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15`, frame: `CY${year}`,
+      })
+    }
+    return { label: 'x', units }
+  }
+  const base = {
+    NetIncomeLoss: annualFacts({ 2024: 90, 2025: 100 }),
+    Revenues: annualFacts({ 2024: 900, 2025: 1000 }),
+  }
+
+  it('extracts gross profit from the direct GrossProfit concept', async () => {
+    const facts = { entityName: 'GrossCo', facts: { 'us-gaap': { ...base, GrossProfit: annualFacts({ 2024: 360, 2025: 420 }) } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(420, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeCloseTo(360, 0)
+  })
+
+  it('derives gross profit = revenue − COGS when GrossProfit is untagged (per year, both required)', async () => {
+    const facts = {
+      entityName: 'DeriveCo',
+      facts: { 'us-gaap': { ...base, CostOfRevenue: annualFacts({ 2025: 580 }) } }, // 2024 has no COGS
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(420, 0) // 1000 − 580
+    // 2024: revenue tagged but COGS absent → NO derived figure (never fabricate from one side).
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeUndefined()
+  })
+
+  it('derives via the CostOfGoodsAndServicesSold variant, and a tagged GrossProfit year is never overwritten', async () => {
+    const facts = {
+      entityName: 'MixCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          GrossProfit: annualFacts({ 2024: 350 }), // tagged for 2024 only
+          CostOfGoodsAndServicesSold: annualFacts({ 2024: 999, 2025: 600 }), // 2024 derived value would be 900−999 <0 — must not win
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeCloseTo(350, 0)
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(400, 0) // 2025 derived: 1000 − 600
+  })
+
+  it('extracts dividends paid with per-year precedence (common-stock concept first, combined fills the gaps)', async () => {
+    const facts = {
+      entityName: 'PayoutCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          PaymentsOfDividendsCommonStock: annualFacts({ 2025: 40 }),
+          PaymentsOfDividends: annualFacts({ 2024: 33, 2025: 44 }), // 2025 loses to the common-stock concept
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.dividends_paid_musd).toBeCloseTo(40, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.dividends_paid_musd).toBeCloseTo(33, 0)
+  })
+
+  it('extracts buybacks from PaymentsForRepurchaseOfCommonStock', async () => {
+    const facts = { entityName: 'BuybackCo', facts: { 'us-gaap': { ...base, PaymentsForRepurchaseOfCommonStock: annualFacts({ 2024: 12, 2025: 15 }) } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.buybacks_musd).toBeCloseTo(15, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.buybacks_musd).toBeCloseTo(12, 0)
+  })
+
+  it('yields undefined for all three when the filer tags none of them (fail-closed downstream)', async () => {
+    const facts = { entityName: 'BareCo', facts: { 'us-gaap': { ...base } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeUndefined()
+    expect(f?.latest_annual.dividends_paid_musd).toBeUndefined()
+    expect(f?.latest_annual.buybacks_musd).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// B1 (Phase 4, book alignment): FCF + balance-sheet foundations. The book values FREE CASH FLOW
+// (CFO − capex) and names debt-to-equity + the CURRENT RATIO as the talent debt checks — none of
+// which the adapter extracted. All optional; missing tags degrade downstream to not-computable.
+// ---------------------------------------------------------------------------------------------------
+describe('B1 — cash from operations + current assets/liabilities extraction', () => {
+  const M = 1_000_000
+  function annualFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({
+        start: `${year}-01-01`, end: `${year}-12-31`, val: val * scale,
+        form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15`, frame: `CY${year}`,
+      })
+    }
+    return { label: 'x', units }
+  }
+  function instantFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({ end: `${year}-12-31`, val: val * scale, form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15` })
+    }
+    return { label: 'x', units }
+  }
+  const base = {
+    NetIncomeLoss: annualFacts({ 2024: 90, 2025: 100 }),
+    Revenues: annualFacts({ 2024: 900, 2025: 1000 }),
+  }
+
+  it('extracts CFO with per-year precedence (continuing-ops variant fills the gaps)', async () => {
+    const facts = {
+      entityName: 'CfoCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 180 }),
+          NetCashProvidedByUsedInOperatingActivitiesContinuingOperations: annualFacts({ 2024: 150, 2025: 999 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.cfo_musd).toBeCloseTo(180, 0) // the canonical concept wins its year
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.cfo_musd).toBeCloseTo(150, 0)
+  })
+
+  it('extracts current assets and current liabilities (instant, balance-sheet)', async () => {
+    const facts = {
+      entityName: 'RatioCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          AssetsCurrent: instantFacts({ 2024: 400, 2025: 440 }),
+          LiabilitiesCurrent: instantFacts({ 2024: 200, 2025: 210 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.current_assets_musd).toBeCloseTo(440, 0)
+    expect(f?.latest_annual.current_liabilities_musd).toBeCloseTo(210, 0)
+  })
+
+  it('yields undefined when untagged (fail-closed downstream)', async () => {
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch({ entityName: 'Bare', facts: { 'us-gaap': { ...base } } }) })
+    expect(f?.latest_annual.cfo_musd).toBeUndefined()
+    expect(f?.latest_annual.current_assets_musd).toBeUndefined()
+    expect(f?.latest_annual.current_liabilities_musd).toBeUndefined()
   })
 })

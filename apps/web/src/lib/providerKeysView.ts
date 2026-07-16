@@ -38,7 +38,7 @@ const MODEL_ROLE_TIER_INFO: Record<ModelRoleId, { tier: 'T1' | 'T2' | 'T3'; desc
   lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
   lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
   lanes_default: { tier: 'T1', description: 'Deep-dive lanes — source-backed specialist findings.' },
-  red_team: { tier: 'T2', description: 'Mid — adversarial cross-check; a different model catches shared-narrative error.' },
+  red_team: { tier: 'T2', description: 'Mid — the Munger inversion pass; a different model catches shared-narrative error.' },
   monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
   entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },
   lane_moat_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the moat.' },
@@ -53,7 +53,7 @@ const ROLE_CONFIG_GUIDANCE: string[] = [
 
 const TIER_DESCRIPTION: Record<'T1' | 'T2' | 'T3', string> = {
   T1: 'Frontier — synthesis and the moat/Shariah classification lanes. The highest-stakes reasoning.',
-  T2: 'Mid — the adversarial red-team cross-check.',
+  T2: 'Mid — the Munger inversion pass (the case argued against itself).',
   T3: 'Cheap / local — high-volume monitors and near-deterministic entity/ticker resolution.',
 }
 

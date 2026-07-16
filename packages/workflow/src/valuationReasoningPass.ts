@@ -4,7 +4,7 @@ import { ProposedSourcesSchema, type GroundFn } from './groundedAgent'
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import type { GroundingDeps, CapturedSource } from './sourceGrounding'
-import type { RedTeamLaneDigest } from './redTeamPass'
+import type { InversionLaneDigest } from './inversionPass'
 
 // ---------------------------------------------------------------------------
 // Dedicated FOCUSED valuation-reasoning call (the same decomposition that got the moat rubric + red-team
@@ -23,17 +23,15 @@ import type { RedTeamLaneDigest } from './redTeamPass'
 // The dedicated call's schema = the valuation_reasoning fields ALONE (+ proposed_sources so it grounds/cites).
 // Mirrors DecisionAgentSchema.valuation_reasoning exactly.
 export const ValuationReasoningSchema = z.object({
-  // Cited: the owner-earnings basis the model valued (e.g. "FY25 owner earnings $8.4B per the 10-K").
-  owner_earnings_basis: z.string().min(1),
-  // GROUNDING: the source_id (or content_hash) of a VERIFIED primary source backing the owner-earnings
-  // figure — a real grounded source_id, NOT prose. Cite-checked against the content_hash-verified corpus.
-  owner_earnings_citation: z.string().min(1),
+  // E2 (owner-locked 2026-07-12): the owner-earnings basis + citation + judged bridge are RETIRED —
+  // the harness owns the FCF basis (CFO − capex, T0 from EDGAR). The model's remaining valuation
+  // judgments are the growth (cited) and the industry exit multiple (cited-or-labeled).
   // The near-term growth assumed in the valuation (a fraction, e.g. 0.08).
   assumed_growth: z.number(),
   // Cited: WHY that growth is defensible (the durable-source argument).
   assumed_growth_rationale: z.string().min(1),
   // GROUNDING: the source_id (or content_hash) of a VERIFIED primary source backing the assumed-growth
-  // rationale — cite-checked exactly like owner_earnings_citation.
+  // rationale — cite-checked against the content_hash-verified corpus.
   assumed_growth_citation: z.string().min(1),
   // OPTIONAL, legacy/tolerated: the harness owns the discount (see the DISCOUNT OWNERSHIP guard in the
   // prompt), so the model is instructed NOT to choose its own rate. Retained optional for schema
@@ -44,21 +42,35 @@ export const ValuationReasoningSchema = z.object({
   // the T0 side keeps its existing graceful degradation when a model omits them.
   // The model's judged buy-below price (price currency). Verbatim — the deterministic rails
   // (buy-zone clamp, absurd-implied-growth clamp, T0 MoS grade in V2) police it.
+  // OWNER-LOCKED (2026-07-13): RETIRED — the book's thresholds are arithmetic (IV × 0.70/0.50),
+  // not the model's to propose. Tolerated on the wire for legacy fakes/replays; never consumed.
   proposed_buy_below: z.number().positive().optional(),
-  // The model's qualitative read of TODAY's price vs value.
-  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']).optional(),
-  // The judged owner-earnings bridge INPUTS (the T0 arithmetic stays harness-owned; EDGAR anchors
-  // NI/D&A/SBC/shares — the model's judgment fields are maintenance capex + the proxy tier + any
-  // one-off NI normalization). Mirrors the monolithic decision's block exactly.
-  owner_earnings_bridge: z
+  // C3 (owner-locked 2026-07-12): valuation_status is retired from the stage — the harness DERIVES
+  // it arithmetically from the computed thresholds (a legacy emission is stripped as an unknown key).
+  // ---- Phase 4 (book alignment): the industry-typical P/FCF EXIT MULTIPLE — the terminal value is
+  // year-10 FCF × this. Cited-or-labeled (peer-standout pattern): include a citation ONLY when the
+  // figure comes from a corpus-verifiable source; the harness clamps to [8, 20] and falls back to a
+  // conservative 12× when absent/invalid. The model judges the multiple; the arithmetic is harness-owned.
+  industry_exit_multiple: z
     .object({
-      net_income: z.number(),
-      depreciation_amortization: z.number(),
-      maintenance_capex: z.number(),
-      maintenance_capex_proxy_tier: z.enum(['20', '50', '80']),
-      stock_based_comp: z.number(),
-      normalized_working_capital_change: z.number(),
-      shares_outstanding: z.number(),
+      multiple: z.number().positive(),
+      // What comps the multiple reflects (named companies + figures + exclusion reasoning).
+      basis_note: z.string().min(1),
+      // OWNER RULE (2026-07-12): the reference band IS the named-comps set — structured so the
+      // harness can check the chosen multiple against their MEDIAN deterministically (the
+      // conservative-tilt rule). Optional at the schema level; absence is a visible advisory.
+      // TOLERANT SHAPE (SPGI live find, rc_spgi_1783951008414): a model returning comps as a STRING
+      // (or malformed entries) must DEGRADE to unstructured — the advisory covers honesty — never
+      // fail the whole stage into an unpriced RESEARCH_MORE.
+      comps: z.preprocess(
+        (v) => Array.isArray(v)
+          ? v.filter((c) => typeof c === 'object' && c !== null
+              && typeof (c as { name?: unknown }).name === 'string' && ((c as { name: string }).name).length > 0
+              && typeof (c as { p_fcf?: unknown }).p_fcf === 'number' && (c as { p_fcf: number }).p_fcf > 0)
+          : undefined,
+        z.array(z.object({ name: z.string().min(1), p_fcf: z.number().positive() })).optional(),
+      ),
+      citation: z.string().optional(),
     })
     .optional(),
 })
@@ -77,7 +89,7 @@ export type RunValuationReasoningPassArgs = {
   /** The model the focused call runs on. Defaults to the synthesis/decision model. */
   model_id: string
   /** Compact lane digest so the focused call can reason from the lanes' findings. */
-  laneDigest: RedTeamLaneDigest[]
+  laneDigest: InversionLaneDigest[]
   /** The verified source corpus (source_ids) the focused call must cite from. */
   corpusSourceIds: string[]
   /**
@@ -86,8 +98,8 @@ export type RunValuationReasoningPassArgs = {
    * id the harness reliably verifies, do NOT fetch a self-archive URL). May be empty.
    */
   preVerifiedSourceIds: string[]
-  /** Phase 2 V1 (always-on stage): the RESOLVED moat/runway tiers (mechanical anchor ±1, cite-gated). */
-  caseDigest?: { moat_class: string; runway: string }
+  /** Phase 2 V1 (always-on stage): the RESOLVED moat tier (mechanical anchor ±1, cite-gated). */
+  caseDigest?: { moat_class: string }
   /** Phase 2 V1: the harness-fetched primary-filing NUMBERS block (the same injection the lanes get). */
   primaryFilingBlock?: string
   /** Phase 2 V1: the circle gate's grounded cashflow drivers/breakers (predictability context). */
@@ -107,7 +119,7 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
   const corpus = args.corpusSourceIds.join(', ')
   const preVerified = args.preVerifiedSourceIds.filter((id) => id.trim().length > 0)
   const steer = preVerified.length > 0
-    ? `STEER (citation alignment): for the owner-earnings + assumed-growth citations, cite the harness-verified `
+    ? `STEER (citation alignment): for the assumed-growth citation, cite the harness-verified `
       + `primary source_id(s) [${preVerified.join(', ')}] (e.g. sec_edgar_10k_<cik>_fy<year>) — these are already `
       + `fetched + content-verified by the harness. Do NOT fetch or cite your OWN SEC archive URL for the primary `
       + `10-K (it fetches unreliably and will FAIL the cite-check). `
@@ -117,52 +129,47 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `valuation stage: the specialist lanes have reported and the moat tier is resolved — your FOCUSED, `
     + `REQUIRED job is to produce the grounded valuation judgment the synthesis will consume.\n\n`
     + `Lane findings (the shared narrative to value from):\n${laneLines}\n\n`
-    + (args.caseDigest === undefined ? '' : `Resolved judgment tiers (mechanical anchor ±1, cite-gated): moat_class=${args.caseDigest.moat_class}, runway=${args.caseDigest.runway}.\n`)
+    + (args.caseDigest === undefined ? '' : `Resolved judgment tier (mechanical anchor ±1, cite-gated): moat_class=${args.caseDigest.moat_class}.\n`)
     + (args.circleDigest === undefined ? '' : `Circle-gate grounded cashflow drivers: ${args.circleDigest.drivers.join('; ') || '(none)'} | predictability breakers: ${args.circleDigest.breakers.join('; ') || '(none)'}.\n`)
     + (args.primaryFilingBlock ?? '')
     + `\n`
+    + `THE HARNESS OWNS THE CASH BASIS: intrinsic value is computed deterministically from the filing's `
+    + `FREE CASH FLOW (cash from operations − capital expenditures, both tagged XBRL facts) — you do NOT `
+    + `estimate owner earnings, maintenance capex, or working-capital normalizations. Your judgments are `
+    + `the GROWTH and the EXIT MULTIPLE.\n\n`
     + `Produce a single valuation_reasoning:\n`
-    + `  - owner_earnings_basis: the owner-earnings figure you valued, CITED.\n`
-    + `  - owner_earnings_citation: REQUIRED — the source_id of a VERIFIED primary source backing it (a real `
-    + `grounded source_id, NOT prose).\n`
-    + `  - assumed_growth: the near-term growth you assumed (a fraction, e.g. 0.06). Estimate HONESTLY — a `
+    + `  - assumed_growth: the near-term FREE-CASH-FLOW growth you assume (a fraction, e.g. 0.06). Estimate HONESTLY — a `
     + `growth above ~15% will be FLAGGED as implausible.\n`
     + `  - assumed_growth_rationale: WHY that growth is defensible, CITED (a durable source, not "strong execution").\n`
     + `  - assumed_growth_citation: REQUIRED — the source_id of a VERIFIED primary source backing the growth `
     + `rationale (again a real grounded source_id, NOT prose).\n`
-    + `  - proposed_buy_below: the price at/below which you would buy, in the US-LISTED quote currency (USD `
-    + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
-    + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
-    + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
-    + `  - valuation_status: ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your qualitative read of `
-    + `TODAY's price vs value (keep it coherent with your own proposed_buy_below).\n`
-    + `  - owner_earnings_bridge: your judged bridge INPUTS from the filing numbers above, in the FILING'S `
-    + `REPORTING currency and labeled as such in your basis text (say "DKK 100.5B", not "$100.5B", for a DKK `
-    + `filer) (net_income, `
-    + `depreciation_amortization, maintenance_capex + maintenance_capex_proxy_tier ('20'|'50'|'80'), `
-    + `stock_based_comp, normalized_working_capital_change, shares_outstanding — $M and millions of shares). `
-    + `The harness anchors NI/D&A/SBC/shares to EDGAR and bounds maintenance_capex by total capex; your real `
-    + `judgments are the maintenance-vs-growth capex split AND the normalized working-capital change.\n`
-    + `  - normalized_working_capital_change is a JUDGMENT, not a default: read the cash-flow statement's `
-    + `"changes in operating assets and liabilities" across the last 2-3 fiscal years (read_source the `
-    + `pre-verified filing, section 8) and estimate the STRUCTURAL recurring working-capital use of cash as `
-    + `the business grows — normalize away one-year swings. SIGN: positive = a recurring USE of cash `
-    + `(subtracts from owner earnings); negative = a structural release (adds). Enter 0 ONLY when the filing `
-    + `shows working capital roughly neutral across years — and if you enter 0, SAY WHY in `
-    + `owner_earnings_basis (e.g. "negative working-capital cycle; customers pay upfront"). A silent `
-    + `defaulted 0 overstates owner earnings for working-capital-hungry businesses.\n\n`
-    + `GROUNDING (non-negotiable): the harness deterministically cite-checks owner_earnings_citation and `
-    + `assumed_growth_citation against the grounded corpus and FAILS CLOSED when either is absent or does not `
-    + `verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
-    + `DISCOUNT OWNERSHIP (the harness owns the discount, not you): the harness discounts owner earnings `
-    + `deterministically at a single config-driven uniform rate (the compliant savings rate plus a fixed equity `
-    + `premium) — the SAME for every business. Do NOT specify, assume, or assert your own discount rate, cost of `
+
+    + `  - industry_exit_multiple: the price-to-free-cash-flow multiple a rational buyer would pay for `
+    + `this business in ~10 years ({multiple, basis_note, citation?}) — ANCHORED TO NAMED COMPARABLES, not `
+    + `an unnamed industry average (owner rule): (1) NAME the 2-4 CLOSEST comparable companies and the `
+    + `P/FCF each trades at (or has historically traded at); (2) EXCLUDE structurally different names and `
+    + `say why (a closed-loop lender is not a network; a different unit-economics model is not a comp); `
+    + `(3) set the multiple from the MEDIAN of the named set, tilted CONSERVATIVE — median not mean (one `
+    + `hot comp must not drag it up), and priced for the EXIT-STATE business (year-10 is more mature than `
+    + `today, so sit at or below where the comps trade now, never extrapolate today's premium). basis_note `
+    + `MUST carry the named comps + their multiples + the exclusion reasoning — a bare number or an `
+    + `unnamed "industry average" is an incomplete answer. ALSO return the comps STRUCTURED — `
+    + `"comps":[{"name":"Mastercard","p_fcf":28}] — so the harness can verify your multiple sits at or `
+    + `below their median (choosing above your own comps' median is flagged). Include citation ONLY if a figure comes from a `
+    + `corpus-verifiable source (an honest uncited judgment is labeled model-asserted — better than a fake `
+    + `citation, which FAILS the cite-check). The harness clamps to a sane band and computes the terminal `
+    + `value deterministically.\n`
+    + `GROUNDING (non-negotiable): the harness deterministically cite-checks assumed_growth_citation `
+    + `against the grounded corpus and FAILS CLOSED when it is absent or does not verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
+    + `DISCOUNT OWNERSHIP (the harness owns the discount, not you): the harness discounts free cash flow `
+    + `deterministically at the single config-driven REQUIRED RETURN (the book's 15% default unless the user `
+    + `changed the Setting) — the SAME for every business. Do NOT specify, assume, or assert your own discount rate, cost of `
     + `capital, WACC, or required return, and do NOT present a textbook DCF or an intrinsic-value range computed `
-    + `off a self-chosen rate; that math is the harness's job. Reason about VALUE only: the owner-earnings basis, `
+    + `off a self-chosen rate; that math is the harness's job. Reason about VALUE only: `
     + `the durability of growth, and a qualitative cheap / fair / expensive read versus today's price.\n`
-    + `EXAMPLE (shape only): {"valuation_reasoning":{"owner_earnings_basis":"FY25 owner earnings $8.4B per the 10-K",`
-    + `"owner_earnings_citation":"sec_edgar_10k_<cik>_fy<year>","assumed_growth":0.06,`
-    + `"assumed_growth_rationale":"mid-single-digit, grounded in segment capex","assumed_growth_citation":"sec_edgar_10k_<cik>_fy<year>"}}.`
+    + `EXAMPLE (shape only): {"valuation_reasoning":{"assumed_growth":0.06,`
+    + `"assumed_growth_rationale":"mid-single-digit, grounded in segment capex","assumed_growth_citation":"sec_edgar_10k_<cik>_fy<year>",`
+    + `"industry_exit_multiple":{"multiple":16,"basis_note":"comps: BJ's ~14x, Walmart ~18x, Target ~12x P/FCF; Sam's Club not separable (inside WMT); median ~14-16x, set 16x for the stronger membership economics"}}}.`
   )
 }
 
@@ -182,25 +189,16 @@ export async function runValuationReasoningPass(
   const requiredFields: RequiredFieldCheck<ValuationReasoningAnalysis>[] = [
     // Phase 2 V4: the stage OWNS the buy-below / status / bridge — retry-forced (schema stays optional so
     // an exhausted retry degrades to the visible failed outcome instead of a hard throw).
+    // Phase 4 (book alignment): the industry P/FCF exit multiple — retry-forced; an exhausted retry
+    // degrades to the harness's conservative fallback multiple (12×), never a hard throw.
     {
-      name: 'valuation_reasoning.proposed_buy_below',
-      present: (a) => typeof a.valuation_reasoning?.proposed_buy_below === 'number' && Number.isFinite(a.valuation_reasoning.proposed_buy_below) && a.valuation_reasoning.proposed_buy_below > 0,
-      hint: 'the price at/below which you would buy, in the US-LISTED quote currency (a positive number)',
-    },
-    {
-      name: 'valuation_reasoning.valuation_status',
-      present: (a) => a.valuation_reasoning?.valuation_status !== undefined,
-      hint: "ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your read of TODAY's price vs value",
-    },
-    {
-      name: 'valuation_reasoning.owner_earnings_bridge',
-      present: (a) => a.valuation_reasoning?.owner_earnings_bridge !== undefined,
-      hint: 'your judged bridge inputs (net_income, depreciation_amortization, maintenance_capex + proxy tier, stock_based_comp, normalized_working_capital_change, shares_outstanding) in the reporting currency',
-    },
-    {
-      name: 'valuation_reasoning.owner_earnings_citation',
-      present: (a) => (a.valuation_reasoning?.owner_earnings_citation ?? '').length > 0,
-      hint: 'the source_id of a VERIFIED primary source backing the owner-earnings figure (a real grounded source_id, not prose)',
+      name: 'valuation_reasoning.industry_exit_multiple',
+      // Owner rule (2026-07-12): a bare multiple or an unnamed "industry average" is an incomplete
+      // answer — the basis_note must carry the named-comps arithmetic (≥40 chars is the cheap floor;
+      // the prompt demands names + figures + exclusions).
+      present: (a) => a.valuation_reasoning?.industry_exit_multiple !== undefined
+        && (a.valuation_reasoning.industry_exit_multiple.basis_note ?? '').trim().length >= 40,
+      hint: 'the exit P/FCF multiple {multiple, basis_note, citation?} — basis_note MUST name the 2-4 closest comparables with their P/FCF figures and the exclusion reasoning (median of the named set, conservative)',
     },
     {
       name: 'valuation_reasoning.assumed_growth_citation',

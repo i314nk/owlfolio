@@ -111,6 +111,29 @@ export type ValuationParams = {
   gdp_growth_threshold: number
   /** Default OE normalization stance — mid_cycle (trough only for flagged cyclicals) (spec §1). */
   oe_normalization_default: OeNormalization
+  // ---- Phase 4 (book alignment, owner-locked 2026-07-11) ----
+  /**
+   * The DEFAULT required annual return used to discount the 10-year FCF projection — the book's flat
+   * 15% ("anything less, you might as well buy the index"; it doubles as the active-vs-passive
+   * hurdle). User-changeable in Settings (threaded per run like the savings anchor); this is the
+   * fail-closed default when no setting exists.
+   */
+  required_return_default: number
+  /** Rule 8 — the LOAD-UP-THE-TRUCK threshold: a ≥50% discount to intrinsic value marks the
+   *  concentrated-sizing zone (the book's recommended margin; required_margin_of_safety is the 30% floor). */
+  load_up_margin: number
+  /** Clamp band for the model-judged industry P/FCF exit multiple (terminal value = FCF10 × multiple). */
+  /**
+   * OWNER RULE (2026-07-12): the fixed [8, 20] CLAMP is retired — the book's 8–20× was an EXAMPLE,
+   * not a ceiling, and each industry carries different multiples. The reference band is now the
+   * model's own NAMED COMPARABLES (the harness checks the chosen multiple against their median).
+   * These bounds are the ABSURDITY guard only (units/scale-error, mirrors fv_absurd_multiple):
+   * outside them the judgment is discarded for the conservative fallback.
+   */
+  exit_multiple_absurd_min: number
+  exit_multiple_absurd_max: number
+  /** Conservative fallback exit multiple when the model's judgment is absent/ungrounded/out-of-band-invalid. */
+  exit_multiple_fallback: number
 }
 
 /**
@@ -130,7 +153,7 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-savings-anchor-1',
+  version: 'valuation-2026-07-book-alignment-2',
   // F.2 ANCHOR SWAP: discount_rate = savings_rate_default (0.02) + equity_premium (0.055) = 0.075. The
   // compliant risk-free anchor is the SAVINGS rate (Mudarabah expected profit) — the same baseline the
   // deployment-hurdle + sizing engines already use — NOT the interest-bearing 10y Treasury (retired).
@@ -141,11 +164,10 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // calibration (fix NVO's currency path + add US 10-K compounders). single_growth_cap was re-derived
   // 2026-06-15 (see its note below); premium remains provisional until the must-signal pass.
   equity_premium: 0.055,
-  // Phase 2 V2 (owner-validated 2026-07-11): the T0 margin-of-safety grade's uniform threshold —
-  // buy-below must sit ≥25% below min(internal DCF fair value, the 18× OE cap value) to grade
-  // 'adequate' (≥ half that → 'thin'). UNIFORM per F.13; PROVISIONAL per F.11 until post-mortems
-  // calibrate it. The moat's contribution to safety stays in the surfaced human-weighted channels.
-  required_margin_of_safety: 0.25,
+  // Phase 4 (book alignment, owner-locked 2026-07-11): rule 7 — never buy without a MINIMUM 30%
+  // margin of safety (was the provisional 25%). UNIFORM per F.13. The 50% load_up_margin below is
+  // rule 8's concentrated-sizing threshold.
+  required_margin_of_safety: 0.30,
   // F.2 — fail-closed compliant savings-rate anchor (mirrors DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE = 0.02).
   // The live discount sources the app-config savings rate; this is the fail-closed default.
   savings_rate_default: 0.02,
@@ -173,4 +195,11 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,
   oe_normalization_default: 'mid_cycle',
+  // Phase 4 (book alignment): the flat-15% default required return; 50% load-up margin; the
+  // exit-multiple clamp band + conservative fallback (industry P/FCF is model-judged, cite-labeled).
+  required_return_default: 0.15,
+  load_up_margin: 0.50,
+  exit_multiple_absurd_min: 3,
+  exit_multiple_absurd_max: 40,
+  exit_multiple_fallback: 12,
 }) as ValuationParams

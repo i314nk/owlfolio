@@ -234,3 +234,114 @@ describe('grounded-thesis moat resolver — no thesis fails closed', () => {
     expect(result.judgment_degraded).toBe('rubric_not_emitted')
   })
 })
+
+// ---------------------------------------------------------------------------------------------------
+// S3 (Phase 3 pillars): the moat pillar's judgment upgrade — TYPE taxonomy per grounded driver,
+// moat DIRECTION ("a narrowing moat is a sell signal no matter how wide"), and the peer-standout
+// judgment (peers cited-or-labeled). Same grounding spine: nothing ungrounded gets structure or teeth.
+// ---------------------------------------------------------------------------------------------------
+
+describe('S3 — moat TYPE taxonomy (resolved from GROUNDED drivers only)', () => {
+  it('collects the distinct types of grounded drivers; ungrounded/untyped drivers contribute no type', () => {
+    const result = moat({
+      moatThesis: {
+        moat_drivers: [
+          { advantage: 'Concentrate pricing power holds through cycles', citation: RESOLVER_10K, moat_type: 'brand' },
+          { advantage: 'Bottler network scale advantage', citation: SECONDARY, moat_type: 'scale_advantage' },
+          { advantage: 'Also brand loyalty in new markets', citation: RESOLVER_10K, moat_type: 'brand' }, // dup type → dedup
+          { advantage: 'Secret formula', citation: 'unverifiable_url', moat_type: 'intangible_assets' }, // ungrounded → no type
+          { advantage: 'Untyped but grounded distribution muscle', citation: RESOLVER_10K }, // counts for width, no type
+        ],
+        proposed_moat_class: 'wide',
+        moat_reasoning: 'Brand + scale.',
+      },
+      series: strongQuantSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(result.resolved_moat_class).toBe('wide')
+    expect(result.resolved_moat_types).toEqual(['brand', 'scale_advantage'])
+    // Drivers carry their type through cite-verification for the dossier chips.
+    expect(result.moat_drivers?.find((d) => d.advantage.startsWith('Concentrate'))?.moat_type).toBe('brand')
+  })
+})
+
+describe('S3 — moat DIRECTION (grounded-only; never a silent default)', () => {
+  const base = {
+    moat_drivers: [
+      { advantage: 'Pricing power', citation: RESOLVER_10K },
+      { advantage: 'Scale', citation: SECONDARY },
+    ],
+    proposed_moat_class: 'wide' as const,
+    moat_reasoning: 'Wide.',
+  }
+
+  it('a proposed narrowing with >=1 grounded direction driver resolves narrowing', () => {
+    const result = moat({
+      moatThesis: {
+        ...base,
+        moat_direction: 'narrowing',
+        direction_drivers: [{ evidence: 'Private-label share taking 200bps/yr from the brand', citation: RESOLVER_10K }],
+        direction_reasoning: 'Share erosion is cited in the 10-K risk + segment data.',
+      },
+      series: strongQuantSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(result.moat_direction).toBe('narrowing')
+    expect(result.direction_ungrounded).not.toBe(true)
+    expect(result.direction_drivers?.[0]?.grounded).toBe(true)
+  })
+
+  it('a proposed direction with NO grounded driver resolves undetermined + direction_ungrounded (no teeth)', () => {
+    const result = moat({
+      moatThesis: {
+        ...base,
+        moat_direction: 'narrowing',
+        direction_drivers: [{ evidence: 'Vibes', citation: 'unverifiable_url' }],
+        direction_reasoning: 'Ungrounded.',
+      },
+      series: strongQuantSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(result.moat_direction).toBe('undetermined')
+    expect(result.direction_ungrounded).toBe(true)
+  })
+
+  it('a legacy/omitted direction resolves undetermined WITHOUT the ungrounded flag (nothing was claimed)', () => {
+    const result = moat({
+      moatThesis: base,
+      series: strongQuantSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(result.moat_direction).toBe('undetermined')
+    expect(result.direction_ungrounded).not.toBe(true)
+  })
+})
+
+describe('S3 — peer standout (cited-or-labeled; the harness stamps model_asserted deterministically)', () => {
+  it('a cited-and-verified peer is grounded; an uncited peer is stamped model_asserted', () => {
+    const result = moat({
+      moatThesis: {
+        moat_drivers: [{ advantage: 'Pricing power', citation: RESOLVER_10K }],
+        proposed_moat_class: 'moderate',
+        moat_reasoning: 'ok',
+        peer_standout: {
+          peers: [
+            { name: 'PeerCo A', gross_margin_note: '~38% FY2024 gross margin', citation: SECONDARY },
+            { name: 'PeerCo B', gross_margin_note: '~31% FY2024 gross margin' },
+            { name: 'PeerCo C', gross_margin_note: '~29%', citation: 'unverifiable_url' },
+          ],
+          judgment: 'stands_out',
+          reasoning: 'Company gross margin sits well above all named peers.',
+        },
+      },
+      series: strongQuantSeries(),
+      verifiedCitationHashes: verified,
+    })
+    const ps = result.peer_standout
+    expect(ps?.judgment).toBe('stands_out')
+    expect(ps?.grounded_peer_count).toBe(1)
+    expect(ps?.peers?.find((p) => p.name === 'PeerCo A')?.model_asserted).toBe(false)
+    expect(ps?.peers?.find((p) => p.name === 'PeerCo B')?.model_asserted).toBe(true)
+    expect(ps?.peers?.find((p) => p.name === 'PeerCo C')?.model_asserted).toBe(true) // cited but unverified = asserted
+  })
+})

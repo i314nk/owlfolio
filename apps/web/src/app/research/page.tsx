@@ -5,6 +5,7 @@ import { ResearchLibrary } from '../../components/ResearchLibrary'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
+import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
 
 export default async function ResearchLandingPage() {
   const state = await getOnboardingState()
@@ -16,7 +17,14 @@ export default async function ResearchLandingPage() {
 
   try {
     const events = await store.list()
-    const cases = projectResearchCases(events)
+    const projected = projectResearchCases(events)
+    // Display-name backfill for legacy cases (see displayNames.ts) — the stamped name always wins.
+    const displayNames = await resolveDisplayNamesForTickers(projected.map((c) => c.ticker))
+    const cases = projected.map((c) => {
+      if (c.entity_name !== undefined || c.ticker === undefined) return c
+      const name = displayNames.get(c.ticker.toUpperCase())
+      return name === undefined ? c : { ...c, entity_name: name }
+    })
 
     return (
       <main className="owl-route-frame owl-route-frame-wide">

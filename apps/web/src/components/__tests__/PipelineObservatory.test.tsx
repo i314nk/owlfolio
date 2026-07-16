@@ -63,7 +63,7 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('/pipeline?case=rc-msft')
   })
 
-  it('renders distinct verdict-state badges (TOO-HARD / GATED / WATCH-FAIR) and a red-team step slot', () => {
+  it('renders distinct verdict-state badges (TOO-HARD / GATED / WATCH-FAIR) and an inversion step slot', () => {
     const html = renderToStaticMarkup(
       createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'personal-local' }),
     )
@@ -71,7 +71,7 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('data-verdict-state="GATED"')
     expect(html).toContain('data-verdict-state="WATCH-FAIR"')
     expect(html).toContain('data-pipeline-step="red_team"')
-    expect(html).toContain('Red-team pass')
+    expect(html).toContain('Inversion pass')
   })
 
   it('shows an honest empty state when there are no runs', () => {

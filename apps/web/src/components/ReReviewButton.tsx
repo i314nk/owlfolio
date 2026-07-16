@@ -43,16 +43,22 @@ export async function submitReReview(
     const insiderNote = cluster === undefined
       ? ''
       : ` Insider-selling cluster (STRONG): ${cluster.distinct_sellers ?? 0} insiders sold ~$${Math.round(cluster.discretionary_sell_value ?? 0).toLocaleString('en-US')} recently — consider a full re-run.`
+    // 10-K cadence: a new annual report makes the FULL re-analysis the right tool — say so here too
+    // (the durable prompt is the monitor alert + the dossier card line).
+    const annual = body.new_annual_filing as { form?: string; filed?: string } | undefined
+    const annualNote = annual === undefined
+      ? ''
+      : ` Annual report filed (${annual.form ?? '10-K'}, ${annual.filed ?? ''}) — a full re-analysis is recommended.`
     const base = body.status === 'no_new_filings'
       ? (cluster === undefined
-          ? 'No new filings since this decision — the thesis re-review has nothing to compare.'
+          ? 'No new filings since this decision — the check-in has nothing to compare.'
           : 'No new conventional filings since this decision, but an insider-selling cluster fired.')
       : body.status === 'no_prior_corpus'
         ? 'No persisted source corpus for this case (it predates ledger persistence) — the honest refresh is a full re-run.'
         : 'Could not resolve SEC filings for this ticker right now — try again later.'
-    return { ok: true, note: `${base}${insiderNote}` }
+    return { ok: true, note: `${base}${insiderNote}${annualNote}` }
   } catch (caughtError) {
-    return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the re-review' }
+    return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the check-in' }
   }
 }
 
@@ -118,12 +124,12 @@ export function ReReviewButton({ caseId }: { caseId: string }): ReactNode {
           createElement(
             'span',
             { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', maxWidth: '28rem' } },
-            'Checks EDGAR for filings NEW since this decision; only if any exist, a grounded re-review runs (uses provider quota). Continue?',
+            'Checks EDGAR for filings NEW since this decision; only if any exist, a grounded check-in runs (uses provider quota). Continue?',
           ),
           createElement(
             'button',
             { type: 'button', className: 'owl-button owl-button-secondary owl-focusable', disabled: submitting, onClick: () => void onConfirm() },
-            submitting ? 'Checking…' : 'Confirm re-review',
+            submitting ? 'Checking…' : 'Confirm check-in',
           ),
           createElement(
             'button',
@@ -145,7 +151,7 @@ export function ReReviewButton({ caseId }: { caseId: string }): ReactNode {
               setConfirming(true)
             },
           },
-          'Check new filings / re-review',
+          'Check-in vs new filings',
         ),
     note === undefined ? null : createElement('p', { 'data-testid': 'rereview-note', style: noteStyle }, note),
     error === undefined

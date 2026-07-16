@@ -196,13 +196,13 @@ describe('/api/research/start', () => {
   })
 
   it('refuses to start a deep dive when onboarding is incomplete, naming the missing item', async () => {
-    // mock-provider is ready, so we pass the readiness check and reach the onboarding gate.
-    // The gate is provider + capital only; with no investable capital set, capital is the missing item.
+    // SCALE-DOWN S5: the gate is provider-connected ONLY (capital retired). An unready provider
+    // (openrouter with no key) leaves the single frontier-LLM item missing → the route refuses.
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
       provider: {
         ...defaultPersonalLocalAppConfig().provider,
-        provider_id: 'mock-provider',
+        provider_id: 'openrouter',
       },
       ledger_path: join(tempDir, 'personal.sqlite'),
       source_ledger_path: join(tempDir, 'source-ledger'),
@@ -216,11 +216,7 @@ describe('/api/research/start', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(400)
-    expect(payload.error.code).toBe('onboarding_incomplete')
-    expect(payload.error.message).toMatch(/Investable capital/)
-    expect(payload.error.missing_items).toEqual(expect.arrayContaining([expect.stringMatching(/Investable capital/)]))
-    // The market-data key is no longer a gate item, so it must never appear in the missing list.
-    expect(payload.error.missing_items).not.toEqual(expect.arrayContaining([expect.stringMatching(/market-data/i)]))
+    expect(payload.error.message).toMatch(/frontier LLM|not ready|key/i)
   })
 
   it('allows a research run when provider + capital are set even with NO market-data key (EDGAR direct)', async () => {

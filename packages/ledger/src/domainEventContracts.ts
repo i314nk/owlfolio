@@ -9,6 +9,8 @@ export type DomainProjectionOwner =
   | 'audit'
   | 'worker_status'
   | 'portfolio'
+  // B7 (book alignment): the passive index sleeve (DCA contribution fold).
+  | 'passive_sleeve'
 
 export type DomainEventContract = {
   event_type: DomainEventType
@@ -78,6 +80,7 @@ export const domainEventTypes = [
   'admit_judgment_recorded',
   'sizing_recommendation_recorded',
   'research_case_archived',
+  'passive_contribution_recorded',
   'research_case_re_review_recorded',
   'price_snapshot_recorded',
   'valuation_judgment_drafted',
@@ -206,6 +209,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S2 (2026-07-13): PRODUCER RETIRED (the money layer) — legacy events stay readable.
     event_type: 'holding_valuation_recorded',
     aggregate_type: 'holding',
     actor_type: 'worker',
@@ -317,6 +321,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S3 (2026-07-13): PRODUCER RETIRED (the payment ledger) — the dossier keeps the grounded purification RATE as guidance.
     event_type: 'purification_obligation_recorded',
     aggregate_type: 'purification_entry',
     actor_type: 'worker',
@@ -324,6 +329,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     payload_fields: ['obligation_id', 'holding_id', 'amount', 'currency', 'period_start', 'period_end'],
   },
   {
+    // SCALE-DOWN S3 (2026-07-13): PRODUCER RETIRED — tracking/paying purification happens outside the app.
     event_type: 'purification_payment_recorded',
     aggregate_type: 'purification_entry',
     actor_type: 'user',
@@ -331,6 +337,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     payload_fields: ['payment_id', 'obligation_id', 'amount', 'currency', 'paid_at', 'recipient'],
   },
   {
+    // SCALE-DOWN S2 (2026-07-13): PRODUCER RETIRED (monthly books removed).
     event_type: 'accounting_snapshot_recorded',
     aggregate_type: 'accounting_snapshot',
     actor_type: 'worker',
@@ -440,6 +447,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     ],
   },
   {
+    // SCALE-DOWN S5 (2026-07-13): PRODUCER RETIRED (the onboarding gate is provider-only).
     event_type: 'investable_capital_set',
     aggregate_type: 'portfolio',
     actor_type: 'user',
@@ -790,6 +798,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     // fat-pitch posture (nothing clears the hurdle → capital parked in the savings sleeve), NEVER a
     // warning. It does NOT open the holding — the buy stays the human-signed holding-open transition.
     // Grounded to the case corpus; the newest recorded recommendation wins (recomputed fresh on-demand).
+    // SCALE-DOWN S1 (2026-07-13): PRODUCER RETIRED (zones tell you when; the size is yours).
     event_type: 'sizing_recommendation_recorded',
     aggregate_type: 'research_case',
     actor_type: 'provider',
@@ -826,6 +835,18 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'discovery',
     payload_fields: ['research_case_id', 'archived_at', 'reason'],
+  },
+  {
+    // B7 (book alignment): a PASSIVE-SLEEVE DCA contribution — USER-AUTHORED, append-only, a local
+    // record of an index purchase already made elsewhere (no broker, no execution). The plan (split /
+    // monthly amount / schedule day) lives in app-config; this event is the recorded side. Rule 3 by
+    // construction: no withdrawal/sell event type exists for the sleeve.
+    // SCALE-DOWN S4 (2026-07-13): PRODUCER RETIRED (the passive page is informative only).
+    event_type: 'passive_contribution_recorded',
+    aggregate_type: 'passive_sleeve',
+    actor_type: 'user',
+    projection_owner: 'passive_sleeve',
+    payload_fields: ['contribution_id', 'amount', 'contributed_at', 'instrument', 'note'],
   },
   {
     // Thesis RE-REVIEW (the freshness layer). A provider-authored OBSERVATION recorded AFTER a decision:
@@ -884,14 +905,15 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'company_id',
       'ticker',
       'status',
-      'owner_earnings_basis',
-      'owner_earnings_citation',
+      // E2 (2026-07-12): owner_earnings_basis / owner_earnings_citation / owner_earnings_bridge are
+      // RETIRED (legacy events keep them; the projection tolerates by ignore). The stage's judgments
+      // are the growth (cited) and the industry exit multiple.
       'assumed_growth',
       'assumed_growth_rationale',
       'assumed_growth_citation',
       'proposed_buy_below',
       'valuation_status',
-      'owner_earnings_bridge',
+      'industry_exit_multiple',
       'corpus_source_ids',
       'stage_cost',
     ],

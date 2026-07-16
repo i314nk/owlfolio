@@ -38,7 +38,7 @@ OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$PWD/data/provider-certifications
 
 ## CLI
 
-The web app is the primary surface; the CLI is a small inspect/diagnose/launch tool. All onboarding (mode, provider, API keys, model, capital) lives in the browser, so the CLI is deliberately three commands. A repo-root `owlfolio` launcher runs it with no build step (it execs the workspace `tsx` on `apps/cli/src/index.ts`):
+The web app is the primary surface; the CLI is a small inspect/diagnose/launch tool. All onboarding (mode, provider, API keys, model) lives in the browser, so the CLI is deliberately three commands. A repo-root `owlfolio` launcher runs it with no build step (it execs the workspace `tsx` on `apps/cli/src/index.ts`):
 
 ```bash
 owlfolio start      # launch the app + open the browser to http://127.0.0.1:3000 (onboarding happens there)
@@ -54,7 +54,7 @@ owlfolio <command>                # after putting the launcher on PATH: ln -s "$
 corepack pnpm owlfolio <command>  # zero-setup alternative (root package script)
 ```
 
-The CLI is non-interactive and never authors an irreversible transition (no trades, watchlist confirmations, holding opens, Shariah overrides, or purification payments) — those remain web + human-authored. It honors the same `OWLFOLIO_*` runtime overrides as the app and worker.
+The CLI is non-interactive and never authors an irreversible transition (no trades, watchlist confirmations, holding opens, or Shariah overrides) — those remain web + human-authored. It honors the same `OWLFOLIO_*` runtime overrides as the app and worker.
 
 ## Providers
 
@@ -94,11 +94,11 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 Limit to one task kind:
 
 ```bash
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
-The worker is dry-run/mock-safe for the alpha. It records scheduled-task lifecycle events and observations, but it must not auto-approve investment decisions, buy/sell actions, watchlist confirmations, holding opens, Shariah overrides, or purification payments.
+The worker is dry-run/mock-safe for the alpha. It records scheduled-task lifecycle events and observations, but it must not auto-approve investment decisions, buy/sell actions, watchlist confirmations, holding opens, or Shariah overrides.
 
 ## Verification
 
@@ -135,7 +135,8 @@ Known warning: Next/Turbopack may print an NFT/import-trace warning around local
 - Alpha is a local workflow demo and personal-local ledger slice, not a complete robo-advisor.
 - Web workflow is primary; CLI is for developer/admin operations.
 - Buffett-Munger is the default strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
-- Shariah, accounting, and purification are first-class domains, but current screens are local-ledger/accounting aids, not professional legal/tax/Shariah rulings.
+- SCALE-DOWN (owner-locked 2026-07-13): Owlfolio is a GROUNDED RESEARCH-AND-DECISION system — discovery → four-pillar research → zones/price checks → watchlist → held THESES (entry price is the one manual field). The accounting/bookkeeping half (monthly books, portfolio values, the purification obligation/payment ledger, contribution tracking, investable capital, position sizing) is REMOVED: its ground truth is unverifiable by design. Legacy events remain readable in the audit timeline.
+- Shariah SCREENING is first-class and fully grounded (the front gate, harness-recomputed AAOIFI ratios, and the purification RATE as dossier guidance) — but it is a local screening aid, not a professional legal/tax/Shariah ruling. The /passive page is educational only (Shariah-ETF pedagogy; nothing tracked).
 - Broker credentials, broker sync, live trading, automatic portfolio actions, tax filing, and production-grade direct API provider parity are out of scope unless explicitly requested.
 
 ## Coding conventions
@@ -145,6 +146,4 @@ Known warning: Next/Turbopack may print an NFT/import-trace warning around local
 - Keep user-authored transitions separate from provider/worker-authored drafts and observations.
 - Preserve stable `event_id`s and causation/correlation IDs in ledger projections.
 - Do not infer holdings from watchlist drafts or provider recommendations; user confirmation/open-holding events are explicit ledger transitions.
-- Monthly accounting projections must be bounded by the snapshot period/as-of date.
-- Purification obligations and payments are separate auditable events.
 - No secrets in git, logs, Kanban metadata, README examples, or provider reports.

@@ -1,5 +1,6 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
 import { RunDeepDiveButton } from './RunDeepDiveButton'
+import { createPriceLadderElement } from './PriceLadder'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -10,11 +11,9 @@ import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffet
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
-import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
 import { SellDecisionRequest } from './SellDecisionRequest'
-import { SizingRecommendationRequest } from './SizingRecommendationRequest'
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import { WatchlistPromotionForm } from './WatchlistPromotionForm'
@@ -44,8 +43,6 @@ export type ResearchCasePanelProps = {
    */
   configuredProviderId?: string
   marketQuote?: MarketQuote
-  positionPlan?: PositionPlan
-  promptForCapital?: boolean
   /**
    * The owner's compliant savings sleeve config (from app-config). Drives the discount-anchor VINTAGE line:
    * the savings rate is the discount's risk-free anchor, and `savings_rate_set_at` makes a stale/never-set
@@ -296,7 +293,7 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, positionPlan, promptForCapital = false, savings }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings }: ResearchCasePanelProps) {
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -316,16 +313,15 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
   // recommendation for a deep-dive-complete, gate-passing admission candidate (personal-local only),
   // or whenever a recommendation has already been recorded.
   const hasAdmitRecommendation = researchCase.admit_recommendation !== undefined
+  // POLISH (owner-agreed): the on-demand REQUEST control is zone-gated — admission is on the table
+  // only when the price sits in a book zone (rule 7/8). A recorded recommendation always renders.
+  const inABookZone = researchCase.valuation?.in_buy_zone === true
+    || (researchCase.valuation as { in_load_up_zone?: boolean } | undefined)?.in_load_up_zone === true
   const isAdmissionCandidate = isDeepDiveComplete(researchCase.stage)
     && researchCase.valuation?.moat_passes_gate === true
+    && inABookZone
   const showAdmitPanel = mode === 'personal-local' && (hasAdmitRecommendation || isAdmissionCandidate)
 
-  // Sizing panel (Phase 5 S7): show the on-demand sizing request + the persisted recommendation once a
-  // name is an admittable candidate that carries the admit recommendation (the downside floor + risk
-  // levels sizing reads), or whenever a sizing recommendation has already been recorded.
-  const hasSizingRecommendation = researchCase.sizing_recommendation !== undefined
-  const showSizingPanel = mode === 'personal-local'
-    && (hasSizingRecommendation || (isAdmissionCandidate && hasAdmitRecommendation))
 
   // Sell decision panel (Phase 6 S8b): show the on-demand sell-decision request + the persisted advisory
   // recommendation once a name is HELD, or whenever a sell decision has already been recorded. The CLOSE
@@ -378,8 +374,8 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     hintBuyBelow === undefined ? undefined : `buy-below $${hintBuyBelow.toFixed(2)}`,
     hintInBuyZone === undefined ? undefined : (hintInBuyZone ? 'in buy zone' : 'not in buy zone'),
   ].filter((part): part is string => part !== undefined).join(' · ') || undefined
-  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
-  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
+  // D3: the T0-computed grade is the ONLY margin surface (the model-graded adequacy is retired).
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const mosHint = mosAdequacy === undefined ? undefined : `margin ${mosAdequacy}`
   // Valuation headline: the moat tier + discount rate on the right of the card header (mirrors the in-card
   // moat label). Reuses the same DEFAULT_DISCOUNT_LABEL fallback as the valuation panel.
@@ -389,63 +385,309 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     ? undefined
     : `${(researchCase.valuation.moat_class ?? 'unknown').toUpperCase()} MOAT · ${valDiscountLabel} DISCOUNT`
   // Position-plan headline (right side of its collapsed header): moat tier + entry-cap tag.
-  const positionPlanHint = positionPlan?.investable ? `${positionPlan.moat_class.toUpperCase()} MOAT · ENTRY CAP` : undefined
+
+  // ── S8 (Phase 3): the PILLAR frame — the dossier reads as Buffett's checklist applied in order.
+  // Front gate (Shariah) → P1 Understand → P2 Moat → P3 Management → P4 Value → Synthesis & decision.
+  // pillarStatus makes the gated-dossier invariant structural: a moat-gate death renders P3/P4
+  // "not evaluated — failed at the moat filter"; an outside-circle set-aside marks P2–P4 likewise.
+  const gateShortCircuited = researchCase.moat_gate_short_circuited === true
+  const outsideCircle = researchCase.circle_competence?.in_competence === false
+  const notEvaluatedReason = outsideCircle
+    ? 'not evaluated — outside the circle of competence'
+    : gateShortCircuited
+      ? 'not evaluated — failed at the moat filter'
+      : undefined
+  const p2Status = outsideCircle ? notEvaluatedReason : undefined
+  const p3p4Status = notEvaluatedReason
+  // E3: the collapsed-summary hints — the pillar ladder scans without opening anything.
+  const p1Hint = researchCase.circle_competence?.in_competence === true
+    ? 'IN COMPETENCE'
+    : researchCase.circle_competence?.in_competence === false
+      ? 'OUTSIDE THE CIRCLE'
+      : undefined
+  const p2Hint = researchCase.valuation?.moat_class !== undefined
+    ? `${researchCase.valuation.moat_class.toUpperCase()}${researchCase.valuation.moat_passes_gate === true ? ' · PASSES GATE' : researchCase.valuation.moat_passes_gate === false ? ' · FAILS GATE' : ''}`
+    : undefined
+  const mgmtJ = researchCase.management_judgment as { resolved_integrity?: string; resolved_talent?: string } | undefined
+  const p3Hint = mgmtJ?.resolved_integrity !== undefined || mgmtJ?.resolved_talent !== undefined
+    ? [mgmtJ?.resolved_integrity !== undefined ? `INTEGRITY ${mgmtJ.resolved_integrity.toUpperCase()}` : undefined,
+       mgmtJ?.resolved_talent !== undefined ? `TALENT ${mgmtJ.resolved_talent.toUpperCase()}` : undefined,
+      ].filter((x): x is string => x !== undefined).join(' · ')
+    : undefined
+  const p4IvE3 = (researchCase.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share
+  const p4BuyE3 = researchCase.valuation?.buy_price_per_share
+  const p4Hint = p4IvE3 !== undefined && p4BuyE3 !== undefined
+    ? `IV $${p4IvE3.toFixed(2)} · BUY < $${p4BuyE3.toFixed(2)}`
+    : valuationHint
 
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
     // ── 0. Mock-provider honesty banner (personal-local, mock-authored, real provider configured) ──
     mockWarningBanner,
-    // ── 1. Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
+    // ── Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
-    // ── 1·circle. Circle-of-competence judgment (collapsed; its verdict heading — e.g. "cashflows durably
-    //        predictable — in competence" — is the visible summary, the drivers/breakers are the drill-down) ──
-    makeCollapsible(createCircleCompetencePanel(researchCase), false),
-    // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
+    // ── S6 gate banners: a short-circuited case says WHY pillars 3–4 have no data (and what re-arms
+    //    them); an overridden run is PERMANENTLY labeled as user-authorized spend. ──
+    researchCase.moat_gate_short_circuited === true
+      ? createElement('p', {
+          'data-testid': 'moat-gate-short-circuit-banner',
+          style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, padding: '0.6rem 0.8rem' },
+        }, 'Failed at the moat filter (Pillar 2). Management, valuation, red team, and synthesis were NOT evaluated — no provider spend past the gate, so no numbers exist for those pillars. "Run remaining pillars anyway" starts a labeled override run.')
+      : null,
+    researchCase.moat_gate_overridden === true
+      ? createElement('p', {
+          'data-testid': 'moat-gate-overridden-marker',
+          style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.07em', margin: 0, textTransform: 'uppercase' as const },
+        }, 'Moat gate overridden by user — this analysis ran past a failed moat gate; the verdict remains gated.')
+      : null,
+    // ── Exit post-mortem (predicted vs realized) ─────────────────────────────
     createPostMortemPanel(researchCase),
-    // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the key-figures strip (model
-    //        buy-below + live price + buy-zone + reference FV + price-implied assumptions), and the
-    //        flag-only sanity-check. The decision centerpiece. ──
-    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
-    // ── 1e. Margin-of-safety audit — LEADS the decision region (Priority 3): the synthesis-owned JOINT
-    //        judgment (price margin + moat durability, side by side), the human's central audit surface.
-    //        Promoted above the valuation reasoning so it is not blended into the decision/valuation prose. ──
-    makeCollapsible(createMarginOfSafetyAuditBlock(researchCase), false, mosHint),
-    // ── 2. Valuation panel — the model thesis + cited reasoning (owner-earnings basis, judged growth +
-    //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
-    //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
-    //       reference FV cross-check, and the independent bear case (red-team). ──
-    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), false, valuationHint),
-    // ── 2b. Position plan (advisory) ─────────────────────────────────────────
-    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
-    // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
-    //        lives in the specialist lane; this is the harness-computed ratio surface, one home). ──
-    makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
-    // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
-    createSpecialistLanesGrid(researchCase),
-    // ── 4·insider. Insider activity (Form 4) — deterministic harness summary, model-independent ───────
-    createInsiderActivityPanel(researchCase),
-    // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
+    // ── E3 (owner call): ONE card per pillar — the header is the summary, the verdict hint scans
+    //    closed, the pillar's merged content expands. Gated pillars render the plain header. ──
+    // ── FRONT GATE — Shariah (precedes Buffett's four filters; sector judgment + AAOIFI ratios) ──
+    createPillarSection('front-gate', 'Front gate — Shariah', undefined, researchCase.shariah_status, [
+      createComplianceRatioBlock(researchCase),
+    ]),
+    // ── PILLAR 1 — Understand the business (the circle-of-competence judgment + the one-pager) ──
+    createPillarSection('pillar-1', 'Pillar 1 — Understand the business', undefined, p1Hint, [
+      createCircleCompetencePanel(researchCase),
+      createOnePagerCard(researchCase),
+    ]),
+    // ── PILLAR 2 — Moat: FIRST which moats were identified, THEN whether the numbers back them. ──
+    createPillarSection('pillar-2', 'Pillar 2 — Moat', p2Status, p2Hint, [
+      createMoatsIdentifiedCard(researchCase),
+      createMoatTestsCard(researchCase),
+    ]),
+    // ── PILLAR 3 — Management (integrity & talent + the deterministic insider summary) ──
+    createPillarSection('pillar-3', 'Pillar 3 — Management', p3p4Status, p3Hint, [
+      createManagementPillarPanel(researchCase),
+      createInsiderActivityPanel(researchCase),
+    ]),
+    // ── PILLAR 4 — Value the business (price is the LAST filter; the decision moves to the END) ──
+    createPillarSection('pillar-4', 'Pillar 4 — Value the business', p3p4Status, p4Hint, [
+      createValuationPanel(researchCase, marketQuote, savings),
+    ]),
+    // ── SYNTHESIS & DECISION — the reasoning (synthesis, case against, forecasts) leads; the DECISION lands at
+    //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
+    //    the actionable plans (admit / position plan / sizing / sell). ──
+    createPillarHeader('synthesis', 'Synthesis & decision', undefined),
+    createCaseAgainstPanel(researchCase),
     createForecastsPanel(researchCase),
-    // ── 4c. Admit recommendation (advisory) + on-demand request (personal-local) ──
+    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
+    makeCollapsible(createThesisBreakAuditCard(researchCase), false, mosHint),
     showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
-    // ── 4d. Sizing recommendation (advisory, worst-case-first) + on-demand request (personal-local) ──
-    showSizingPanel ? createSizingRecommendationPanel(researchCase) : null,
-    // ── 4e. Sell decision (advisory, worst-case-first; HELD context) + on-demand request (personal-local) ──
     showSellPanel ? createSellDecisionPanel(researchCase) : null,
-    // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
-    // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
-    // ── 6b. What changed since last analysis (re-analysis diff) — grouped with the audit trail at the
-    //        bottom, not competing with the current verdict at the top. Collapsed by default. ──
     createReAnalysisDiffPanel(researchCase),
     createReReviewPanel(researchCase),
-    // ── 7. Evidence & sources — collapsed by default like the other info boxes; sources live INSIDE the
-    //       drop-down. Citation markers (#source-<id>) still resolve: the browser auto-expands a <details>
-    //       when navigating to a fragment inside it. ──
+    // ── Evidence & sources — collapsed; citation markers (#source-<id>) still resolve. ──
     createEvidenceAndAuditDetails(researchCase),
   )
+}
+
+// ── S8: pillar section header — the dossier reads as the four filters applied in order. A pillar
+// that never ran says so in the header (the gated-dossier invariant, structurally). ──
+// E3 (owner call, 2026-07-12): the pillar title row — slightly bigger, with a column ornament on
+// BOTH sides of the title (the dossier reads as Buffett's colonnade). Shared by the plain header
+// (gated/synthesis) and the collapsible pillar-section summary.
+// POLISH: the collapsed pillar hints carry a tone — pass green, caution amber, fail red — so the
+// closed ladder reads as a verdict strip. Order matters (NON_COMPLIANT before COMPLIANT); figure-only
+// hints (P4's IV · BUY) stay muted.
+function hintTone(hint: string): string {
+  const h = hint.toUpperCase()
+  if (/FAILS|OUTSIDE|RED_FLAG|RED FLAG|POOR|NON_COMPLIANT|NON-COMPLIANT|NOT UNDERSTOOD|NARROWING/.test(h)) return 'var(--owl-color-risk-bright)'
+  if (/CONDITIONAL|ADEQUATE|UNCERTAIN|MODERATE/.test(h)) return 'var(--owl-color-gold-bright)'
+  if (/PASSES|IN COMPETENCE|CLEAN|EXCELLENT|COMPLIANT|WIDE|MONOPOLY/.test(h)) return '#4ade80'
+  return 'var(--owl-color-muted)'
+}
+
+function pillarTitleRow(id: string, title: string, status: string | undefined, hint?: string) {
+  const ornament = (key: string) => createElement(
+    'span',
+    { key, 'aria-hidden': true, 'data-testid': 'pillar-ornament', style: { color: 'var(--owl-color-gold)', fontSize: 'var(--owl-text-base)', lineHeight: 1 } },
+    '⌶',
+  )
+  return [
+    createElement(
+      'span',
+      { key: 'title-group', style: { alignItems: 'center', display: 'inline-flex', gap: '0.55rem' } },
+      ornament('orn-l'),
+      createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' as const } }, title),
+      ornament('orn-r'),
+    ),
+    status !== undefined
+      ? createElement('span', { key: 'status', 'data-testid': `pillar-status-${id}`, style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, status)
+      : hint !== undefined
+        ? createElement('span', { key: 'hint', 'data-testid': `pillar-hint-${id}`, style: { color: hintTone(hint), fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', marginLeft: 'auto' } }, hint)
+        : null,
+  ]
+}
+
+function createPillarHeader(id: string, title: string, status: string | undefined, hint?: string) {
+  return createElement(
+    'div',
+    {
+      'data-testid': `pillar-header-${id}`,
+      style: { alignItems: 'center', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.3rem' },
+    },
+    ...pillarTitleRow(id, title, status, hint),
+  )
+}
+
+/**
+ * E3: ONE card per pillar — the pillar header IS the collapsible summary (click to open the pillar's
+ * merged content; the verdict/status hint sits on the right so the whole ladder scans closed). A
+ * gated pillar (status text, no data) renders the plain header instead — nothing to expand.
+ */
+function createPillarSection(
+  id: string,
+  title: string,
+  status: string | undefined,
+  hint: string | undefined,
+  children: ReactNode[],
+) {
+  const body = children.filter((c) => c !== null && c !== undefined)
+  if (status !== undefined || body.length === 0) {
+    return createPillarHeader(id, title, status, hint)
+  }
+  return createElement(
+    'details',
+    { 'data-testid': `pillar-header-${id}`, className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+      ...pillarTitleRow(id, title, undefined, hint),
+    ),
+    createElement('div', { style: { display: 'grid', gap: '0.8rem', marginTop: '0.45rem' } }, ...body),
+  )
+}
+
+// ── S8: the three named moat tests (T0) — capital efficiency / two-engine / standout, each rendered
+// computable-or-honestly-deferred. The peer half of standout is the moat lane's labeled judgment
+// (see the valuation panel's judgment provenance). ──
+// ── D1 (owner feedback): the MOATS IDENTIFIED card — Pillar 2 opens with WHICH moats were found. ──
+//
+// The grounded taxonomy (which of the nine named moat types the cited drivers establish), the drivers
+// themselves, the width provenance (proposed → resolved vs the quant anchor), the direction (grounded-or-
+// labeled; narrowing carries the sell-signal principle), and the peer-standout judgment (per-peer
+// cited / model-asserted stamps). All of this reads BEFORE the three named tests — first what the moat IS,
+// then whether the numbers back it. Pre-pillar cases render an honest fallback (width only).
+function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
+  const valuation = researchCase.valuation
+  if (valuation === undefined) return null
+  const moatJudgment = valuation.judgment?.moat
+
+  // F (owner call, 2026-07-12): fonts match the other pillar cards — standard prose sizes, no mono-xs.
+  // Owner call (2026-07-12): body content follows the circle-card format (text-base body, sm bold subheads).
+  const muted = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } as const
+  const subhead = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: '0.55rem 0 0.15rem' } as const
+
+  // Width headline: the resolved class + the gate read (always available — legacy cases carry moat_class).
+  const widthClass = (valuation.moat_class ?? 'unknown').toUpperCase()
+  const gateLabel = valuation.moat_passes_gate === true
+    ? 'passes the investability gate'
+    : valuation.moat_passes_gate === false
+      ? 'FAILS the investability gate'
+      : 'gate not judged'
+
+  const provenanceLabel = moatJudgment !== undefined
+    ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
+      + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
+      + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
+    : undefined
+
+  // F: each moat CLEARLY named with its PROOF beneath — the grounded drivers grouped by taxonomy type.
+  const typeLabel = (t: string) => t.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+  const drivers = moatJudgment?.moat_drivers ?? []
+  const byType = new Map<string, typeof drivers>()
+  for (const d of drivers) {
+    const key = d.moat_type ?? 'untyped'
+    byType.set(key, [...(byType.get(key) ?? []), d])
+  }
+  const moatSections: ReactNode[] = []
+  for (const [type, typeDrivers] of byType) {
+    moatSections.push(createElement('p', { key: `type-${type}`, style: subhead },
+      type === 'untyped' ? 'Moat (untyped driver)' : `${typeLabel(type)} moat`))
+    for (const [i, d] of typeDrivers.entries()) {
+      moatSections.push(createElement('p', { key: `proof-${type}-${i}`, style: { ...muted, marginBottom: '0.2rem' } },
+        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontWeight: 700 } }, 'Evidence (cited): '),
+        `${d.advantage} ${d.grounded ? '(cited, verified)' : '(uncited — carries no weight)'}`,
+      ))
+    }
+  }
+
+  // Direction: grounded-or-labeled; a narrowing moat is a sell signal no matter how wide it still looks.
+  const moatDirection = moatJudgment?.moat_direction
+  const moatDirectionLabel = moatDirection === undefined
+    ? undefined
+    : moatDirection === 'undetermined'
+      ? (moatJudgment?.direction_ungrounded === true ? 'undetermined (claimed but ungrounded — carries no weight)' : 'undetermined')
+      : `${moatDirection.toUpperCase()} (grounded)${moatDirection === 'narrowing' ? ' — a narrowing moat is a sell signal no matter how wide it still looks' : ''}`
+
+  // Peer standout: the model judgment with per-peer cited / model-asserted stamps.
+  const peerStandout = moatJudgment?.peer_standout
+  const peerStandoutLabel = peerStandout?.judgment === undefined
+    ? undefined
+    : `${peerStandout.judgment.replace(/_/g, ' ')} — ${(peerStandout.peers ?? [])
+        .map((peer) => `${peer.name} ${peer.gross_margin_note}${peer.model_asserted === true ? ' (model-asserted, not verified)' : ' (cited)'}`)
+        .join('; ')}`
+
+  return createElement(
+    'div',
+    { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.4rem' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Likely moats — model-identified, cite-checked'),
+
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'Model-claimed protection mechanisms with cited filing evidence. A citation proves the mechanism is REAL, not that it protects — whether the protection shows up in the economics is the three T0 tests below.'),    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } },
+      `${widthClass} moat — ${gateLabel}`,
+    ),
+    provenanceLabel === undefined
+      ? createElement('p', { style: muted }, 'Moat taxonomy not recorded — this case predates the moat-pillar judgment display.')
+      : createElement('p', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } }, `Provenance: ${provenanceLabel}`),
+    // Keep the compact types line for scanning; the proof sections carry the substance.
+    (moatJudgment?.resolved_moat_types ?? []).length > 0
+      ? createElement('p', { 'data-testid': 'moat-types', style: muted },
+          `Moat types (grounded): ${(moatJudgment!.resolved_moat_types ?? []).map((t) => t.replace(/_/g, ' ')).join(', ')}`)
+      : null,
+    ...moatSections,
+    moatDirectionLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'moat-direction', style: { ...muted, marginTop: '0.45rem', color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : muted.color } },
+      `Moat direction: ${moatDirectionLabel}`,
+    ),
+    peerStandoutLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'peer-standout', style: muted },
+      `Standout vs peers (model judgment): ${peerStandoutLabel}`,
+    ),
+  )
+}
+
+function createMoatTestsCard(researchCase: AppResearchCase) {
+  const tests = researchCase.moat_tests
+  if (tests === undefined) return null
+  // Owner call (2026-07-12): card content follows the circle-card format — body text, not mono fine print.
+  const mono = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 }
+  const line = (testId: string, label: string, t?: { computable?: boolean; note?: string; reason?: string; passes?: boolean; band?: string }) =>
+    t === undefined
+      ? null
+      : createElement('p', { key: testId, 'data-testid': `moat-test-${testId}`, style: mono },
+          createElement('strong', { style: { color: 'var(--owl-color-text)' } }, `${label}: `),
+          t.computable === true
+            ? `${t.band !== undefined ? `${t.band.toUpperCase()} — ` : t.passes !== undefined ? `${t.passes ? 'PASSES' : 'FAILS'} — ` : ''}${t.note ?? ''}`
+            : `not computable (${t.reason ?? 'insufficient data'})`)
+  const children: ReactNode[] = [
+    createElement('p', { key: 'intro', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } },
+      'Harness-computed from the EDGAR annual series (T0). Capital efficiency + two-engine also form the mechanical moat anchor; standout is displayed, not scored — its peer half is the moat lane\u2019s labeled judgment.'),
+    line('capital-efficiency', 'Capital efficiency (ROIC bands)', tests.capital_efficiency),
+    line('two-engine', 'Two-engine (revenue + margins)', tests.two_engine),
+    line('standout', (tests.standout as { basis?: string })?.basis === 'operating_margin' ? 'Standout (operating margin vs peers — no gross-profit line)' : 'Standout (gross margin vs peers)', tests.standout),
+  ]
+  return createCollapsibleSection('moat-tests-card', 'The three moat tests (T0)', false, children)
 }
 
 // ── Mock-provider honesty banner ──────────────────────────────────────────────
@@ -561,6 +803,165 @@ function createInsiderActivityPanel(researchCase: AppResearchCase) {
   return createCollapsibleSection('insider-activity-card', 'Insider activity (Form 4)', false, children)
 }
 
+// B3 (Phase 4, book alignment): the ONE-PAGER — the understand lane's seven-item distillation of
+// Pillar 1 ("the page you would hand someone who has never heard of the company"). Renders on gated
+// dossiers too (Pillar 1 runs before the moat gate). Display verbatim; absent on legacy cases.
+function createOnePagerCard(researchCase: AppResearchCase) {
+  const op = researchCase.one_pager
+  if (op === undefined) return null
+  const listBlock = (label: string, items?: string[]) =>
+    items === undefined || items.length === 0
+      ? null
+      : createElement(
+          'div',
+          { key: label, style: { display: 'grid', gap: '0.25rem' } },
+          createElement('p', { style: { color: 'var(--owl-color-gold)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' as const } }, label),
+          createElement('ul', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0, paddingLeft: '1.1rem' } },
+            ...items.map((item, i) => createElement('li', { key: i }, item))),
+        )
+  const children: ReactNode[] = [
+    op.plain_english === undefined
+      ? null
+      : createElement('p', { 'data-testid': 'one-pager-plain-english', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, lineHeight: 1.5, margin: 0 } }, op.plain_english),
+    listBlock('Core business segments', op.segments),
+    listBlock('How it makes money', op.revenue_drivers),
+    listBlock('Where the real profits come from', op.most_profitable_segments),
+    listBlock('Key strengths / competitive advantages', op.strengths),
+    listBlock('Key risks / weak spots', op.weak_spots),
+    listBlock('Growth levers', op.growth_levers),
+  ]
+  return createCollapsibleSection('one-pager-card', 'The one-pager', false, children)
+}
+
+// S5 (Phase 3 pillars): the MANAGEMENT pillar — the two core traits (integrity + talent), the
+// harness T0 observations (ROIC / payout / debt), and the retained-earnings test. Everything is
+// grounded-or-labeled: unverified flags say so, not-computable T0 lines say why, and a fired veto
+// renders loud. Opens automatically when the veto fired.
+function createManagementPillarPanel(researchCase: AppResearchCase) {
+  const mj = researchCase.management_judgment
+  if (mj === undefined) return null
+  const vetoTrait = researchCase.management_veto_applied
+  // Owner call (2026-07-12): body content follows the circle-card format.
+  const muted = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.35rem 0' }
+  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 }
+  const tierTone = (tier?: string) => tier === 'red_flag' || tier === 'poor'
+    ? 'var(--owl-color-risk-bright)'
+    : tier === 'undetermined'
+      ? 'var(--owl-color-gold-bright)'
+      : 'var(--owl-color-text)'
+
+  const children: ReactNode[] = []
+  if (vetoTrait !== undefined) {
+    children.push(createElement('p', {
+      key: 'veto', 'data-testid': 'management-veto-badge',
+      style: { color: 'var(--owl-color-risk-bright)', fontWeight: 800, fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' },
+    }, `MANAGEMENT VETO (${vetoTrait}): ${researchCase.management_veto_reason ?? 'BUY clamped to RESEARCH_MORE.'}`))
+  }
+  // F (owner call, 2026-07-12): TWO labeled subpoints — Integrity and Talent — with their
+  // explanations underneath each (the card is titled 'Management pillar — integrity & talent').
+  const subhead = (key: string, text: string, tone: string) => createElement(
+    'p',
+    { key, style: { color: tone, fontSize: 'var(--owl-text-base)', fontWeight: 800, letterSpacing: '0.03em', margin: '0.6rem 0 0.2rem' } },
+    text,
+  )
+  children.push(subhead('integrity-head', `1. Integrity — ${(mj.resolved_integrity ?? 'undetermined').replace(/_/g, ' ').toUpperCase()}`, tierTone(mj.resolved_integrity)))
+  if (mj.judgment_degraded === true) {
+    children.push(createElement('p', { key: 'degraded', style: { ...muted, color: 'var(--owl-color-gold-bright)' } }, 'The lane omitted its judgment blocks — resolved undetermined, never a silent clean.'))
+  }
+  const comp = mj.integrity?.comp_structure
+  if (comp?.summary !== undefined) {
+    children.push(createElement('p', { key: 'comp', style: muted },
+      `Pay structure (DEF 14A${mj.integrity?.comp_grounded === true ? ', cited' : ', citation UNVERIFIED'}): ${comp.summary}`
+      + `${comp.alignment !== undefined ? ` — ${comp.alignment}` : ''}`
+      + `${(comp.incentive_metrics ?? []).length > 0 ? ` [${(comp.incentive_metrics ?? []).join(', ')}]` : ''}`))
+  }
+  for (const [i, f] of (mj.integrity?.flags ?? []).entries()) {
+    children.push(createElement('p', { key: `flag-${i}`, style: { ...muted, color: f.grounded === true ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)' } },
+      `Integrity flag (${f.severity ?? 'unrated'}${f.grounded === true ? ', cite-verified' : ', UNVERIFIED — carries no weight'}): ${f.claim}`))
+  }
+  for (const [i, o] of (mj.integrity?.communication_observations ?? []).entries()) {
+    children.push(createElement('p', { key: `obs-${i}`, style: muted },
+      `${o.observation} ${o.grounded === true ? '(cited)' : '(uncited)'}`))
+  }
+  children.push(subhead('talent-head', `2. Talent — ${(mj.resolved_talent ?? 'undetermined').toUpperCase()}`, tierTone(mj.resolved_talent)))
+  if (mj.t0_contradicts_talent === true) {
+    children.push(createElement('p', { key: 't0-contra', style: { ...muted, color: 'var(--owl-color-gold-bright)' } }, 'Advisory: the grounded EXCELLENT sits on a weak T0 ROIC.'))
+  }
+  for (const [i, d] of (mj.talent?.talent_drivers ?? []).entries()) {
+    children.push(createElement('p', { key: `drv-${i}`, style: muted },
+      `${d.evidence} ${d.grounded === true ? '(cited)' : '(uncited)'}`))
+  }
+  // The T0 strip + the retained-earnings test — self-describing computable unions, rendered honestly.
+  const t0 = mj.talent_t0 as { roic?: Record<string, unknown>; payout?: Record<string, unknown>; debt?: Record<string, unknown> } | undefined
+  const t0Line = (label: string, block?: Record<string, unknown>, fmt?: (b: Record<string, unknown>) => string) =>
+    block === undefined
+      ? null
+      : createElement('p', { key: `t0-${label}`, style: mono },
+          block['computable'] === true && fmt !== undefined
+            ? `${label}: ${fmt(block)}`
+            : `${label}: not computable (${String(block['reason'] ?? 'insufficient data')})`)
+  children.push(
+    createElement('p', { key: 't0-head', style: { ...muted, fontWeight: 800, marginTop: '0.6rem' } }, 'Harness T0 observations (the model reconciles; it never re-derives):'),
+    t0Line('ROIC', t0?.roic, (b) => `median ${((b['median_roic'] as number) * 100).toFixed(1)}% — ${String(b['band'])}`),
+    t0Line('Payout', t0?.payout, (b) => `dividends ${String(b['dividend_paying_years'])}/${String(b['years_used'])} yrs, buybacks ${String(b['buyback_years'])}/${String(b['years_used'])}${b['payout_ratio_latest'] !== undefined ? `, ratio ${((b['payout_ratio_latest'] as number) * 100).toFixed(0)}% of NI` : ''}${b['buybacks_below_sbc'] === true ? ' — buybacks below SBC (only mop up dilution)' : ''}`),
+    t0Line('Debt', t0?.debt, (b) => `total $${Math.round(b['latest_total_debt_musd'] as number)}M`
+      + `${b['debt_to_equity'] !== undefined ? `, D/E ${(b['debt_to_equity'] as number).toFixed(2)} (${(b['debt_to_equity'] as number) < 1 ? 'conservative' : (b['debt_to_equity'] as number) > 2 ? 'WARNING >2' : 'moderate'})` : ''}`
+      + `${b['current_ratio'] !== undefined ? `, current ratio ${(b['current_ratio'] as number).toFixed(2)} (${(b['current_ratio'] as number) >= 2 ? 'healthy' : (b['current_ratio'] as number) >= 1 ? 'ok' : 'RED FLAG <1'})` : ''}`
+      + `${b['interest_coverage'] !== undefined ? `, coverage ${(b['interest_coverage'] as number).toFixed(0)}×` : ''}`),
+  )
+  const retained = mj.retained_earnings
+  if (retained !== undefined) {
+    children.push(createElement('p', {
+      key: 'retained', 'data-testid': 'retained-earnings-test',
+      style: { ...mono, color: retained['computable'] === true ? (retained['passes'] === true ? '#4ade80' : 'var(--owl-color-risk-bright)') : 'var(--owl-color-gold-bright)' },
+    }, retained['computable'] === true
+      ? `Retained-earnings test (Buffett): ${retained['passes'] === true ? 'PASSES' : 'FAILS'} — ${String(retained['note'] ?? '')}`
+      : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
+  }
+  return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
+}
+
+// G (owner call, 2026-07-12): the Munger LATTICE is retired — the inversion pass stands alone as the
+// synthesis's adversarial surface. Two-era: legacy red_team payloads project onto the same `inversion`
+// field. A "thesis IS the consensus" read renders as a loud caution (Munger's social-proof check).
+function createCaseAgainstPanel(researchCase: AppResearchCase) {
+  const inv = researchCase.inversion
+  if (inv === undefined) return null
+  const cc = inv.consensus_check
+  const consensusCaution = cc?.grounded === true && cc.thesis_vs_consensus === 'consensus'
+  const incomplete = inv.status !== 'complete' && inv.status !== undefined && inv.status !== 'red_team_complete'
+  const children: ReactNode[] = [
+    createElement('p', { key: 'note', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
+      '"Invert, always invert" — one adversarial agent argues the case against itself; every objection is cite-checked.'),
+    incomplete
+      ? createElement('p', { key: 'incomplete', style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } },
+          `The case was NOT argued against itself${inv.reason !== undefined ? ` (${inv.reason})` : ''} — re-run before relying on the verdict.`)
+      : createElement(
+          'div',
+          { key: 'inversion-detail', 'data-testid': 'inversion-detail', style: { display: 'grid', gap: '0.3rem' } },
+          inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+            `Strongest objection${inv.strongest_objection.severity !== undefined ? ` (${inv.strongest_objection.severity})` : ''}: ${inv.strongest_objection.claim}`) : null,
+          inv.strongest_case_against !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+            `Case against: ${inv.strongest_case_against}`) : null,
+          inv.moat_decay_scenario !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+            `Moat decay: ${inv.moat_decay_scenario}`) : null,
+        ),
+    cc?.consensus_view !== undefined ? createElement(
+      'p',
+      {
+        key: 'consensus',
+        'data-testid': 'inversion-consensus',
+        style: { borderTop: '1px solid var(--owl-color-border)', color: consensusCaution ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0, paddingTop: '0.5rem' },
+      },
+      createElement('strong', {}, `Consensus check${cc.grounded === true ? '' : ' (ungrounded — not verified)'}: `),
+      consensusCaution
+        ? `the thesis IS the consensus — ${cc.consensus_view}`
+        : `${cc.thesis_vs_consensus === 'variant' ? 'variant view. ' : ''}${cc.consensus_view}${cc.variant_justification !== undefined ? ` — ${cc.variant_justification}` : ''}`,
+    ) : null,
+  ]
+  return createCollapsibleSection('case-against-card', 'The case against — inversion', consensusCaution || incomplete, children)
+}
+
 function createReReviewPanel(researchCase: AppResearchCase) {
   const reReview = researchCase.re_review
   if (reReview === undefined) return null
@@ -571,16 +972,21 @@ function createReReviewPanel(researchCase: AppResearchCase) {
       : 'var(--owl-color-gold-bright)'
   return createElement(
     'details',
-    { 'aria-label': 'Thesis re-review vs new filings', className: 'owl-collapsible-card', ...(reReview.assessment === 'BROKEN' ? { open: true } : {}) },
+    { 'aria-label': 'Check-in vs new filings', className: 'owl-collapsible-card', ...(reReview.assessment === 'BROKEN' ? { open: true } : {}) },
     createElement(
       'summary',
       { className: 'owl-collapsible-card-summary' },
-      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Thesis re-review — vs. new filings'),
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Check-in — vs. new filings'),
       createElement('span', {
         'data-testid': 're-review-assessment',
         style: { color: tone, fontFamily: 'var(--owl-font-mono)', fontWeight: 800, marginLeft: '0.6rem', letterSpacing: '0.05em' },
       }, reReview.assessment),
     ),
+    // 10-K cadence: a new annual report resets the numbers — the check-in is the wrong tool for it.
+    reReview.new_annual_filing === undefined
+      ? null
+      : createElement('p', { 'data-testid': 're-review-annual-filing', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: '0.5rem 0' } },
+          `Annual report filed (${reReview.new_annual_filing.form}, ${reReview.new_annual_filing.filed}) — a full re-analysis is recommended: use "Re-run on current engine" above. The check-in diff below covers only the interim filings.`),
     reReview.re_review_ungrounded === true
       ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Unverified: ${reReview.ungrounded_reason ?? 'the pass could not cite-verify its evidence (fail-closed).'}`)
       : null,
@@ -672,18 +1078,17 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
   const circle = researchCase.circle_competence
   if (circle === undefined) return null
 
-  // Bug B: prefer the predictability ENUM; legacy-tolerant — old events carry only the in_competence boolean
-  // (map true → durably_predictable-equivalent). The gate proceeds only on durably_predictable + grounded.
-  const predictability = circle.cashflow_predictability
-    ?? (circle.in_competence === true ? 'durably_predictable' : undefined)
-  const inCompetence = circle.in_competence === true && predictability === 'durably_predictable'
+  // C1: the judgment slot is TWO-ERA — 'understood' (new) or 'durably_predictable' (legacy) proceed;
+  // the display speaks UNDERSTANDING (Pillar 1 IS the circle; durable cash is the moat pillar's verdict).
+  const judgment = circle.judgment ?? (circle.in_competence === true ? 'understood' : undefined)
+  const inCompetence = circle.in_competence === true && (judgment === 'understood' || judgment === 'durably_predictable')
   const accent = inCompetence ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-risk)'
   const heading = inCompetence
-    ? 'Cashflows durably predictable — in competence'
-    : predictability === 'not_predictable'
-      ? 'Outside competence — set aside (cashflows not durably predictable)'
-      : predictability === 'uncertain'
-        ? 'Outside competence — set aside (cashflow predictability uncertain)'
+    ? 'Business understood — in competence'
+    : judgment === 'not_understood' || judgment === 'not_predictable'
+      ? 'Outside competence — set aside (the business could not be explained from the filings)'
+      : judgment === 'uncertain'
+        ? 'Outside competence — set aside (understanding uncertain)'
         : 'Outside competence — set aside'
 
   // Compact citation markers (Priority 5): each claim's cite collapses to a superscript marker — full id
@@ -697,8 +1102,8 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       citation === undefined ? null : createCitationMarker(citation, grounded, ++citeIndex),
     )
 
-  const drivers = circle.cashflow_drivers ?? []
-  const breakers = circle.predictability_breakers ?? []
+  const drivers = circle.drivers ?? []
+  const breakers = circle.breakers ?? []
 
   return createElement(
     'section',
@@ -708,14 +1113,25 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.7rem' } },
       inCompetence
-        ? 'The model demonstrated it understands this business well enough to assess its cashflow predictability — both clauses cite verified filings. The deep dive proceeded.'
-        : 'The model could not demonstrate (from cited filings) that it understands this business well enough to assess its cashflow predictability. Ungrounded competence is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
+        ? 'The model demonstrated — with both clauses citing verified filings — that it can explain how this business makes money AND the key moving parts its outcome turns on. The deep dive proceeded. (Whether the cash is DURABLE is Pillar 2\u2019s verdict: moats are what give companies durable cash.)'
+        : 'The model could not demonstrate (from cited filings) that it understands how this business makes money. Ungrounded understanding is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
     ),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Cashflow drivers (cited)'),
+    // Owner call (2026-07-12): the cited evidence collapses — P1 is the tallest pillar and the
+    // judgment + explainer above already carry the verdict; the two-question detail expands on demand.
+    createElement(
+    'details',
+    { 'data-testid': 'circle-evidence', className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } },
+        `The two questions, cited (${drivers.length + breakers.length} claims)`),
+    ),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'How it makes money (cited)'),
     drivers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...drivers.map((d) => claimRow(d.driver ?? '', d.citation, d.grounded))),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Predictability breakers (cited — the deeper test)'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Key moving parts — what determines success or failure (cited)'),
     breakers.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
       : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...breakers.map((b) => claimRow(b.breaker ?? '', b.citation, b.grounded))),
@@ -725,6 +1141,7 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
     inCompetence || circle.reason === undefined
       ? null
       : createElement('p', { style: { color: '#fca5a5', fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0' } }, circle.reason),
+    ),
   )
 }
 
@@ -1305,21 +1722,19 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const verdict = researchCase.investment_verdict ?? researchCase.decision
   const valuationStatus = researchCase.valuation_status
   const moat = researchCase.valuation?.moat_class
-  const impliedGrowth = researchCase.valuation?.market_implied_growth
   const buyBelow = researchCase.valuation?.proposed_buy_below ?? researchCase.valuation?.buy_price_per_share
-  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
-  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
+  // D3: the T0-computed grade is the ONLY margin surface (the model-graded adequacy is retired).
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const shariah = researchCase.shariah_status
 
-  // The WHOLE thesis leads the verdict summary as prose (the standalone Thesis box was removed — this is now
-  // its only home), followed by the scannable judgment bullets below.
+  // The WHOLE thesis leads the verdict summary as prose (owner call 2026-07-12: the hero paragraph
+  // is the narrative's ONE home — the standalone synthesis card was removed as a duplicate).
   const fullThesis = firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
   const thesis = fullThesis ?? (verdict === undefined ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
 
   const valuationValue = [
     valuationStatus === undefined ? undefined : valuationStatus.toLowerCase(),
-    impliedGrowth === undefined ? undefined : `market implies ~${(impliedGrowth * 100).toFixed(1)}% growth`,
-    buyBelow === undefined ? undefined : `model buy-below $${buyBelow.toFixed(2)}`,
+    buyBelow === undefined ? undefined : `buy below $${buyBelow.toFixed(2)} (computed)`,
   ].filter((p): p is string => p !== undefined).join(' · ')
 
   const points: Array<[string, string]> = []
@@ -1361,6 +1776,21 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
  * (cited valuation_reasoning, market-implied growth, the implied multiples, the bear case) lives
  * in the valuation panel beneath. Native owl-*; no band/gap axis.
  */
+// POLISH (owner-agreed, 2026-07-12): the price ladder. One linear bar, three thresholds (rule-8
+// load-up, rule-7 buy, intrinsic value), the live price as a marker. Zone colors: deep green below
+// load-up, green to buy, sand to IV, muted beyond. Scale: 0 → max(price, IV) with 8% headroom.
+function createPriceLadder(researchCase: AppResearchCase, livePrice: number | undefined) {
+  // Delegates to the shared ladder (also rendered on the watchlist zone board + portfolio rows).
+  const v = researchCase.valuation as { intrinsic_value_per_share?: number; load_up_below?: number } | undefined
+  const buy = researchCase.valuation?.buy_price_per_share ?? researchCase.valuation?.proposed_buy_below
+  return createPriceLadderElement({
+    ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
+    ...(v?.load_up_below === undefined ? {} : { load: v.load_up_below }),
+    ...(buy === undefined ? {} : { buy }),
+    ...(livePrice === undefined ? {} : { livePrice }),
+  })
+}
+
 function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
   const valuation = researchCase.valuation
   if (valuation === undefined) return null
@@ -1420,8 +1850,6 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
   // in prose. Beyond buy-below / live price / buy-zone, surface the two hidden assumptions the price bakes in
   // — market-implied growth (reverse-DCF) and the implied exit multiple — together. Prose reasoning stays
   // below in the valuation panel. (forward-DCF removal: the dollar reference fair value is gone.)
-  const marketImpliedGrowth = valuation.market_implied_growth
-  const impliedExitMultiple = valuation.implied_exit_multiple
   // The model's assumed sustainable growth: the headline growth_rate IS the model's cite-verified
   // assumed_growth (architecture inversion); fall back to the raw valuation_reasoning field for
   // legacy shapes that predate the headline field.
@@ -1453,15 +1881,21 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         resolveValuationChipColor(valuationStatus),
       ),
     ),
-    // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). The model buy-below
-    // vs live price + the in-buy-zone arithmetic; and the two hidden price-implied assumptions surfaced
-    // together. (forward-DCF removal: the dollar reference fair value stat is gone.)
+    // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). E2: the buy-below
+    // is the COMPUTED book threshold (IV × 0.70); the intrinsic value leads beside it.
     createElement('p', { className: 'owl-section-accent', style: { marginTop: '0.2rem' } }, 'Key figures'),
     createElement(
       'div',
       { 'data-testid': 'decision-key-figures', className: 'owl-ledger-line' },
+      (researchCase.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share !== undefined
+        ? createValuationLedgerStat(
+            'Intrinsic value (computed)',
+            `$${(researchCase.valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share!.toFixed(2)}`,
+            'owl-ledger-figure-money',
+          )
+        : null,
       createValuationLedgerStat(
-        'Model buy-below',
+        'Buy below (computed)',
         buyBelow !== undefined ? `$${buyBelow.toFixed(2)}` : 'Pending',
         'owl-ledger-figure-money',
       ),
@@ -1477,150 +1911,72 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
       ),
-      // The MODEL's assumed sustainable growth sits BESIDE the market-implied read (owner requirement):
-      // the gap between what the model judges sustainable and what the price demands is the decision.
+      // B2 (Phase 4, rule 8): the LOAD-UP threshold + zone — a ≥50% discount to intrinsic value marks
+      // the concentrated-sizing zone ("once you find a margin of safety, load up the truck").
+      createValuationLedgerStat(
+        'Load-up below (rule 8)',
+        researchCase.valuation?.load_up_below !== undefined ? `$${researchCase.valuation.load_up_below.toFixed(2)}` : 'Not computable',
+        'owl-ledger-figure-money',
+      ),
+      researchCase.valuation?.in_load_up_zone === true
+        ? createValuationLedgerStat('Load-up zone', 'IN THE LOAD-UP ZONE', 'owl-ledger-figure-emerald')
+        : null,
+      // F (owner call, 2026-07-12): the book has no implied-growth lens — the key figures are the
+      // book numbers only (the model's cited growth; the internal rails still police absurdity).
       createValuationLedgerStat(
         'Model assumed growth',
         modelAssumedGrowth !== undefined ? `${(modelAssumedGrowth * 100).toFixed(1)}%` : 'Not yet available',
         '',
       ),
-      createValuationLedgerStat(
-        'Market-implied growth',
-        marketImpliedGrowth !== undefined ? `${(marketImpliedGrowth * 100).toFixed(1)}%` : 'Not yet available',
-        '',
-      ),
-      createValuationLedgerStat(
-        'Market-implied exit multiple',
-        impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Not yet available',
-        '',
-      ),
     ),
+    // POLISH (owner-agreed): the PRICE LADDER — the book's zones as one horizontal bar (load-up →
+    // buy → IV) with the live-price marker. Where price sits relative to the zones IS the discipline;
+    // the ladder shows it at a glance. Rendered only when every threshold and a live price exist.
+    createPriceLadder(researchCase, livePrice),
     livePrice !== undefined && buyBelow !== undefined ? createElement(
       'p',
       { style: { color: inBuyZone ? '#bbf7d0' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       inBuyZone
-        ? `Live price $${livePrice.toFixed(2)} is at or below the model buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
-        : `Live price $${livePrice.toFixed(2)} is above the model buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
+        ? `Live price $${livePrice.toFixed(2)} is at or below the computed buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
+        : `Live price $${livePrice.toFixed(2)} is above the computed buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
     ) : null,
     // The deterministic sanity-check flags — advisory amber annotations, never blocks.
     sanityFlags.length > 0 ? createSanityFlags(sanityFlags) : null,
+    // The synthesis's own residual uncertainty (owner call 2026-07-12: the standalone synthesis card
+    // was removed; its confidence + open questions live HERE, beside the decision they qualify).
+    createSynthesisOpenQuestions(researchCase),
+  )
+}
+
+function createSynthesisOpenQuestions(researchCase: AppResearchCase) {
+  const caveats = researchCase.caveats ?? []
+  if (caveats.length === 0) return null
+  return createElement(
+    'div',
+    { 'data-testid': 'synthesis-open-questions', style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.25rem', paddingTop: '0.55rem' } },
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } },
+      `Open questions the synthesis left${researchCase.confidence !== undefined ? ` (confidence: ${researchCase.confidence})` : ''}`),
+    ...caveats.map((c, i) => createElement(
+      'p',
+      { key: `oq-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      `• ${c}`,
+    )),
   )
 }
 
 /**
- * MARGIN-OF-SAFETY AUDIT — the synthesis-owned risk surface, re-homed from the retired verdict-format block
- * into the decision region (directly beneath the decision panel). It surfaces, in order:
- *   1. the JOINT margin-of-safety judgment — the HEADLINE. The margin rests on TWO substitutable sources
- *      shown SIDE BY SIDE: the PRICE margin (price vs the model's judged value) and the MOAT-DURABILITY
- *      thesis (the grounded, cite-verified moat thesis). Neither is buried; adequacy + which source(s) it
- *      rests on are explicit. A moat-sourced margin is flagged higher-stakes; an ungrounded-moat source is
- *      flagged incoherent (Guard 2).
- *   2. the model's key_wrong_assumption (the one assumption that, if wrong, breaks the thesis).
- *   3. the thesis_break_triggers (observable events that would invalidate the thesis).
- * These are the model's forward-looking risk reasoning for the human to audit — NOT cite-gated. Absent
- * (legacy / not produced) → honest "Not yet available" fallback (no crash). Native owl-* tokens only.
+ * D1 (owner feedback): the THESIS-BREAK AUDIT — the model's forward-looking risk reasoning for the
+ * human to audit, riding with the decision at the end of the dossier:
+ *   1. the model's key_wrong_assumption (the one assumption that, if wrong, breaks the thesis).
+ *   2. the thesis_break_triggers (observable events that would invalidate the thesis).
+ * The pre-pillar JOINT margin-of-safety judgment was retired here — the book's mechanical 30%/50%
+ * thresholds (the T0 margin_of_safety_grade) own the margin; a model adequacy that could "rest on moat
+ * durability" is the substitutable-margin concept the 4-pillar method replaced. Deliberately NOT
+ * cite-gated. Absent fields render the honest "Not yet available" fallback (no crash).
  */
-function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
+function createThesisBreakAuditCard(researchCase: AppResearchCase) {
   // Only render once a deep-dive valuation exists (gated/awaiting states have their own dossiers).
   if (researchCase.valuation === undefined) return null
-
-  const mosJudgment = researchCase.margin_of_safety_judgment
-  const mosMoatUngrounded = researchCase.margin_of_safety_moat_ungrounded === true
-
-  // The joint margin-of-safety judgment — surface the PRICE margin and the MOAT-DURABILITY thesis SIDE BY
-  // SIDE so neither is buried; show adequacy + which source(s) the margin rests on.
-  const jointJudgment = mosJudgment === undefined
-    ? NOT_YET
-    : (() => {
-        const restsOnMoat = mosJudgment.sources.includes('moat')
-        const restsOnPrice = mosJudgment.sources.includes('price')
-        const sourcesLabel = mosJudgment.sources.map((s) => (s === 'moat' ? 'moat durability' : 'price gap')).join(' + ')
-        const adequacyColor = mosJudgment.adequacy === 'adequate'
-          ? 'var(--owl-color-positive, #4ade80)'
-          : mosJudgment.adequacy === 'thin'
-            ? '#fbbf24'
-            : '#fca5a5'
-
-        // Whether each per-source reasoning was actually recorded. On real runs both are usually absent (the
-        // synthesis owns the JOINT reasoning below); we never render an empty "No reasoning recorded" column.
-        const hasPriceReasoning = mosJudgment.price_gap_reasoning !== undefined && mosJudgment.price_gap_reasoning.trim().length > 0
-        const hasMoatReasoning = mosJudgment.moat_durability_reasoning !== undefined && mosJudgment.moat_durability_reasoning.trim().length > 0
-        const hasJointReasoning = mosJudgment.reasoning !== undefined && mosJudgment.reasoning.trim().length > 0
-
-        // A per-source column, rendered ONLY when its reasoning is present (full width, one per row).
-        const sourceColumn = (title: string, rests: boolean, reasoning: string) => createElement(
-          'div',
-          {
-            key: title,
-            style: {
-              background: rests ? 'rgba(214, 178, 94, 0.06)' : 'var(--owl-color-panel-deep)',
-              border: `1px solid ${rests ? 'rgba(214, 178, 94, 0.3)' : 'var(--owl-color-border)'}`,
-              borderRadius: '0.6rem',
-              display: 'flex',
-              flexDirection: 'column' as const,
-              gap: '0.3rem',
-              padding: '0.6rem 0.75rem',
-            },
-          },
-          createElement(
-            'div',
-            { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem' } },
-            createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontSize: 'var(--owl-text-xs)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' as const } }, title),
-            createElement(
-              'span',
-              { style: { color: rests ? 'var(--owl-color-text)' : 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-xs)', fontWeight: 700 } },
-              rests ? 'margin rests here' : 'not a source',
-            ),
-          ),
-          createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } }, reasoning),
-        )
-
-        const moatBadge = restsOnMoat
-          ? createElement(
-              'span',
-              { 'data-testid': 'mos-moat-sourced', style: { fontSize: 'var(--owl-text-2xs)', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)', borderRadius: '0.4rem', padding: '0.05rem 0.4rem' } },
-              'MOAT-SOURCED — scrutinize moat durability',
-            )
-          : null
-
-        // Per-source columns appear ONLY when their reasoning is present (price first, then moat — side by
-        // side when both). When both are absent (the common case) a compact one-line "Margin rests on" note
-        // replaces the empty boxes.
-        const columns: ReactNode[] = []
-        if (hasPriceReasoning) columns.push(sourceColumn('Price margin', restsOnPrice, mosJudgment.price_gap_reasoning ?? ''))
-        if (hasMoatReasoning) columns.push(sourceColumn('Moat durability', restsOnMoat, mosJudgment.moat_durability_reasoning ?? ''))
-
-        return createElement(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' } },
-          // LEAD with the synthesis-owned joint reasoning — the prominent body paragraph (the real judgment).
-          hasJointReasoning
-            ? createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } }, mosJudgment.reasoning)
-            : null,
-          // Then the rests-on / adequacy line, carrying the MOAT-SOURCED badge.
-          createElement(
-            'div',
-            { style: { alignItems: 'center', color: adequacyColor, display: 'flex', flexWrap: 'wrap' as const, fontWeight: 700, gap: '0.5rem' } },
-            createElement('span', null, `Rests on: ${sourcesLabel} · adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`),
-            moatBadge,
-          ),
-          mosMoatUngrounded
-            ? createElement(
-                'p',
-                { 'data-testid': 'mos-moat-ungrounded', style: { color: '#fca5a5', fontWeight: 700, margin: 0 } },
-                'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
-              )
-            : null,
-          // Per-source columns when present; otherwise a compact note (no empty boxes).
-          columns.length > 0
-            ? createElement(
-                'div',
-                { style: { display: 'grid', gap: '0.6rem', gridTemplateColumns: columns.length > 1 ? 'repeat(auto-fit, minmax(220px, 1fr))' : '1fr' } },
-                ...columns,
-              )
-            : createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, `Margin rests on: ${sourcesLabel}.`),
-        )
-      })()
 
   const keyWrongAssumption = researchCase.key_wrong_assumption
   const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
@@ -1646,24 +2002,17 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
   return createElement(
     'section',
     {
-      'data-testid': 'margin-of-safety-audit',
+      'data-testid': 'thesis-break-audit',
       className: 'owl-section-card',
-      // Prominent gold accent (Priority 3): the joint MoS judgment is the human's central audit surface and
-      // LEADS the decision region — a clear accent rail + heading so it is not blended into the prose.
+      // The gold accent rail marks the human's audit surface riding with the decision.
       style: { gap: '0.6rem', borderLeft: '3px solid var(--owl-color-gold)' },
     },
-    createElement('p', { className: 'owl-section-accent' }, 'Margin of safety (joint)'),
-    createElement(
-      'h2',
-      { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-display)', fontSize: 'var(--owl-text-lg)', letterSpacing: '-0.01em', margin: 0 } },
-      'The central audit: where the margin of safety rests',
-    ),
+    createElement('p', { className: 'owl-section-accent' }, 'Thesis-break audit'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The synthesis-owned joint judgment leads — where the margin of safety rests, across two substitutable sources (the price-vs-value gap and moat durability). Below it, the one assumption that breaks the thesis and the observable triggers that would invalidate it. The model\'s forward-looking risk reasoning for you to audit.',
+      'The one assumption that, if wrong, breaks the thesis — and the observable triggers that would invalidate it. The model’s forward-looking risk reasoning for you to audit against the decision above.',
     ),
-    jointJudgment,
     auditRow('Key-wrong assumption', keyWrongAssumptionLine),
     auditRow('Thesis-break triggers', thesisBreakTriggersLine),
   )
@@ -1720,6 +2069,28 @@ function createSanityFlags(flags: string[]) {
 //   - set:    "Discount 7.5% = compliant savings 2.0% + equity premium 5.5% · savings rate last set Jun 28 2026"
 //   - unset:  "Discount 7.5% = … · savings rate: using default 2.0% — not set"
 // Read-only: it never changes discount math (the live rate already flows through discountRate()).
+// B2 (Phase 4): the run's OWN discount provenance — the flat required return (setting | book default).
+// Renders for runs carrying the new discount_inputs shape; legacy savings-anchored runs keep the old line.
+function createRequiredReturnProvenance(researchCase: AppResearchCase) {
+  const di = researchCase.valuation?.discount_inputs
+  if (di?.required_return === undefined) return null
+  const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`
+  return createElement(
+    'p',
+    {
+      'data-testid': 'required-return-provenance',
+      style: {
+        color: 'var(--owl-color-quiet)',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        lineHeight: 1.5,
+        margin: '0.5rem 0 0',
+      },
+    },
+    `Required return ${pct(di.required_return)} — ${di.required_return_basis === 'setting' ? 'user setting' : 'the book default (anything less, buy the index)'} · margins: buy at ≥30% below intrinsic value, load up at ≥50%`,
+  )
+}
+
 function createDiscountAnchorProvenance(savings?: SavingsSleeveConfig) {
   const v = buffettMungerStrategy.valuation
   const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`
@@ -1764,42 +2135,21 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // NVO dogfood (2026-07-11): on a moat-gated case the buy-price math (fair-value derivatives, implied
   // growth/multiples, buy zone, MoS grade) is DELIBERATELY not computed — a below-gate name is set aside
   // before pricing. Say so once, instead of rendering a wall of "Pending" that reads as an incomplete run.
-  const moatGatedNotPriced = valuation.moat_passes_gate === false
 
   // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reverse-DCF
   // market-implied growth is the richness read. (forward-DCF removal: the dollar reference fair value is gone.)
-  const marketImpliedGrowth = valuation.market_implied_growth
   const reasoning = valuation.valuation_reasoning
   const discountRateVal = valuation.discount_rate
   const roic = valuation.roic
   const incrementalRoic = valuation.incremental_roic
   const growthRate = valuation.growth_rate
   const terminalGrowthRate = valuation.terminal_growth_rate
-  const reinvestmentRate = valuation.reinvestment_rate
-  const runway = valuation.runway
-  const impliedMultiple = valuation.implied_multiple
   // §2 flag-only sanity output: the name-specific implied EXIT P/OE the live price requires (current price ÷
   // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
   // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
-  const impliedExitMultiple = valuation.implied_exit_multiple
-  // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
-  // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
-  const moatJudgment = valuation.judgment?.moat
-  // B6: the moat is the grounded cited thesis; the quant CORROBORATES. Show proposed → resolved + the
-  // grounded driver count + the quant corroboration tier (n/a when the EDGAR anchor was not computable).
-  const moatAnchorLabel = moatJudgment !== undefined
-    ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
-      + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
-      + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
-    : undefined
-  // Runway reframe: the runway is the grounded cited thesis; the incremental-ROIC quant CORROBORATES. Show
-  // proposed → resolved + the grounded driver count + the quant corroboration tier (n/a when not computable).
-  const runwayJudgment = valuation.judgment?.runway
-  const runwayAnchorLabel = runwayJudgment !== undefined
-    ? `${(runwayJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
-      + ` · ${runwayJudgment.grounded_driver_count ?? 0} grounded driver(s)`
-      + ` · quant ${runwayJudgment.anchor_computable === false ? 'n/a' : (runwayJudgment.anchor_tier ?? '?').toUpperCase()}`
-    : undefined
+  // Judgment-objectivity layer (Mechanisms 1+2): the MOAT provenance (proposed → resolved, taxonomy,
+  // direction, peers) moved to the Pillar-2 moats card (D1); the runway read stays here with valuation.
+  // C2: the runway judged axis is retired — no runway provenance renders (legacy tolerated by ignore).
 
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
   // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
@@ -1812,15 +2162,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const sourceDiscipline = researchCase.source_discipline
   const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
 
-  // Mechanism 5 (Red-Team Pass) — the INDEPENDENT BEAR CASE. The adversarial pre-synthesis run + the
-  // synthesis obligation. We surface the strongest objection + the synthesis response (answered-with-
-  // evidence vs accepted→downgraded), and the deterministic flags: objection_unaddressed (synthesis was
-  // silent — never dropped) and red_team_incomplete (the case was not adversarially tested).
-  const redTeam = researchCase.red_team
-  const redTeamIncomplete = redTeam?.status === 'red_team_incomplete'
-  const redTeamObjection = redTeam?.strongest_objection
-  const redTeamResponse = redTeam?.synthesis_response
-  const redTeamUnaddressed = redTeam?.objection_unaddressed === true
+  // E1: the red team is retired — the inversion lives on its own case-against panel (the objection
+  // detail renders there); no standalone bear-case box in the valuation panel.
 
   const discountLabel = discountRateVal !== undefined ? pctLabel(discountRateVal) : DEFAULT_DISCOUNT_LABEL
 
@@ -1829,25 +2172,19 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // demonstrated-history reference (demonstrated_growth_reference), not shown here. ROIC is context only.
   const eligRoic = incrementalRoic ?? roic
   const fadeLabel = terminalGrowthRate !== undefined ? ` → terminal ${(terminalGrowthRate * 100).toFixed(0)}%` : ''
-  const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}${runwayLabel}`
-      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > ${discountLabel} (filings)` : ''}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ ${discountLabel} (filings, no growth credit)` : ' (no growth credit)'}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
   // the fallback is retained for legacy events that predate the headline-growth inversion.
   const assumedGrowth = reasoning?.assumed_growth ?? growthRate
 
-  // Owner-earnings bridge summary for collapsible
-  const bridge = valuation.owner_earnings_bridge
-  const hasBridge = bridge !== undefined
-    && bridge.net_income !== undefined
-    && bridge.depreciation_amortization !== undefined
-    && bridge.maintenance_capex !== undefined
-    && bridge.stock_based_comp !== undefined
-    && bridge.normalized_working_capital_change !== undefined
+  // E2: the T0 FCF basis + the factual capex-vs-D&A note (the OE bridge is retired from display).
+  const fcfBasis = (valuation as { fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string } }).fcf_basis
+  const capexVsDa = (valuation as { capex_vs_da?: { capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string } }).capex_vs_da
 
   return createElement(
     'div',
@@ -1863,8 +2200,19 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The reasoning to audit. The model proposed the verdict and the buy-below above; here it shows its work. The reverse-DCF market-implied growth is the valuation cross-check — the decision rests on the model buy-below.',
+      'The reasoning to audit. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model judges the growth and the exit multiple (cited). The thresholds rest on the computed value — price is compared to it, never trusted over it.',
     ),
+    // LIVE FIND (V): when the case is UNPRICED the reason must lead the panel loud — the engine's
+    // honest valuation_caveats (e.g. "diluted shares missing") were persisted but never displayed.
+    (valuation.valuation_caveats !== undefined && valuation.valuation_caveats.length > 0) ? createElement(
+      'div',
+      { 'data-testid': 'valuation-caveats', style: { border: '1px solid var(--owl-color-gold)', borderRadius: '0.5rem', display: 'grid', gap: '0.3rem', padding: '0.55rem 0.7rem' } },
+      ...valuation.valuation_caveats.map((c, i) => createElement(
+        'p',
+        { key: `vcaveat-${i}`, style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        c,
+      )),
+    ) : null,
     // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
     // assumed + WHY, the discount rationale). The substance the human audits.
     reasoning !== undefined ? createElement(
@@ -1874,18 +2222,22 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         style: { display: 'grid', gap: '0.45rem', marginTop: '0.4rem' },
       },
       createElement('p', { className: 'owl-section-accent' }, 'Model valuation reasoning (cited)'),
-      reasoning.owner_earnings_basis !== undefined ? createElement(
-        'p',
-        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Owner-earnings basis: '),
-        reasoning.owner_earnings_basis,
-      ) : null,
+
       assumedGrowth !== undefined ? createElement(
         'p',
         { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Assumed growth: '),
         `the model assumes ${pctPts(assumedGrowth)} near-term growth`,
         reasoning.assumed_growth_rationale !== undefined ? ` — ${reasoning.assumed_growth_rationale}` : '',
+      ) : null,
+      // Owner rule (2026-07-12): the exit multiple is comps-anchored — render the multiple, its
+      // provenance label, and the basis note (the named comps + figures) so the arithmetic is auditable.
+      valuation.exit_multiple_used !== undefined ? createElement(
+        'p',
+        { 'data-testid': 'exit-multiple-basis', style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Exit multiple: '),
+        `${valuation.exit_multiple_used}× year-10 FCF (${valuation.exit_multiple_source === 'model_grounded' ? 'cited, verified' : valuation.exit_multiple_source === 'model_asserted' ? 'model-asserted, not verified' : valuation.exit_multiple_source === 'model_clamped' ? 'clamped to the book band' : 'conservative fallback'})`,
+        valuation.exit_multiple_basis_note !== undefined ? ` — ${valuation.exit_multiple_basis_note}` : '',
       ) : null,
       reasoning.discount_rationale !== undefined ? createElement(
         'p',
@@ -1894,28 +2246,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         reasoning.discount_rationale,
       ) : null,
     ) : null,
-    // Reverse-DCF read (the primary lens): the market-implied growth vs the model's judged sustainable
-    // growth. The richness signal — what today's price requires the business to grow vs what the model judges.
-    marketImpliedGrowth !== undefined ? createElement(
-      'p',
-      { 'data-testid': 'market-implied-growth', style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.4rem 0 0' } },
-      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `The market implies ${pctPts(marketImpliedGrowth)} growth`),
-      assumedGrowth !== undefined ? ` — the model judges ${pctPts(assumedGrowth)} sustainable.` : '.',
-    ) : null,
-    // The two hidden assumptions baked into today's price, surfaced together and briefly explained (not two
-    // bare adjacent stats): the implied growth the price requires, and the implied EXIT multiple it must hold.
-    (marketImpliedGrowth !== undefined || impliedExitMultiple !== undefined) ? createElement(
-      'p',
-      { 'data-testid': 'price-implied-assumptions', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.3rem 0 0' } },
-      'Today\'s price bakes in two assumptions: ',
-      marketImpliedGrowth !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} market-implied growth`), ' (the rate the business must compound at to justify the price)')
-        : createElement('span', null, 'a market-implied growth (not computable without a live price)'),
-      ', and ',
-      impliedExitMultiple !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× market-implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
-        : createElement('span', null, 'a market-implied exit multiple (not yet computed).'),
-    ) : null,
+    // F (owner call): the implied-growth/exit reads are retired from display — the book has no such
+    // lens; the internal rails still police an absurd advisory price arithmetically.
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
       'p',
@@ -1929,47 +2261,41 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       `Market $${marketQuote.price_per_share.toFixed(2)} (${marketQuote.currency}) · Yahoo Finance, as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
     ) : null,
     // Key figures — the ledger-line of the valuation. The model's buy-below + verdict drive the decision;
-    // the reverse-DCF market-implied growth + the implied multiples are the kept valuation lens.
-    // (forward-DCF removal: the dollar reference fair value stat is gone.)
+    // F (owner call): the implied-growth/exit stats are retired — the book stats only.
     createElement(
       'div',
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
+      // E2: the T0 FCF basis (CFO − capex from the filing) replaces the owner-earnings stat.
       createValuationLedgerStat(
-        'Market-implied growth',
-        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'),
-        '',
+        'FCF basis (T0)',
+        fcfBasis?.fcf_musd !== undefined
+          ? `$${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year})` : ''}`
+          : 'Not computable',
+        'owl-ledger-figure-money',
       ),
-      // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
-      // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
-      // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
-      // model judgment or vice versa.
-      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
-      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
-      createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
-      createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
-      createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount (policy)', discountLabel, ''),
+      // Owner call (2026-07-12): Pillar 4 carries its own answer — the DCF-computed intrinsic value
+      // and both book thresholds render HERE, not only in the decision box at the end.
+      (valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share !== undefined
+        ? createValuationLedgerStat(
+            'Intrinsic value (computed)',
+            `$${(valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share!.toFixed(2)}`,
+            'owl-ledger-figure-money',
+          )
+        : null,
+      valuation.buy_price_per_share !== undefined
+        ? createValuationLedgerStat('Buy below (rule 7)', `$${valuation.buy_price_per_share.toFixed(2)}`, 'owl-ledger-figure-money')
+        : null,
+      (valuation as { load_up_below?: number }).load_up_below !== undefined
+        ? createValuationLedgerStat('Load-up below (rule 8)', `$${(valuation as { load_up_below?: number }).load_up_below!.toFixed(2)}`, 'owl-ledger-figure-money')
+        : null,
     ),
-    // Discount-anchor vintage: the savings-rate breakdown + WHEN it was set (or "not set" for the frozen
-    // default), so a stale/never-set risk-free anchor is visible rather than silently trusted.
-    createDiscountAnchorProvenance(savings),
-    // Judgment provenance (Priority 2): the moat / runway "proposed → resolved" anchor reads are PROSE, not
-    // numerics — they belong as labeled mono/muted text lines, never crammed into numeric stat-blocks.
-    (moatAnchorLabel !== undefined || runwayAnchorLabel !== undefined) ? createElement(
-      'div',
-      { 'data-testid': 'judgment-provenance', style: { display: 'grid', gap: '0.25rem', marginTop: '0.7rem' } },
-      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'Judgment provenance'),
-      moatAnchorLabel === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Moat: ${moatAnchorLabel}`,
-      ),
-      runwayAnchorLabel === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Runway: ${runwayAnchorLabel}`,
-      ),
-    ) : null,
+    // Discount provenance: B2 runs show the flat required return; legacy runs keep the savings-anchor line.
+    researchCase.valuation?.discount_inputs?.required_return !== undefined
+      ? createRequiredReturnProvenance(researchCase)
+      : createDiscountAnchorProvenance(savings),
+    // C2: the runway provenance block is retired (the moat provenance lives on the P2 moats card).
+
     // Mechanism 3: base-rate burden — exceptional claims lacking structural evidence (surfaced, never passed).
     unmetBaseRateFlags.length > 0 ? createElement(
       'div',
@@ -2007,287 +2333,64 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       + `(${[...new Set((sourceDiscipline?.rejections ?? []).map((r) => r.reason).filter((r): r is string => r !== undefined))].join(', ')}). `
       + `Classification lanes reason from primary documents only.`,
     ) : null,
-    // Mechanism 5: red-team section — strongest objection + the synthesis response (or the incomplete /
-    // unaddressed flags). The border colour flags an unaddressed objection or an untested case in red.
-    redTeam !== undefined ? createElement(
+    // E2: the T0 FCF-basis provenance + the factual capex-vs-D&A note (the OE bridge is retired).
+    fcfBasis !== undefined || capexVsDa !== undefined ? createElement(
       'div',
       {
+        'data-testid': 'fcf-basis-block',
         style: {
-          background: (redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-          border: `1px solid ${(redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.3)' : 'rgba(148, 163, 184, 0.18)'}`,
+          background: 'var(--owl-color-panel-deep)',
+          border: '1px solid rgba(148, 163, 184, 0.12)',
           borderRadius: '0.7rem',
-          marginTop: '0.6rem',
-          padding: '0.6rem 0.9rem',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-sm)',
+          marginTop: '0.5rem',
+          padding: '0.75rem 1rem',
         },
       },
-      createElement('p', {
-        style: {
-          color: (redTeamUnaddressed || redTeamIncomplete) ? '#f87171' : 'var(--owl-color-gold-bright)',
-          fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem',
-        },
-      }, 'Independent bear case (red-team)'),
-      redTeamIncomplete ? createElement('p', {
-        style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
-      }, `red_team_incomplete — the adversarial pass did not complete${redTeam.reason !== undefined ? ` (${redTeam.reason})` : ''}. The case was NOT adversarially tested; re-run before relying on the verdict.`)
-        : createElement(
-          'div',
-          null,
-          redTeamObjection?.claim !== undefined ? createElement('p', {
-            style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' },
-          }, `Strongest objection${redTeamObjection.severity !== undefined ? ` (${redTeamObjection.severity})` : ''}: ${redTeamObjection.claim}`) : null,
-          redTeamUnaddressed ? createElement('p', {
-            style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
-          }, 'red_team_objection_unaddressed — synthesis neither answered with evidence nor downgraded. Silence is not an option; surfaced in open questions.')
-            : redTeamResponse !== undefined ? createElement('p', {
-              style: { color: '#bbf7d0', fontSize: 'var(--owl-text-xs)', margin: 0 },
-            }, redTeamResponse.mode === 'accepted_downgraded'
-              ? `Synthesis response: accepted → downgraded${redTeamResponse.downgrade !== undefined ? ` ${redTeamResponse.downgrade.dimension} (${redTeamResponse.downgrade.from} → ${redTeamResponse.downgrade.to})` : ''}. ${redTeamResponse.text ?? ''}`
-              : `Synthesis response: answered with evidence. ${redTeamResponse.text ?? ''}`)
-              : null,
-        ),
+      fcfBasis !== undefined ? createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
+        `FCF = CFO ${fcfBasis.cfo_musd !== undefined ? `$${Math.round(fcfBasis.cfo_musd).toLocaleString('en-US')}M` : '?'} − capex ${fcfBasis.capex_musd !== undefined ? `$${Math.round(fcfBasis.capex_musd).toLocaleString('en-US')}M` : '?'}`
+        + `${fcfBasis.fcf_musd !== undefined ? ` = $${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M` : ''}`
+        + `${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year}` : ''}${fcfBasis.reporting_currency !== undefined && fcfBasis.fiscal_year !== undefined ? `, ${fcfBasis.reporting_currency})` : fcfBasis.fiscal_year !== undefined ? ')' : ''}`,
+      ) : null,
+      fcfBasis?.source_id !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0 0 0.4rem' } },
+        `T0 — tagged XBRL facts from ${fcfBasis.source_id}`
+        + (valuation.share_count_source === 'inline_xbrl_class_a' ? ' · share count recovered from the filing\u2019s inline XBRL (Class A diluted, as-converted)' : ''),
+      ) : null,
+      capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : '#9aa4b7', margin: 0 } },
+        capexVsDa.note,
+      ) : null,
     ) : null,
-    // Collapsible owner-earnings bridge
-    hasBridge && bridge !== undefined ? createElement(
-      'details',
-      { style: { marginTop: '0.5rem' } },
-      createElement(
-        'summary',
-        { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
-        'Owner-earnings bridge',
-      ),
-      createElement(
-        'div',
-        {
-          style: {
-            background: 'var(--owl-color-panel-deep)',
-            border: '1px solid rgba(148, 163, 184, 0.12)',
-            borderRadius: '0.7rem',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-sm)',
-            marginTop: '0.5rem',
-            padding: '0.75rem 1rem',
-          },
-        },
-        createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
-          `NI $${bridge.net_income}M + D&A $${bridge.depreciation_amortization}M − maint capex $${bridge.maintenance_capex}M − SBC $${bridge.stock_based_comp}M − ΔWC ${bridge.normalized_working_capital_change !== undefined ? (bridge.normalized_working_capital_change < 0 ? `($${Math.abs(bridge.normalized_working_capital_change)}M)` : `$${bridge.normalized_working_capital_change}M`) : '?'}`,
-        ),
-        bridge.shares_outstanding !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0 0 0.4rem' } },
-          `÷ ${bridge.shares_outstanding}M diluted shares`,
-        ) : null,
-        createElement('p', { style: { color: '#bbf7d0', fontWeight: 800, margin: 0 } },
-          `= OE $${valuation.normalized_owner_earnings_per_share?.toFixed(2) ?? '?'}/sh`,
-        ),
-        reinvestmentRate !== undefined && roic !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0.4rem 0 0' } },
-          `ROIC ${(roic * 100).toFixed(0)}%${incrementalRoic !== undefined ? ` · incremental ROIC ${(incrementalRoic * 100).toFixed(0)}%` : ''} · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
-        ) : null,
-        bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.25rem 0 0' } },
-          `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,
-        ) : null,
-        createOwnerEarningsProvenanceLine(valuation),
-      ),
+    // Harness-degradation notes (never-silent channel) — fine print; each names what could not be
+    // recomputed and why (e.g. shariah_ratios_unverified: market_cap_unavailable).
+    (valuation.degraded_flags !== undefined && valuation.degraded_flags.length > 0) ? createElement(
+      'div',
+      { 'data-testid': 'valuation-degraded-flags', style: { display: 'grid', gap: '0.25rem', marginTop: '0.4rem' } },
+      ...valuation.degraded_flags.map((f, i) => createElement(
+        'p',
+        { key: `vdeg-${i}`, style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
+        `⚠ ${f}`,
+      )),
     ) : null,
   )
 }
 
-/**
- * Provenance line inside the owner-earnings bridge: 'Owner earnings computed from SEC 10-K FY{year}'
- * with an EDGAR source chip when bridge_basis === 'sec_edgar', else a model-estimated note.
- */
-function createOwnerEarningsProvenanceLine(
-  valuation: NonNullable<AppResearchCase['valuation']>,
-): ReturnType<typeof createElement> | null {
-  const basis = valuation.bridge_basis
-  if (basis === undefined) return null
-  if (basis === 'sec_edgar') {
-    const fy = valuation.bridge_fiscal_year
-    return createElement(
-      'p',
-      { 'data-testid': 'oe-bridge-provenance', style: { alignItems: 'center', color: '#bbf7d0', display: 'flex', flexWrap: 'wrap', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', margin: '0.4rem 0 0' } },
-      createElement('span', null, fy !== undefined ? `Owner earnings computed from SEC 10-K FY${fy}` : 'Owner earnings computed from SEC 10-K'),
-      createElement(
-        'span',
-        { style: { background: 'rgba(52, 211, 153, 0.14)', borderRadius: '0.4rem', color: 'var(--owl-color-emerald, #34d399)', fontWeight: 800, padding: '0.05rem 0.4rem' } },
-        'SEC EDGAR',
-      ),
-    )
-  }
-  return createElement(
-    'p',
-    { 'data-testid': 'oe-bridge-provenance', style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.4rem 0 0' } },
-    'Owner earnings are model-estimated (no SEC primary filing available).',
-  )
-}
 
 // ── Position plan (advisory) ──────────────────────────────────────────────────
 
-function formatPlanMoney(value: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(value)
-  } catch {
-    return `$${Math.round(value)}`
-  }
-}
 
-/**
- * Renders the advisory position plan near the valuation panel.
- * - When a plan exists: target weight + target value, the T1/T2/T3 tranches as rows
- *   (T2/T3 carry a "thesis re-check" badge), and the advisory notes.
- * - When capital is unset (but the case is otherwise sizeable): a prompt to set capital.
- * - Otherwise (no plan, no prompt): nothing — consistent with the gated dossier.
- */
-function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapital: boolean) {
-  if (plan === undefined) {
-    if (!promptForCapital) return null
-    return createElement(
-      'div',
-      { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.5rem' } },
-      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        'Set your investable capital on the Portfolio page to see position sizing.',
-      ),
-    )
-  }
-
-  if (!plan.investable) return null
-
-  const currency = 'USD'
-
-  return createElement(
-    'div',
-    { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.75rem' } },
-    // Accent title FIRST (the collapsible wrapper lifts it into the summary; the moat + entry-cap tag lives
-    // on the right of the collapsed header via the position-plan hint, so it is not repeated here).
-    createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-    // Target weight + target value
-    createElement(
-      'div',
-      { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      createPlanMetric('Target weight', `${(plan.target_weight * 100).toFixed(0)}%`),
-      createPlanMetric('Target value', formatPlanMoney(plan.target_value, currency)),
-    ),
-    // Tranche rows
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.5rem' } },
-      ...plan.tranches.map((tranche) => createTrancheRow(tranche, currency)),
-    ),
-    // Advisory notes
-    createElement(
-      'ul',
-      {
-        style: {
-          color: 'var(--owl-color-muted)',
-          display: 'flex',
-          flexDirection: 'column',
-          fontSize: 'var(--owl-text-sm)',
-          gap: '0.3rem',
-          lineHeight: 1.45,
-          margin: 0,
-          paddingLeft: '1.1rem',
-        },
-      },
-      ...plan.notes.map((note, index) => createElement('li', { key: `plan-note-${index}` }, note)),
-    ),
-  )
-}
-
+/** Small labeled stat tile (shared by the sell-decision facts row). */
 function createPlanMetric(label: string, value: string) {
   return createElement(
     'div',
-    {
-      key: label,
-      style: {
-        background: 'var(--owl-color-panel-elevated)',
-        border: '1px solid var(--owl-color-border)',
-        borderRadius: '0.7rem',
-        padding: '0.7rem 0.8rem',
-      },
-    },
-    createElement(
-      'div',
-      {
-        style: {
-          color: 'var(--owl-color-quiet)',
-          fontFamily: 'var(--owl-font-mono)',
-          fontSize: 'var(--owl-text-2xs)',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase' as const,
-        },
-      },
-      label,
-    ),
-    createElement(
-      'div',
-      { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 800, marginTop: '0.15rem' } },
-      value,
-    ),
+    { style: { background: 'var(--owl-color-panel-elevated)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', padding: '0.7rem 0.8rem' } },
+    createElement('div', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em', textTransform: 'uppercase' as const } }, label),
+    createElement('div', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 800, marginTop: '0.15rem' } }, value),
   )
 }
 
-function createTrancheRow(tranche: PositionTranche, currency: string) {
-  return createElement(
-    'div',
-    {
-      key: tranche.id,
-      style: {
-        alignItems: 'center',
-        background: 'var(--owl-color-panel-deep)',
-        border: '1px solid var(--owl-color-border)',
-        borderRadius: '0.7rem',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '0.5rem 0.9rem',
-        justifyContent: 'space-between',
-        padding: '0.6rem 0.8rem',
-      },
-    },
-    // Tranche id + trigger
-    createElement(
-      'div',
-      { style: { display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' } },
-      createElement(
-        'span',
-        { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
-        tranche.id,
-      ),
-      createElement(
-        'span',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)' } },
-        `${tranche.trigger_label} · $${tranche.trigger_price_per_share}`,
-      ),
-      tranche.thesis_gate ? createElement(
-        'span',
-        {
-          style: {
-            background: 'rgba(214, 178, 94, 0.15)',
-            border: '1px solid rgba(214, 178, 94, 0.4)',
-            borderRadius: '0.5rem',
-            color: '#f0d999',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-2xs)',
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-            padding: '0.15rem 0.5rem',
-            whiteSpace: 'nowrap' as const,
-          },
-        },
-        'thesis re-check',
-      ) : null,
-    ),
-    // Value + shares
-    createElement(
-      'div',
-      { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', textAlign: 'right' as const } },
-      `${formatPlanMoney(tranche.target_value, currency)} · ~${tranche.approx_shares} sh`,
-    ),
-  )
-}
+// SCALE-DOWN S1 (owner-locked 2026-07-13): the position plan + on-demand sizing recommendation are
+// REMOVED — zones tell you when; the size is yours inside the rails. Legacy events stay readable.
 
 /**
  * One figure in the valuation ledger-line: a mono uppercase label over a
@@ -2508,8 +2611,16 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
   // land in remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
-  // For a completed deep dive we render ALL FIVE expected lanes IN ORDER: a grounded lane shows its full
+  // S6 (Phase 3 pillars): TWO-ERA lane rendering. New runs record the pillar lanes
+  // (understand/moat/management); historical runs recorded the legacy five. The dossier keys its
+  // expected-lane slots off which era the case's findings belong to, so a legacy case renders its
+  // five lanes untouched and a pillar case renders three — nothing ever vanishes either way.
+  const PILLAR_LANES = ['understand', 'moat', 'management']
+  const LEGACY_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
+  const findingLaneIds = new Set(displayFindings.map((f) => f.specialist_lane ?? ''))
+  const isLegacyCase = ['business_quality', 'financial_quality', 'risks'].some((l) => findingLaneIds.has(l))
+  const orderedLanes = isLegacyCase ? LEGACY_LANES : PILLAR_LANES
+  // For a completed deep dive we render ALL expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
@@ -2523,7 +2634,7 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
     return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 5 expected lanes still renders (remainder), unless it too
+  // Any grounded finding whose lane is NOT one of the expected lanes still renders (remainder), unless it too
   // is an empty placeholder. Legacy shariah and valuation findings render here.
   const remainder = displayFindings.filter(
     (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
@@ -2778,8 +2889,9 @@ function createEvidenceAndAuditDetails(researchCase: AppResearchCase, options: {
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.85rem', marginTop: '1rem' } },
-      // Sources (each filing collapses to its title). The gate checklist (empty/legacy) and the deep-dive lane
-      // findings (already shown in the top-level Deep-dive lanes box) were removed to declutter this drop-down.
+      // H (owner feedback, 2026-07-12): the deep-dive lane findings live HERE — they are what the
+      // models actually returned (raw evidence), not synthesis reasoning. Sources follow.
+      createSpecialistLanesGrid(researchCase),
       options.alwaysVisibleSources ? null : createEvidenceAndSourcesPanel(researchCase),
       createLedgerTimelinePanel(researchCase),
       createQuickScreenCollapsible(researchCase),
@@ -3066,7 +3178,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
   const admittable = rec.admittable === true
   const callLabel = rec.impairment_call ?? 'unresolved'
   const cheapness = rec.cheapness
-  const oeYield = cheapness?.owner_earnings_yield
+  const fcfYield = (cheapness as { fcf_yield?: number } | undefined)?.fcf_yield
   const ev = cheapness?.ev
   const uncitedRefs = rec.uncited_refs ?? []
 
@@ -3151,7 +3263,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       rec.reason,
     ),
     // Cheapness summary (owner-earnings yield / EV).
-    (oeYield === undefined && ev === undefined) ? null : createElement(
+    (fcfYield === undefined && ev === undefined) ? null : createElement(
       'div',
       {
         'data-testid': 'admit-cheapness',
@@ -3161,7 +3273,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        oeYield === undefined ? 'Owner-earnings yield not computed' : `Owner-earnings yield ${(oeYield * 100).toFixed(1)}%`,
+        fcfYield === undefined ? 'FCF yield not computed' : `FCF yield ${(fcfYield * 100).toFixed(1)}%`,
         ev === undefined ? '' : ` · EV ≈ $${Math.round(ev).toLocaleString('en-US')}M`,
         rec.buy_below === undefined ? '' : ` · buy below $${rec.buy_below}`,
       ),
@@ -3209,180 +3321,7 @@ const SIZING_FLOOR_BASIS_LABEL: Record<string, string> = {
   stressed_book: 'stressed book value (softer — haircut book equity per share)',
 }
 
-function formatSizingMoney(value: number | undefined): string {
-  if (value === undefined) return '—'
-  return `$${Math.round(value).toLocaleString('en-US')}`
-}
 
-function createSizingRecommendationPanel(researchCase: AppResearchCase) {
-  const rec = researchCase.sizing_recommendation
-
-  // No recommendation yet — show ONLY the on-demand request control (no fabricated size).
-  if (rec === undefined) {
-    return createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id })
-  }
-
-  // hold_in_savings — the CORRECT posture (NOT a warning). Rendered as a POSITIVE emerald block: capital
-  // parked in the savings sleeve earning the EXPECTED rate is fat-pitch discipline, not under-deployment.
-  if (rec.status === 'hold_in_savings') {
-    const expected = rec.expected_savings_return
-    return createElement(
-      'section',
-      {
-        'data-testid': 'sizing-recommendation',
-        'data-sizing-status': 'hold_in_savings',
-        'aria-label': 'Sizing recommendation',
-        style: {
-          ...cardStyle,
-          // POSITIVE posture: emerald, NOT the gold caveat / red warning palette.
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(52, 211, 153, 0.4)',
-          borderLeft: '3px solid #34d399',
-          display: 'grid',
-          gap: '0.7rem',
-        },
-      },
-      createElement('p', { style: { ...labelStyle, color: '#6ee7b7' } }, 'Position sizing · hold in savings'),
-      createElement(
-        'p',
-        { 'data-testid': 'sizing-hold-correct-posture', style: { color: '#bbf7d0', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
-        'Correct posture: park the capital in the savings sleeve',
-        expected === undefined ? '.' : ` earning ~${(expected * 100).toFixed(1)}% expected.`,
-      ),
-      createElement(
-        'p',
-        { style: { color: '#d1fae5', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        'Nothing here clears the deployment hurdle, so idle capital stays in the Shariah-compliant savings sleeve. This is fat-pitch discipline — waiting for the pitch, not under-deployment. Cash is a first-class position.',
-      ),
-      rec.reason === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', { style: { color: '#a7f3d0' } }, 'Why: '),
-        rec.reason,
-      ),
-      createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-    )
-  }
-
-  // cannot_size — fail-closed (no floor / non-investable / bad inputs). Surfaced honestly, never a size.
-  if (rec.status === 'cannot_size') {
-    return createElement(
-      'section',
-      {
-        'data-testid': 'sizing-recommendation',
-        'data-sizing-status': 'cannot_size',
-        'aria-label': 'Sizing recommendation',
-        style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-border)', display: 'grid', gap: '0.6rem' },
-      },
-      createElement('p', { style: labelStyle }, 'Position sizing · cannot size'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        'Cannot produce a size — fail-closed, never a fabricated number.',
-      ),
-      rec.reason === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Reason: '),
-        rec.reason,
-      ),
-      createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-    )
-  }
-
-  // sizeable — LEAD WITH THE WORST CASE, then the target, then the ladder.
-  const worst = rec.worst_case
-  const floorBasis = worst?.downside_floor_basis
-  const basisLabel = floorBasis === undefined ? undefined : (SIZING_FLOOR_BASIS_LABEL[floorBasis] ?? floorBasis)
-  const clusterFraction = worst?.aggregate_cluster_downside_fraction
-  const bindingLabel = humanizeToken(rec.binding_constraint ?? 'conviction')
-
-  return createElement(
-    'section',
-    {
-      'data-testid': 'sizing-recommendation',
-      'data-sizing-status': 'sizeable',
-      'aria-label': 'Sizing recommendation',
-      style: { ...cardStyle, display: 'grid', gap: '0.85rem' },
-    },
-    createElement('p', { style: labelStyle }, 'Position sizing'),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'Advisory — recomputed on-demand and recorded as an observation, NOT a buy. The worst case comes first; the human still authors and signs the buy below.',
-    ),
-    // ── WORST CASE FIRST (the concrete floor + its basis + the aggregate cluster downside) ──
-    createElement(
-      'div',
-      {
-        'data-testid': 'sizing-worst-case',
-        style: {
-          background: 'rgba(239, 68, 68, 0.07)',
-          border: '1px solid rgba(239, 68, 68, 0.28)',
-          borderRadius: '0.85rem',
-          display: 'grid',
-          gap: '0.4rem',
-          padding: '0.9rem 1rem',
-        },
-      },
-      createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Worst case first'),
-      createElement(
-        'p',
-        { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        worst?.downside_floor_per_share === undefined
-          ? 'Downside floor not recorded.'
-          : `Concrete downside floor $${worst.downside_floor_per_share.toFixed(2)}/share`,
-        worst?.realistic_downside_per_share === undefined
-          ? ''
-          : ` · realistic downside $${worst.realistic_downside_per_share.toFixed(2)}/share from entry`,
-        '.',
-      ),
-      basisLabel === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'sizing-floor-basis', style: { color: '#f3d7d7', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', null, 'Floor basis: '),
-        basisLabel,
-      ),
-      clusterFraction === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'sizing-cluster-downside', style: { color: '#f3d7d7', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-        createElement('strong', null, 'Aggregate cluster downside: '),
-        `${(clusterFraction * 100).toFixed(1)}% of book NAV if the correlated cluster impairs together.`,
-      ),
-    ),
-    // ── Then the target weight + sizeable value + the BINDING constraint ──
-    createElement(
-      'div',
-      { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
-      createPlanMetric('Target weight', rec.target_weight === undefined ? '—' : `${(rec.target_weight * 100).toFixed(1)}%`),
-      createPlanMetric('Sizeable value', formatSizingMoney(rec.sizeable_value)),
-      createPlanMetric('Conviction factor', rec.conviction_factor === undefined ? '—' : `${rec.conviction_factor.toFixed(2)}×`),
-    ),
-    createElement(
-      'p',
-      { 'data-testid': 'sizing-binding-constraint', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
-      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, 'Binding constraint: '),
-      `${bindingLabel} — the smallest of the conviction target, the deployment cap, the permanent-loss cap, and the cluster cap.`,
-    ),
-    // ── Caveats (never hidden) ──
-    (rec.caveats ?? []).length === 0 ? null : createElement(
-      'ul',
-      {
-        style: {
-          color: 'var(--owl-color-muted)', display: 'flex', flexDirection: 'column',
-          fontSize: 'var(--owl-text-sm)', gap: '0.3rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem',
-        },
-      },
-      ...(rec.caveats ?? []).map((caveat, index) => createElement('li', { key: `sizing-caveat-${index}` }, caveat)),
-    ),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'Target weight is an entry cap — let winners run; the buy is human-signed, never auto-traded.',
-    ),
-    createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
-  )
-}
 
 // ── Sell decision panel (Phase 6 S8b) ─────────────────────────────────────────
 // Read-only render of the PERSISTED `sell_recommendation` projection (advisory; NOT recomputed here) plus
@@ -3398,14 +3337,18 @@ function createSizingRecommendationPanel(researchCase: AppResearchCase) {
 //   - `cannot_assess`  → fail-closed neutral message (mirrors sizing's cannot_size).
 // The bias_caveats (disposition / anchoring) render as advisory notes. The close is ALWAYS human-authored.
 
+// B6 (book alignment): each reason maps onto the book's sell rules so the dossier speaks the
+// owner's vocabulary — rule 10 (a rotten business → sell), rule 11 (the business changed → ok to
+// leave), rule 12 (well beyond fair value → lock in a profit), rule 13 (a great business staying
+// great → ok to hold; the guard-held/hold postures ARE rule 13 working).
 const SELL_REASON_CODE_LABEL: Record<string, string> = {
-  thesis_broken: 'thesis broke — the durable advantage or the bet no longer holds',
-  permanent_impairment: 'permanent impairment — the loss is not recoverable inside the thesis',
-  valuation_inverted: 'valuation inverted — price reached / exceeded the frozen intrinsic value',
-  better_opportunity: 'better opportunity — a materially higher net OE yield clears the switching hurdle',
-  original_mistake: 'original mistake — the underwriting was wrong from the start',
+  thesis_broken: 'rule 10 (rotten) / rule 11 (changed) — the durable advantage or the bet no longer holds: sell or leave',
+  permanent_impairment: 'rule 10 (rotten) — permanent impairment; the loss is not recoverable inside the thesis',
+  valuation_inverted: 'rule 12 (lock in a profit) — price reached / exceeded the frozen intrinsic value',
+  better_opportunity: 'better opportunity — a materially higher net FCF yield clears the switching hurdle',
+  original_mistake: 'original mistake — the underwriting was wrong from the start; admit it and exit',
   minimum_hold_released: 'minimum-hold guard released the review',
-  minimum_hold_active: 'minimum-hold guard is holding (fixable problem inside the window)',
+  minimum_hold_active: 'rule 13 (great stays great) — the guard is holding a fixable problem inside the window',
   escalate_human_review: 'unresolved / incoherent — escalated for your judgment',
 }
 
@@ -3708,6 +3651,7 @@ function resolveValuationChipColor(status?: string): ChipColors {
 
 // Short labels for the visible specialist grid (no " lane" suffix)
 function deepDiveLaneShortLabel(lane?: string): string {
+  if (lane === 'understand') return 'Understand the business'
   if (lane === 'business_quality') return 'Business quality'
   if (lane === 'moat') return 'Moat'
   if (lane === 'management') return 'Management'

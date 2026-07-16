@@ -250,11 +250,24 @@ function applyString(
   }
 }
 
-export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): WatchlistProjection[] {
+export function projectWatchlist(
+  events: LedgerEventEnvelope<unknown>[],
+  options: { include_pruned?: boolean } = {},
+): WatchlistProjection[] {
   const watchlist = new Map<string, WatchlistProjection>()
   const shariahGateDecisions = projectShariahGateDecisions(events)
 
   for (const event of events) {
+    // The human-authored prune (watchlist_item_pruned) removes the name from every active view —
+    // the raw events remain the audit record. Events fold in append order, so a later re-admission
+    // (a new draft for the same aggregate) re-creates the item. include_pruned retains the entity
+    // for HISTORY consumers (the name-lifecycle exit fold reads the pruned lineage).
+    if (event.event_type === 'watchlist_item_pruned') {
+      if (options.include_pruned !== true) {
+        watchlist.delete(event.aggregate_id)
+      }
+      continue
+    }
     if (
       (event.event_type !== 'watchlist_draft_created' && event.event_type !== 'watchlist_draft_confirmed')
       || !isRecord(event.payload)

@@ -186,6 +186,82 @@ describe('/api/research/[caseId]/re-review', () => {
     expect(provider.structured).not.toHaveBeenCalled() // still zero provider spend
   })
 
+  // 10-K CADENCE (owner-approved 2026-07-14): annual filings never ride the weighted delta — a new
+  // 10-K makes the check-in the WRONG tool. The check-in DETECTS it, records a deterministic
+  // zero-spend observation, and the boards prompt the one-click full re-analysis.
+  it('a new 10-K with no other new filings → no_new_filings + a persisted annual-filing detection (zero spend)', async () => {
+    await seedCase(ledgerPath, sourceLedgerPath)
+    const provider = fakeProvider()
+    const NEW_10K = 'https://www.sec.gov/Archives/edgar/data/1/new-10k.htm'
+    const fundamentals = {
+      cik: '1', entity_name: 'TST', currency: 'USD',
+      latest_annual: { fiscal_year: 2026, currency: 'USD' },
+      annual_series: [],
+      filings: [{ form: '10-K', filed: '2026-07-30', url: NEW_10K }],
+      recent_filings: [{ form: '10-Q', filed: '2026-05-03', url: KNOWN_10K }],
+    } as unknown as Fundamentals
+    const res = await callRoute(RC, { provider, fetchFundamentals: async () => fundamentals })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { status: string; new_annual_filing?: { form: string; filed: string } }
+    expect(body.status).toBe('no_new_filings')
+    expect(body.new_annual_filing?.form).toBe('10-K')
+    expect(body.new_annual_filing?.filed).toBe('2026-07-30')
+    expect(provider.structured).not.toHaveBeenCalled()
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      const detected = events.filter((e) => e.event_type === 'research_case_annual_filing_detected')
+      expect(detected).toHaveLength(1)
+      expect(detected[0]?.aggregate_id).toBe(RC)
+      expect(detected[0]?.actor_type).toBe('system')
+      const payload = detected[0]?.payload as Record<string, unknown>
+      expect(payload.form).toBe('10-K')
+      expect(payload.filed).toBe('2026-07-30')
+      expect(payload.ticker).toBe('TST')
+      expect(payload.is_observation).toBe(true)
+    } finally {
+      store.close()
+    }
+
+    // Idempotent: a second check-in seeing the same 10-K does not append a second event.
+    await callRoute(RC, { provider, fetchFundamentals: async () => fundamentals })
+    const store2 = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store2.list()
+      expect(events.filter((e) => e.event_type === 'research_case_annual_filing_detected')).toHaveLength(1)
+    } finally {
+      store2.close()
+    }
+  })
+
+  it('a new 10-K alongside other new filings → the re-review records AND the detection persists', async () => {
+    await seedCase(ledgerPath, sourceLedgerPath)
+    const NEW_10K = 'https://www.sec.gov/Archives/edgar/data/1/new-10k.htm'
+    const fundamentals = {
+      cik: '1', entity_name: 'TST', currency: 'USD',
+      latest_annual: { fiscal_year: 2026, currency: 'USD' },
+      annual_series: [],
+      filings: [{ form: '10-K', filed: '2026-07-30', url: NEW_10K }],
+      recent_filings: [{ form: '8-K', filed: '2026-06-20', url: NEW_8K }],
+    } as unknown as Fundamentals
+    const res = await callRoute(RC, { provider: fakeProvider(), ground, fetchFundamentals: async () => fundamentals })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { status: string; new_annual_filing?: { form: string } }
+    expect(body.status).toBe('recorded')
+    expect(body.new_annual_filing?.form).toBe('10-K')
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      expect(events.filter((e) => e.event_type === 'research_case_annual_filing_detected')).toHaveLength(1)
+      const rr = events.find((e) => e.event_type === 'research_case_re_review_recorded')
+      expect((rr?.payload as Record<string, unknown> | undefined)?.new_annual_filing).toMatchObject({ form: '10-K', filed: '2026-07-30' })
+    } finally {
+      store.close()
+    }
+  })
+
   it('zero-spend: no new filings → 200 no_new_filings, no event, provider never called', async () => {
     await seedCase(ledgerPath, sourceLedgerPath)
     const provider = fakeProvider()

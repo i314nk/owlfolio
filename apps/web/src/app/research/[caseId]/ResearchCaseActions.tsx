@@ -18,6 +18,8 @@ export type ResearchCaseActionsProps = {
   ticker: string | undefined
   isArchived: boolean
   engineStale: boolean
+  /** S6: the case ended at the EARLY moat gate — offer "Run remaining pillars anyway" (override re-run). */
+  moatGated?: boolean
 }
 
 // A router-shaped seam so the POST+navigate logic is unit-testable without a DOM. Mirrors the subset of
@@ -34,7 +36,7 @@ export type ActionRouter = {
  * lands on the new dossier; on error the resolved message is returned for display.
  */
 export async function submitReRun(
-  deps: { fetch: typeof fetch; router: ActionRouter; caseId: string; ticker: string },
+  deps: { fetch: typeof fetch; router: ActionRouter; caseId: string; ticker: string; moatGateOverride?: boolean },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     // Bind to the global: the browser `fetch` rejects being invoked with a non-Window `this`
@@ -44,7 +46,13 @@ export async function submitReRun(
     const response = await doFetch('/api/research/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ticker: deps.ticker, supersedes_research_case_id: deps.caseId }),
+      body: JSON.stringify({
+        ticker: deps.ticker,
+        supersedes_research_case_id: deps.caseId,
+        // S6: the user-authored moat-gate override — recorded on the request event; the new run
+        // skips only the EARLY short-circuit (the late verdict rails still gate).
+        ...(deps.moatGateOverride === true ? { moat_gate_override: true } : {}),
+      }),
     })
     const body = await response.json()
     if (!response.ok) {
@@ -85,7 +93,7 @@ export async function submitArchive(
   }
 }
 
-type PendingAction = 'rerun' | 'archive' | 'rereview' | undefined
+type PendingAction = 'rerun' | 'override' | 'archive' | 'rereview' | undefined
 
 const confirmRowStyle: CSSProperties = {
   alignItems: 'center',
@@ -107,7 +115,7 @@ const confirmTextStyle: CSSProperties = {
   maxWidth: '32rem',
 }
 
-export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }: ResearchCaseActionsProps): ReactNode {
+export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale, moatGated }: ResearchCaseActionsProps): ReactNode {
   const router = useRouter()
   const [confirming, setConfirming] = useState<PendingAction>(undefined)
   const [submitting, setSubmitting] = useState<PendingAction>(undefined)
@@ -122,6 +130,19 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
     setSubmitting('rerun')
     setError(undefined)
     const result = await submitReRun({ fetch, router, caseId, ticker })
+    if (result.ok) {
+      setConfirming(undefined)
+    } else {
+      setError(result.error)
+    }
+    setSubmitting(undefined)
+  }
+
+  async function onConfirmOverrideRun(): Promise<void> {
+    if (ticker === undefined) return
+    setSubmitting('override')
+    setError(undefined)
+    const result = await submitReRun({ fetch, router, caseId, ticker, moatGateOverride: true })
     if (result.ok) {
       setConfirming(undefined)
     } else {
@@ -219,6 +240,52 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
         'Re-run on current engine',
       )
 
+  // S6: "Run remaining pillars anyway" — the user-authored moat-gate override. Only offered on a
+  // case that ended at the early moat gate. The confirm copy is honest about what the override buys:
+  // full analysis spend, NOT a pass (the late verdict rails still gate).
+  const overrideNode = moatGated !== true
+    ? null
+    : confirming === 'override'
+      ? createElement(
+          'div',
+          { style: confirmRowStyle, 'data-testid': 'research-case-override-confirm' },
+          createElement(
+            'span',
+            { style: confirmTextStyle },
+            'This starts a NEW run that continues PAST the failed moat gate (Pillars 3–4 run and use provider quota). The verdict will still be gated — the override buys the full analysis, not a pass. The dossier is permanently labeled "moat gate overridden". Continue?',
+          ),
+          createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'owl-button owl-button-secondary owl-focusable',
+              disabled: reRunDisabled,
+              onClick: () => void onConfirmOverrideRun(),
+            },
+            submitting === 'override' ? 'Starting…' : 'Confirm override run',
+          ),
+          createElement(
+            'button',
+            { type: 'button', className: 'owl-button owl-button-secondary owl-focusable', disabled: isBusy, onClick: () => setConfirming(undefined) },
+            'Cancel',
+          ),
+        )
+      : createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'owl-button owl-button-secondary owl-focusable',
+            style: { cursor: reRunDisabled ? 'not-allowed' : 'pointer', opacity: reRunDisabled ? 0.6 : 1 } as CSSProperties,
+            disabled: reRunDisabled,
+            'data-testid': 'research-case-override-button',
+            onClick: () => {
+              setError(undefined)
+              setConfirming('override')
+            },
+          },
+          'Run remaining pillars anyway',
+        )
+
   const archiveNode = isArchived
     ? null
     : confirming === 'archive'
@@ -292,7 +359,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
             createElement(
               'span',
               { style: confirmTextStyle },
-              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded thesis re-review (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
+              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded CHECK-IN (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
             ),
             createElement(
               'button',
@@ -302,7 +369,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
                 disabled: isBusy,
                 onClick: () => void onConfirmReReview(),
               },
-              submitting === 'rereview' ? 'Checking…' : 'Confirm re-review',
+              submitting === 'rereview' ? 'Checking…' : 'Confirm check-in',
             ),
             createElement(
               'button',
@@ -324,8 +391,9 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
                 setConfirming('rereview')
               },
             },
-            'Check new filings / re-review',
+            'Check-in vs new filings',
           ),
+      overrideNode,
       archiveNode,
     ),
     reReviewNote === undefined

@@ -4,17 +4,7 @@ import { dirname, join, parse } from 'node:path'
 
 import { type EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
-import {
-  projectAaoifiDividendPurificationCalculations,
-  type AaoifiDividendPurificationCalculation,
-} from '@owlfolio/ledger/projections/purificationProjection'
-import {
-  projectQuarterlyPurificationStatement,
-  projectExitPurificationFinalizations,
-} from '@owlfolio/ledger/projections/purificationStatement'
-import { projectZakatStatement, type ZakatBaseMethod } from '@owlfolio/ledger/projections/zakatModule'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectForecasts, projectForecastCalibration } from '@owlfolio/ledger/projections/forecastCalibrationProjection'
@@ -35,7 +25,6 @@ import {
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
 import { defaultUnconfiguredAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
-import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { checkForNewFilings, type CheckForNewFilingsDeps } from '@owlfolio/workflow/reReviewTrigger'
 import { draftThesisReReview, type DraftThesisReReviewDeps } from '@owlfolio/workflow/thesisReReview'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
@@ -133,18 +122,6 @@ export type RunScheduledTasksOptions = WorkerClock & {
   }
   /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
   shariahRatioSource?: ShariahRatioSource
-  /**
-   * User-authored zakat methodology setting (lifecycle-spec-v3 Module 8). When provided, the quarterly
-   * purification task also emits a read-only zakat statement observation at the ḥawl date. Methodology is a
-   * SETTING the user authors — never an agent judgment. No auto-payment.
-   */
-  zakat?: {
-    hawl_date: string
-    currency?: string
-    base_method?: ZakatBaseMethod
-    net_current_assets?: number
-    rate?: number
-  }
 }
 
 export type RunScheduledTasksResult = {
@@ -191,12 +168,7 @@ const WORKER_ACTOR_ID = 'owlfolio-worker'
 const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000
 
 /** thesis_health values that indicate the thesis is broken and warrant a full reanalysis */
-const THESIS_BROKEN_HEALTH: ReadonlySet<ThesisHealth> = new Set<ThesisHealth>(['IMPAIRED', 'EXIT_CANDIDATE'])
-const HOLDING_REVIEW_TIMEOUT_MS = 120_000
-const HOLDING_REVIEW_MAX_COST_USD = 0.25
-const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
-const PURIFICATION_PAYMENT_APPROVAL_GATE = 'purification_payment_requires_user_confirmation'
 const SELL_REVIEW_APPROVAL_GATE = 'sell_review_requires_user_authoring'
 const WATCHLIST_REMOVAL_APPROVAL_GATE = 'watchlist_removal_requires_user_confirmation'
 
@@ -208,22 +180,8 @@ function currentDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function previousQuarterEndDate(now: string): string {
-  const date = new Date(now)
-  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
-  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 0)).toISOString().slice(0, 10)
-}
 
-/** First day of the quarter that the given quarter-END date belongs to (for the purification statement). */
-function quarterStartDateForEnd(quarterEnd: string): string {
-  const date = new Date(`${quarterEnd}T00:00:00.000Z`)
-  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
-  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 1)).toISOString().slice(0, 10)
-}
 
-function roundMoney(value: number): number {
-  return Number(value.toFixed(2))
-}
 
 function resolveProjectRootFromCwd(cwd: string): string {
   const normalized = cwd.replace(/\/+$/, '') || cwd
@@ -490,7 +448,6 @@ function providerRunEvent<TPayload extends Record<string, unknown>>(
 // Concrete cron strings for each friendly cadence value.
 // The daily/weekly expressions match the existing per-task defaults.
 const CRON_DAILY_WATCHLIST = '0 9 * * 1-5'
-const CRON_DAILY_HOLDING_REVIEW = '0 10 * * 1-5'
 const CRON_DAILY_VALUATION = '0 7 * * 1-5'
 const CRON_WEEKLY = '0 8 * * 1'
 const CRON_MONTHLY = '0 6 1 * *'
@@ -524,8 +481,9 @@ function cadenceToCron(cadence: CadenceWithOff, dailyCron: string): { enabled: b
 function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskPayload[] {
   const cfg = mergeAutomationSettings(automation)
   const watchlistCron = cadenceToCron(cfg.watchlist_monitoring.cadence, CRON_DAILY_WATCHLIST)
-  // thesis_review drives holding_review_draft + review_reminder
-  const thesisReviewCron = cadenceToCron(cfg.thesis_review.cadence, CRON_DAILY_HOLDING_REVIEW)
+  // REVIEW RETIRED (owner, 2026-07-14): thesis_review now drives ONLY re_review_check — the
+  // quarterly grounded check-in vs new filings. The provider-drafted holding review + its reminder
+  // are gone (the check-in, the 10-K full-re-run prompt, and the zone board cover the duty).
   // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
   const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
@@ -542,20 +500,6 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       task_kind: 're_review_check',
       cadence: CRON_QUARTERLY,
       enabled: cfg.thesis_review.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
-      scheduled_task_id: 'task_review_reminders_daily',
-      task_kind: 'review_reminder',
-      // review_reminder follows thesis_review cadence — it's the reminder counterpart
-      cadence: thesisReviewCron.cadence,
-      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -612,38 +556,10 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       },
     },
     {
-      scheduled_task_id: 'task_holding_review_drafts_daily',
-      task_kind: 'holding_review_draft',
-      cadence: thesisReviewCron.cadence,
-      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
-      max_cost_usd: HOLDING_REVIEW_MAX_COST_USD,
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
       scheduled_task_id: 'task_portfolio_valuation_refresh_daily',
       task_kind: 'portfolio_valuation_refresh',
       cadence: priceRefreshCron.cadence,
       enabled: cfg.price_refresh.enabled && priceRefreshCron.enabled,
-      dry_run: true,
-      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
-      safety: {
-        mock_safe: true,
-        auto_approve_investment_actions: false,
-        auto_approve_portfolio_actions: false,
-      },
-    },
-    {
-      scheduled_task_id: 'task_purification_projection_quarterly',
-      task_kind: 'purification_projection',
-      cadence: purificationCron.cadence,
-      enabled: cfg.purification.enabled && purificationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -755,33 +671,6 @@ function labelForWatchlistItem(item: ReturnType<typeof projectWatchlist>[number]
   return item.ticker ?? item.company_id ?? item.watchlist_item_id
 }
 
-async function runReviewReminderTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: RunScheduledTasksOptions,
-): Promise<TaskResult> {
-  const events = await store.list()
-  const asOf = options.as_of ?? currentDate()
-  const summary = projectCommandCenterSummary(events, { as_of: asOf })
-  const holdings = projectHoldings(events)
-  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
-  const confirmedWatchlistItems = projectWatchlist(events).filter(
-    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
-  )
-  const duePrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'due')
-  const upcomingPrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'upcoming')
-  const observations = [
-    ...duePrompts.map((prompt) => `holding ${prompt.label} is due for review`),
-    ...upcomingPrompts.map((prompt) => `holding ${prompt.label} review is upcoming on ${prompt.next_review_at}`),
-    ...confirmedWatchlistItems.map((item) => `watchlist ${labelForWatchlistItem(item)} should be reviewed for buy-zone/thesis changes; opening a holding requires user approval`),
-  ]
-
-  return {
-    result_summary: `review_reminder dry-run: ${duePrompts.length} due holding review(s), ${upcomingPrompts.length} upcoming holding review(s), ${confirmedWatchlistItems.length} confirmed watchlist review reminder(s); no investment action taken`,
-    observations,
-    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE, OPEN_HOLDING_APPROVAL_GATE],
-    human_approval_required: observations.length > 0,
-  }
-}
 
 /**
  * Forecast-resolution task (lifecycle-spec-v3 Module 10 / judgment Mechanism 4).
@@ -1616,74 +1505,7 @@ function findOpenShariahGrace(
   return latest
 }
 
-function reviewIdFor(holdingId: string, asOf: string): string {
-  return `review_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
-}
 
-async function runHoldingReviewDraftTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: TaskHandlerOptions,
-): Promise<TaskResult> {
-  if (options.provider === undefined || options.provider_readiness === undefined) {
-    throw new Error('holding_review_draft requires a certified provider readiness check before creating proposal events')
-  }
-  assertProviderReadyForExecution(options.provider, options.provider_readiness)
-
-  const events = await store.list()
-  const asOf = options.as_of ?? currentDate()
-  const dueHoldings = projectHoldings(events).filter((holding) => {
-    if (holding.pending_review_id !== undefined) {
-      return false
-    }
-    return holding.next_review_at !== undefined && holding.next_review_at <= asOf
-  })
-  const proposalEventIds: string[] = []
-  const observations: string[] = []
-  const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
-  let escalationEventsAppended = 0
-
-  for (const holding of dueHoldings) {
-    const draft = await draftHoldingReview(store, options.provider, {
-      holding_id: holding.holding_id,
-      review_id: reviewIdFor(holding.holding_id, asOf),
-      model_id: modelId,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      idempotency_key: `holding-review-draft:${holding.holding_id}:${asOf}`,
-    })
-    proposalEventIds.push(draft.event_id)
-    observations.push(`${holding.ticker ?? holding.company_id ?? holding.holding_id} holding review draft proposal created; confirmation requires user approval`)
-
-    // Escalation: when thesis is IMPAIRED or EXIT_CANDIDATE, enqueue a new versioned
-    // full swarm reanalysis (draft only — the human still decides).
-    if (THESIS_BROKEN_HEALTH.has(draft.thesis_health)) {
-      const ticker = holding.ticker
-      if (ticker !== undefined && ticker.length > 0) {
-        const escalationResult = await maybeEnqueueEscalationReanalysis(store, {
-          ticker,
-          holding,
-          reviewDraftEventId: draft.event_id,
-          thesisHealth: draft.thesis_health,
-          scheduledTaskRunId: options.scheduled_task_run_id,
-          ...(options.now === undefined ? {} : { now: options.now }),
-          ...(options.automation?.research_engine_enabled === undefined
-            ? {}
-            : { researchEngineEnabled: options.automation.research_engine_enabled }),
-        })
-        observations.push(escalationResult.observation)
-        escalationEventsAppended += escalationResult.eventsAppended
-      }
-    }
-  }
-
-  return {
-    result_summary: `holding_review_draft dry-run: ${proposalEventIds.length} holding review draft proposal(s) created; no holding review confirmation or portfolio action taken`,
-    observations,
-    ...(proposalEventIds.length === 0 ? {} : { proposal_event_ids: proposalEventIds }),
-    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE],
-    human_approval_required: proposalEventIds.length > 0,
-    events_appended: proposalEventIds.length + escalationEventsAppended,
-  }
-}
 
 /** Grounded re-reviews per tick — a hard provider-spend cap; overflow is named in observations. */
 const MAX_RE_REVIEWS_PER_TICK = 3
@@ -1820,7 +1642,7 @@ type EscalationOptions = {
   ticker: string
   /** Structural subset — a projected holding satisfies it; the re-review path passes the same shape. */
   holding: { holding_id: string; company_id?: string | undefined; strategy_id?: string | undefined }
-  /** The event that detected the break (holding_review_drafted OR research_case_re_review_recorded). */
+  /** The event that detected the break (research_case_re_review_recorded; legacy holding_review_drafted). */
   reviewDraftEventId: string
   thesisHealth: string
   scheduledTaskRunId: string
@@ -1844,7 +1666,7 @@ async function maybeEnqueueEscalationReanalysis(
     }
   }
 
-  // Re-read events (include the holding_review_drafted just appended) for dedup.
+  // Re-read events for dedup (legacy holding_review_drafted escalations still count).
   const currentEvents = await store.list()
 
   // Dedup guard: if there is already an unclaimed research_run_requested for this ticker,
@@ -1916,86 +1738,72 @@ function normalizeTicker(ticker: string | undefined): string | undefined {
   return normalized === undefined || normalized.length === 0 ? undefined : normalized
 }
 
-function valuationSnapshotId(holdingId: string, asOf: string): string {
-  return `scheduled_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
-}
 
 async function runPortfolioValuationRefreshTask(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: TaskHandlerOptions,
 ): Promise<TaskResult> {
+  // SCALE-DOWN S2 (owner-locked 2026-07-13): the holding-VALUATION leg is removed (position values
+  // were the money layer). The task survives — kind kept for scheduled-task contract stability — as
+  // the PRICE POLL for held names: one price_snapshot_recorded per held ticker (externally
+  // verifiable), powering the zone board, sell advisories, and pullback rungs. No valuations.
   const events = await store.list()
   const holdings = projectHoldings(events)
   const asOf = options.as_of ?? currentDate()
   const checkedAt = options.now?.() ?? nowIso()
   const observations: string[] = []
   const missingDataHoldingIds: string[] = []
-  const existingValuationKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const seenTickers = new Set<string>()
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
   let refreshed = 0
 
   for (const holding of holdings) {
     const ticker = normalizeTicker(holding.ticker)
     if (ticker === undefined) {
       missingDataHoldingIds.push(holding.holding_id)
-      observations.push(`${holding.company_id ?? holding.holding_id}: no ticker; manual valuation required`)
+      observations.push(`${holding.company_id ?? holding.holding_id}: no ticker; no price poll possible`)
       continue
     }
+    if (seenTickers.has(ticker)) continue
+    seenTickers.add(ticker)
 
-    // TODO: thread exchange/market from holding intake
     const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
-
     if (!quote.available) {
       missingDataHoldingIds.push(holding.holding_id)
-      observations.push(`${ticker}: no auto price (manual valuation required) — ${quote.reason}`)
+      observations.push(`${ticker}: no market quote available`)
       continue
     }
-
-    const valuationSource = quote.source
-    const valuationKey = `holding-valuation:${holding.holding_id}:${asOf}:${valuationSource}`
-    if (existingValuationKeys.has(valuationKey)) {
-      observations.push(`${ticker} valuation already refreshed from ${valuationSource} for ${asOf}; no duplicate valuation event appended`)
-      continue
-    }
-
-    const snapshotId = valuationSnapshotId(holding.holding_id, asOf)
-    const marketValue = roundMoney(quote.price_per_share * holding.shares)
+    const snapId = `psnap_${ticker}_${asOf}_${quote.source}`
+    const idemKey = `price-snapshot:${ticker}:${asOf}:${quote.source}`
+    if (existingKeys.has(idemKey)) continue
     await store.append({
-      event_id: `evt_holding_valuation_recorded_${snapshotId}`,
-      event_type: 'holding_valuation_recorded',
-      aggregate_type: 'holding',
-      aggregate_id: holding.holding_id,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      correlation_id: options.scheduled_task_run_id,
-      idempotency_key: valuationKey,
+      event_id: `evt_price_snapshot_recorded_${snapId}`,
+      event_type: 'price_snapshot_recorded',
+      aggregate_type: 'portfolio',
+      aggregate_id: ticker,
       actor_type: 'worker',
       actor_id: WORKER_ACTOR_ID,
+      idempotency_key: idemKey,
       payload: {
-        snapshot_id: snapshotId,
-        holding_id: holding.holding_id,
+        snapshot_id: snapId,
+        ticker,
         price_per_share: quote.price_per_share,
-        shares: holding.shares,
-        market_value: marketValue,
-        currency: holding.currency,
-        valued_at: asOf,
-        valuation_source: valuationSource,
-        price_checked_at: quote.as_of,
-        confidence: 'market',
-        caveat: 'Live market price from Yahoo Finance',
-        missing_data: [],
-        valued_by_actor_type: 'worker',
-        valued_by_actor_id: WORKER_ACTOR_ID,
+        currency: quote.currency,
+        as_of: quote.as_of,
+        source: quote.source,
+        checked_at: checkedAt,
       },
-      source_ids: [`${valuationSource}:${ticker}:${quote.as_of}`],
+      source_ids: [`${quote.source}:${ticker}:${quote.as_of}`],
       created_at: checkedAt,
       schema_version: 1,
     } satisfies LedgerEventEnvelope<Record<string, unknown>>)
-    existingValuationKeys.add(valuationKey)
+    existingKeys.add(idemKey)
     refreshed += 1
-    observations.push(`${ticker} valuation refreshed from ${valuationSource} at $${quote.price_per_share.toFixed(2)}; factual valuation update only`)
+    observations.push(`${ticker} price snapshot recorded from ${quote.source} at $${quote.price_per_share.toFixed(2)}; factual price update only`)
   }
 
   return {
-    result_summary: `portfolio_valuation_refresh dry-run: refreshed ${refreshed} holding valuation(s), ${missingDataHoldingIds.length} holding(s) missing price data; no investment decision or portfolio action taken`,
+    result_summary: `portfolio_valuation_refresh dry-run: recorded ${refreshed} held-ticker price snapshot(s), ${missingDataHoldingIds.length} holding(s) missing price data; valuations retired (scale-down); no investment decision or portfolio action taken`,
     observations,
     approval_gates: [],
     human_approval_required: false,
@@ -2004,141 +1812,9 @@ async function runPortfolioValuationRefreshTask(
   }
 }
 
-function purificationObligationId(calculation: AaoifiDividendPurificationCalculation): string {
-  return `purify_${calculation.calculation_id}`
-}
-
-function purificationObligationEventId(calculation: AaoifiDividendPurificationCalculation): string {
-  return `evt_purification_obligation_recorded_${purificationObligationId(calculation)}`
-}
-
-async function runPurificationProjectionTask(
-  store: EventStore<LedgerEventEnvelope<unknown>>,
-  options: TaskHandlerOptions,
-): Promise<TaskResult> {
-  const events = await store.list()
-  const calculatedAt = options.now?.() ?? nowIso()
-  const asOf = options.as_of ?? previousQuarterEndDate(calculatedAt)
-  const projection = projectAaoifiDividendPurificationCalculations(events, { as_of: asOf, calculated_at: calculatedAt })
-  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
-  const observations: string[] = []
-  let appended = 0
-
-  for (const calculation of projection.calculations) {
-    const idempotencyKey = `purification-obligation:${calculation.calculation_id}`
-    if (existingKeys.has(idempotencyKey)) {
-      observations.push(`${calculation.holding_id} purification calculation ${calculation.calculation_id} already projected; no duplicate obligation appended`)
-      continue
-    }
-
-    const obligationId = purificationObligationId(calculation)
-    await store.append({
-      event_id: purificationObligationEventId(calculation),
-      event_type: 'purification_obligation_recorded',
-      aggregate_type: 'purification_entry',
-      aggregate_id: obligationId,
-      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
-      correlation_id: options.scheduled_task_run_id,
-      idempotency_key: idempotencyKey,
-      actor_type: 'worker',
-      actor_id: WORKER_ACTOR_ID,
-      payload: {
-        obligation_id: obligationId,
-        calculation_id: calculation.calculation_id,
-        holding_id: calculation.holding_id,
-        ...(calculation.company_id === undefined ? {} : { company_id: calculation.company_id }),
-        ...(calculation.ticker === undefined ? {} : { ticker: calculation.ticker }),
-        ...(calculation.company_name === undefined ? {} : { company_name: calculation.company_name }),
-        amount: calculation.purification_amount,
-        purification_amount: calculation.purification_amount,
-        currency: calculation.currency,
-        period_start: calculation.period_start,
-        period_end: calculation.period_end,
-        policy_basis: calculation.policy_basis,
-        policy_version: calculation.policy_version,
-        ...(calculation.standard_reference === undefined ? {} : { standard_reference: calculation.standard_reference }),
-        calculation_method: calculation.calculation_method,
-        reason: 'AAOIFI dividend non-compliant income purification estimate; payment requires explicit user confirmation.',
-        shariah_evaluation_id: calculation.shariah_evaluation_id,
-        dividend_event_id: calculation.dividend_event_id,
-        dividend_id: calculation.dividend_id,
-        dividend_income_amount: calculation.dividend_income_amount,
-        non_compliant_income_ratio: calculation.non_compliant_income_ratio,
-        impurity_rate: calculation.purification_ratio,
-        purification_ratio: calculation.purification_ratio,
-        holding_period_basis: calculation.holding_period_basis,
-        source_filing_period_start: calculation.source_filing_period_start,
-        source_filing_period_end: calculation.source_filing_period_end,
-        ...(calculation.source_filing_type === undefined ? {} : { source_filing_type: calculation.source_filing_type }),
-        ...(calculation.source_filing_date === undefined ? {} : { source_filing_date: calculation.source_filing_date }),
-        ...(calculation.evidence_summary === undefined ? {} : { evidence_summary: calculation.evidence_summary }),
-        policy_source_ids: calculation.policy_source_ids,
-        source_ids: calculation.source_ids,
-        caveats: calculation.caveats,
-        calculated_at: calculation.calculated_at,
-        next_calculation_at: calculation.next_calculation_at,
-        requires_user_confirmation: calculation.requires_user_confirmation,
-        requires_scholar_review: calculation.requires_scholar_review,
-      },
-      source_ids: calculation.source_ids,
-      created_at: calculatedAt,
-      schema_version: 1,
-    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
-    existingKeys.add(idempotencyKey)
-    appended += 1
-    observations.push(`${calculation.ticker ?? calculation.holding_id} purification obligation ${obligationId} projected from dividend ${calculation.dividend_id}; payment requires user confirmation`)
-  }
-
-  for (const pending of projection.pending) {
-    observations.push(`${pending.holding_id ?? pending.dividend_id ?? pending.dividend_event_id ?? 'dividend'} purification calculation pending evidence: ${pending.missing_evidence.join(', ')}`)
-  }
-
-  // Quarterly purification statement (Module 9 rule 4): read-only — accrued this period, per holding,
-  // cumulative unpaid. Re-list events so freshly-appended obligations this tick are included.
-  const eventsWithAccruals = await store.list()
-  const statementPeriodStart = quarterStartDateForEnd(asOf)
-  const statement = projectQuarterlyPurificationStatement(eventsWithAccruals, {
-    period_start: statementPeriodStart,
-    period_end: asOf,
-  })
-  for (const [currency, summary] of Object.entries(statement.summary_by_currency)) {
-    observations.push(
-      `purification statement ${statementPeriodStart}..${asOf} (${currency}): accrued this period ${summary.accrued_this_period.toFixed(2)}, cumulative unpaid ${summary.cumulative_unpaid.toFixed(2)} across ${statement.per_holding.filter((line) => line.currency === currency).length} holding(s); human authors any disbursement`,
-    )
-  }
-
-  // Exit finalization (Module 9 rule 5): lock final cumulative purification on closed holdings.
-  const finalizations = projectExitPurificationFinalizations(eventsWithAccruals)
-  for (const finalization of finalizations) {
-    observations.push(
-      `${finalization.ticker ?? finalization.holding_id} exit purification finalized (closed ${finalization.closed_at}): accrued ${finalization.final_purification_accrued.toFixed(2)} ${finalization.currency}, remaining ${finalization.final_purification_remaining.toFixed(2)}; locked into post-mortem, human authors any disbursement`,
-    )
-  }
-
-  // Zakat statement (Module 8): read-only at the ḥawl date, only when a user-authored methodology setting
-  // is provided. 2.5% (default) on a user-set base; the human authors the actual zakat payment.
-  if (options.zakat !== undefined) {
-    const zakatCurrency = options.zakat.currency ?? 'USD'
-    const zakatStatement = projectZakatStatement(eventsWithAccruals, {
-      hawl_date: options.zakat.hawl_date,
-      currency: zakatCurrency,
-      ...(options.zakat.base_method === undefined ? {} : { base_method: options.zakat.base_method }),
-      ...(options.zakat.net_current_assets === undefined ? {} : { net_current_assets: options.zakat.net_current_assets }),
-      ...(options.zakat.rate === undefined ? {} : { rate: options.zakat.rate }),
-    })
-    observations.push(
-      `zakat statement (ḥawl ${zakatStatement.hawl_date}, ${zakatStatement.base_method}): base ${zakatStatement.zakatable_base.toFixed(2)} ${zakatCurrency} x ${(zakatStatement.rate * 100).toFixed(2)}% = ${zakatStatement.zakat_due.toFixed(2)} due; user-authored methodology, human authors the payment`,
-    )
-  }
-
-  return {
-    result_summary: `purification_projection dry-run: calculated ${appended} estimated purification obligation(s), ${projection.pending.length} pending dividend(s) need evidence, ${finalizations.length} exit finalization(s); quarterly statement + ${options.zakat === undefined ? 'no ' : ''}zakat statement; no payment or resolution marked`,
-    observations,
-    approval_gates: appended > 0 || projection.pending.length > 0 ? [PURIFICATION_PAYMENT_APPROVAL_GATE] : [],
-    human_approval_required: appended > 0 || projection.pending.length > 0,
-    events_appended: appended,
-  }
-}
+// SCALE-DOWN S3 (owner-locked 2026-07-13): the purification obligation/payment ledger is REMOVED —
+// the dossier's grounded Shariah screening (gate + AAOIFI + the purification RATE) is the surviving
+// guidance. Legacy purification/zakat events stay readable in the audit timeline.
 
 // ---------------------------------------------------------------------------
 // Cadence-engine passes (Task 3.2b): falsifier_check (quarterly / 10-Q) + re_underwrite (annual / 10-K).
@@ -2388,9 +2064,6 @@ async function runTaskHandler(
     return runDiscovery13fTask(store, options)
   }
 
-  if (task.task_kind === 'review_reminder') {
-    return runReviewReminderTask(store, options)
-  }
 
   if (task.task_kind === 'watchlist_monitor') {
     return runWatchlistMonitorTask(store, options)
@@ -2404,9 +2077,6 @@ async function runTaskHandler(
     return runShariahRescreenTask(store, options)
   }
 
-  if (task.task_kind === 'holding_review_draft') {
-    return runHoldingReviewDraftTask(store, options)
-  }
 
   if (task.task_kind === 're_review_check') {
     return runReReviewCheckTask(store, options)
@@ -2414,10 +2084,6 @@ async function runTaskHandler(
 
   if (task.task_kind === 'portfolio_valuation_refresh') {
     return runPortfolioValuationRefreshTask(store, options)
-  }
-
-  if (task.task_kind === 'purification_projection') {
-    return runPurificationProjectionTask(store, options)
   }
 
   if (task.task_kind === 'forecast_resolution') {
@@ -2470,38 +2136,12 @@ function retrySkipReason(task: ScheduledTaskProjection, now: string): string | u
   return undefined
 }
 
-function latestQuarterlyCadenceDueAt(now: string, taskDefinedAt: string): string | undefined {
-  const nowDate = new Date(now)
-  const definedDate = new Date(taskDefinedAt)
-  if (!Number.isFinite(nowDate.getTime()) || !Number.isFinite(definedDate.getTime())) {
-    return undefined
-  }
-
-  const currentQuarterMonth = Math.floor(nowDate.getUTCMonth() / 3) * 3
-  const currentQuarterRun = new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth, 1, 6))
-  const candidate = nowDate.getTime() >= currentQuarterRun.getTime()
-    ? currentQuarterRun
-    : new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth - 3, 1, 6))
-
-  if (candidate.getTime() < definedDate.getTime()) {
-    return undefined
-  }
-
-  return candidate.toISOString()
-}
 
 function cadenceSkipReason(task: ScheduledTaskProjection, now: string, explicitlyRequested: boolean): string | undefined {
   if (explicitlyRequested) {
     return undefined
   }
 
-  if (task.task_kind === 'purification_projection' && task.cadence === '0 6 1 */3 *') {
-    const dueAt = latestQuarterlyCadenceDueAt(now, task.updated_at)
-    const lastCompletedAt = task.last_completed_at === undefined ? undefined : new Date(task.last_completed_at)
-    if (dueAt === undefined || (lastCompletedAt !== undefined && Number.isFinite(lastCompletedAt.getTime()) && lastCompletedAt.getTime() >= new Date(dueAt).getTime())) {
-      return `${task.scheduled_task_id} skipped: not due until quarterly cadence ${task.cadence}`
-    }
-  }
 
   return undefined
 }
@@ -2613,6 +2253,7 @@ export async function runProcessResearchQueueTask(
     deep_dive_approval?: 'automatic' | 'review'
     /** F.2 — the compliant savings anchor (decimal) for the valuation discount. */
     risk_free_rate?: number
+    required_return?: number
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2723,6 +2364,9 @@ export async function runProcessResearchQueueTask(
           // auto-versioning), thread it so the new case's `research_case_created` supersedes it and the
           // prior case drops out of active views. Absent → a plain new run.
           ...(run.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: run.supersedes_research_case_id }),
+          // S6: the user-authored moat-gate override — the early short-circuit is skipped; the late
+          // verdict rails still gate (the override buys analysis, never a pass).
+          ...(run.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // Lineage version (re-run / auto-version → prior+1) so the new dossier shows the correct vN.
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
@@ -2730,6 +2374,7 @@ export async function runProcessResearchQueueTask(
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
           ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
+          ...(options.required_return === undefined ? {} : { required_return: options.required_return }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
@@ -2785,6 +2430,7 @@ export async function runProcessDeepDiveQueueTask(
      * savings_rate_default (the Treasury anchor is retired).
      */
     risk_free_rate?: number
+    required_return?: number
     now?: () => Date
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
@@ -2819,6 +2465,7 @@ export async function runProcessDeepDiveQueueTask(
           // F.2 — thread the compliant app-config savings rate as the discount risk-free anchor (fail-closed
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
+          ...(options.required_return === undefined ? {} : { required_return: options.required_return }),
           model_role_env: modelRoleEnv,
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },

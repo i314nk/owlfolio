@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
-import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runScheduledTasks } from './runtime.ts'
 
@@ -20,17 +20,15 @@ function usage(): string {
     '',
     'Usage:',
     '  corepack pnpm worker -- --once --dry-run --define-defaults',
-    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor',
-    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind holding_review_draft',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check',
-    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind purification_projection',
+    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check',
     '',
     'Options:',
     '  --once              Run one worker tick (currently the only mode).',
     '  --dry-run           Only execute mock-safe dry-run task handlers (default).',
     '  --define-defaults   Ensure default safe scheduled tasks exist before running.',
-    '  --task-kind KIND    Limit this tick to review_reminder, watchlist_monitor, holding_review_draft, re_review_check, portfolio_valuation_refresh, or purification_projection.',
+    '  --task-kind KIND    Limit this tick to watchlist_monitor, re_review_check, shariah_rescreen, or portfolio_valuation_refresh.',
     '  --help              Show this help.',
     '',
     'Environment:',
@@ -104,6 +102,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // to default via the shared helper). Threaded into BOTH research paths so the automatic-mode run and
     // the approval-resume value at the SAME discount.
     const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
+    // B8: user-set only — an absent field lets the engine stamp basis 'book_default' honestly.
+    const userRequiredReturn = userSetRequiredReturn(runtime.config.valuation)
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
@@ -112,6 +112,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
         // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
         // a worker-executed run pauses behind the gates exactly like an in-process one.
         deep_dive_approval: automation.deep_dive_approval,
@@ -132,6 +133,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         maxToolCalls,
         circle_gate,
         risk_free_rate,
+        ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0

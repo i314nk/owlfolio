@@ -17,6 +17,7 @@ import {
   SAVINGS_RATE_MAX,
   defaultSavingsSleeveConfig,
   mergeSavingsSleeveConfig,
+  userSetRequiredReturn,
 } from '../appConfig'
 
 describe('two-state mode model', () => {
@@ -457,5 +458,47 @@ describe('app config defaults include the savings sleeve', () => {
 
   it('leaves version unchanged at 1 (additive field, no migration)', () => {
     expect(defaultPersonalLocalAppConfig().version).toBe(1)
+  })
+})
+
+// B7 (book alignment): the passive-sleeve plan config — fail-closed merge + vintage on a real plan.
+describe('mergePassiveSleeveConfig (B7)', () => {
+  it('defaults: 80/20 split, zero monthly amount (not configured), day 1', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig(undefined)).toEqual({ split: '80/20', monthly_amount: 0, schedule_day: 1 })
+  })
+  it('accepts the three book splits and fails closed on anything else', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig({ split: '60/40' }).split).toBe('60/40')
+    expect(mergePassiveSleeveConfig({ split: '100/0' }).split).toBe('100/0')
+    expect(mergePassiveSleeveConfig({ split: '90/10' as never }).split).toBe('80/20')
+  })
+  it('clamps the schedule day to 1–28 and rejects negative amounts (fail-closed to defaults)', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig({ schedule_day: 31 }).schedule_day).toBe(1)
+    expect(mergePassiveSleeveConfig({ schedule_day: 15 }).schedule_day).toBe(15)
+    expect(mergePassiveSleeveConfig({ monthly_amount: -50 }).monthly_amount).toBe(0)
+  })
+  it('stamps the vintage on a configured write (monthly_amount > 0)', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    const merged = mergePassiveSleeveConfig({ monthly_amount: 500, schedule_day: 5 }, { now: '2026-07-12T00:00:00Z' })
+    expect(merged.passive_set_at).toBe('2026-07-12T00:00:00Z')
+    expect(mergePassiveSleeveConfig({ monthly_amount: 0 }, { now: '2026-07-12T00:00:00Z' }).passive_set_at).toBeUndefined()
+  })
+})
+
+// B8 live finding: the web/worker layers threaded mergeValuationConfig(...).required_return
+// UNCONDITIONALLY, so the engine stamped required_return_basis 'setting' for users who never touched
+// Settings. The command must carry the required return ONLY when it is user-set (vintage-stamped).
+describe('userSetRequiredReturn', () => {
+  it('returns undefined when valuation is absent or never user-set (engine falls back to the book default)', () => {
+    expect(userSetRequiredReturn(undefined)).toBeUndefined()
+    expect(userSetRequiredReturn({ required_return: 0.15 })).toBeUndefined()
+  })
+
+  it('returns the merged value only when the vintage stamp proves a user write', () => {
+    expect(userSetRequiredReturn({ required_return: 0.12, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.12)
+    // A stamped-but-invalid rate still fails closed to the default VALUE — but it stays user-attributed.
+    expect(userSetRequiredReturn({ required_return: 9, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.15)
   })
 })

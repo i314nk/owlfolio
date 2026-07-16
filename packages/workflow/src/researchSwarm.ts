@@ -9,10 +9,7 @@ import {
 } from '@owlfolio/strategies/modelRegistry'
 import {
   sanitizeRoicLike,
-  sanitizeMaintenanceCapex,
   sanitizeReinvestmentRate,
-  sanitizeWorkingCapitalChange,
-  anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
 // Shared CONSTS/clamps only (defaults + bounds for the circle-gate knobs) — the workflow package never
@@ -46,10 +43,16 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectLatestProxyFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
+import { capexVsDandANote, computeIncrementalRoic, demonstratedOwnerEarningsGrowth, selectLatestAnnualFiling, selectLatestProxyFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
 import { resolveInsiderSummary, type InsiderSummary, type InsiderSummaryComputed } from './secForm4'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
+import { computeMoatTests, type MoatTests } from './moatTests'
+import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { fcfImpliedExitMultiple, fcfImpliedGrowth, fcfIntrinsicValuePerShare, resolveExitMultiple } from '@owlfolio/strategies/bookValuation'
+import { yearFcf } from './annualRatios'
+import { runRetainedEarningsTest, type RetainedEarningsTestResult } from './retainedEarningsTest'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
@@ -64,15 +67,14 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, MANAGEMENT_PILLAR_POLICY, moatPassesGate } from '@owlfolio/strategies/buffettMunger'
 import { curatedAdrRatio } from '@owlfolio/strategies/adrRatios'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
-import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
 // the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
 import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
-import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
+import { runInversionPass, buildInversionLayer, type InversionLaneDigest, type InversionResult } from './inversionPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import { runShariahGatePhase } from './shariahGatePhase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
@@ -87,12 +89,16 @@ import {
 import {
   LaneAgentSchema,
   MoatLaneSchema,
+  ManagementLaneSchema,
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
-  MOAT_RUBRIC_PROMPT,
+  MOAT_PILLAR_PROMPT,
+  MANAGEMENT_PILLAR_PROMPT,
+  UNDERSTAND_PILLAR_PROMPT,
+  UnderstandLaneSchema,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -101,7 +107,6 @@ import {
 // maintenance-capex tier fraction) lives in a pure-compute module. Re-exported below for existing
 // importers (the researchSwarm test imports resolveJudgmentTiers + the judgment types from here).
 import {
-  maintenanceFractionForTier,
   parseLaneArguedGrowth,
   resolveJudgmentTiers,
   buildJudgmentProjection,
@@ -111,6 +116,9 @@ import {
   buildInsiderBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
+  resolveManagementJudgment,
+  type ManagementLaneThesis,
+  type ResolvedManagementJudgment,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -145,6 +153,17 @@ export class ResearchSwarmStageError extends Error {
   }
 }
 
+/** The book's one-pager (B3) as the lane emits it — carried verbatim to the payload + dossier. */
+export type OnePagerOutput = {
+  plain_english: string
+  segments: string[]
+  revenue_drivers: string[]
+  most_profitable_segments: string[]
+  strengths: string[]
+  weak_spots: string[]
+  growth_levers: string[]
+}
+
 export type LaneOutcome = {
   lane: string
   finding_summary: string
@@ -155,6 +174,10 @@ export type LaneOutcome = {
   policy_rejections?: SourcePolicyRejection[]
   /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
   moat_judgment?: MoatLaneJudgment
+  /** MANAGEMENT lane only (S5): its raw integrity/talent judgment blocks (resolved by the harness). */
+  management_judgment?: ManagementLaneThesis
+  /** UNDERSTAND lane only (B3): the book's seven-item one-pager distillation (display verbatim). */
+  one_pager?: OnePagerOutput
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
   /** Phase 2 V5 — stage-cost inputs (tokens reported by the provider + wall time for this lane). */
@@ -240,6 +263,12 @@ export type RunStrategyResearchSwarmCommand = {
    * path carried it, so automatic-mode runs always failed closed to the default).
    */
   risk_free_rate?: number
+  /**
+   * Phase 4 (book alignment) — the REQUIRED RETURN (decimal) used to discount the 10-year FCF
+   * valuation, from the app-config valuation setting. Omitted / invalid → fails closed to the flat
+   * 15% book default (`required_return_default`).
+   */
+  required_return?: number
   /** Controls deep-dive gating.
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
@@ -253,6 +282,12 @@ export type RunStrategyResearchSwarmCommand = {
    * tiers take effect. Omitted = `process.env` (the historical default — resolver behavior unchanged).
    */
   model_role_env?: Record<string, string | undefined>
+  /**
+   * S6 — USER-AUTHORED moat-gate override ("run remaining pillars anyway"): skips the EARLY moat-gate
+   * short-circuit so Pillars 3–4 run on a below-gate name. The LATE verdict rails are unchanged (the
+   * verdict still gates to PASS/RESEARCH_MORE) — the override buys the full analysis, never a pass.
+   */
+  moat_gate_override?: boolean
 }
 
 export type RunResearchDeepDivePhaseCommand = {
@@ -275,6 +310,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * fails closed to `savings_rate_default` (the Treasury anchor is retired).
    */
   risk_free_rate?: number
+  /** Phase 4 — the required return for the FCF valuation (defaults to the flat 15% book hurdle). */
+  required_return?: number
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
   /**
@@ -289,6 +326,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * BEFORE lane spend; the approval-resume path omits it). Absent → 'automatic'.
    */
   deep_dive_approval?: 'automatic' | 'review'
+  /** S6 — skip the EARLY moat-gate short-circuit (user-authored override; the late rails still gate). */
+  moat_gate_override?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +471,11 @@ export type FundamentalsDeps = {
    * `insiderSummary` is absent and the run is not in offline test mode.
    */
   fetchForm4Document?: (url: string) => Promise<string | undefined>
+  /**
+   * S5: pre-resolved retained-earnings test result (tests inject; e2e fixtures). Takes precedence over
+   * the live price-history fetch. Absent + offline test mode → the test is simply not computed.
+   */
+  retainedEarnings?: RetainedEarningsTestResult
   /**
    * Override the FX-rate resolver (currency → USD multiplier) for test injection. Used in the Shariah
    * block to convert a USD market cap into the filer's reporting currency for foreign filers (IFRS/20-F).
@@ -696,6 +740,8 @@ export async function runStrategyResearchSwarm(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        // The registrant's name from EDGAR companyfacts — display-only (board rows show "TICKER — Name").
+        ...(qsFundamentals?.entity_name === undefined ? {} : { entity_name: qsFundamentals.entity_name }),
         engine_version: ENGINE_VERSION,
         ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
@@ -787,9 +833,12 @@ export async function runStrategyResearchSwarm(
     // F.2: forward the compliant savings anchor so automatic-mode valuations use the SAME discount
     // as approval-resume ones (previously only the resume path threaded it).
     ...(command.risk_free_rate === undefined ? {} : { risk_free_rate: command.risk_free_rate }),
+    ...(command.required_return === undefined ? {} : { required_return: command.required_return }),
     // S3: the deep-dive approval pause is applied INSIDE the phase, AFTER both cheap gates pass and
     // BEFORE any lane spend. The approval-resume path calls the phase without this key (automatic).
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
+    // S6: forward the user-authored moat-gate override (run remaining pillars anyway).
+    ...(command.moat_gate_override === undefined ? {} : { moat_gate_override: command.moat_gate_override }),
   }, { ...deps, accumulated })
 
   return {
@@ -806,7 +855,6 @@ export async function runStrategyResearchSwarm(
 // The model's judged maintenance capex is flagged (ADVISORY) when it sits MATERIALLY below the conservative
 // Greenwald/D&A proxy — i.e. more than this fraction below it (more aggressive OE → higher value). The flag
 // NEVER blocks the verdict; it directs the human to verify the basis.
-const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
 
 /**
  * Run the CIRCLE-OF-COMPETENCE judgment as a grounded model call (the SAME grounded-agent path the lanes
@@ -864,7 +912,7 @@ async function judgeCircleCompetence(
 const RECENT_READABLE_MAX = 6
 /** Lanes that receive the recent-interim-filings affordance — the QUALITATIVE lanes only (the numeric
  * lanes are deliberately excluded so interim 10-Q numbers never tempt the valuation/Shariah recompute). */
-const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'business_quality'])
+const RECENT_FILINGS_LANES = new Set<string>(['understand', 'moat', 'management'])
 
 /** Lanes that receive the LATEST PROXY STATEMENT affordance (3.1): management (incentives/comp —
  * primary) + moat (dual-class/entrenchment/governance — owner-approved SOURCE_POLICY v2 widening).
@@ -875,6 +923,149 @@ const PROXY_LANES = new Set<string>(['management', 'moat'])
  * buying/selling is a management-quality / capital-allocation signal. Deterministically parsed by the
  * harness (secForm4.ts); mechanical RSU/tax activity is excluded from the discretionary figures. */
 const INSIDER_LANES = new Set<string>(['management'])
+
+/**
+ * S6 (Phase 3, owner-locked): the EARLY MOAT-GATE short-circuit. A below-gate Pillar 2 ends the run
+ * HERE — Pillars 1–2 findings are recorded, a terminal analysis + decision is emitted, and the
+ * management/valuation/red-team/synthesis provider spend NEVER happens (the stage-cost record proves
+ * it). Mirrors the circle set-aside early-exit: a genuinely-narrow GROUNDED thesis is a set-aside
+ * (PASS); an UNGROUNDED wide claim is incomplete research (RESEARCH_MORE). The dossier renders
+ * Pillars 3–4 "not evaluated — failed at the moat filter" off moat_gate_short_circuited; the
+ * user-authored override re-run (moat_gate_override) is the "run remaining pillars anyway" path.
+ */
+async function emitMoatGateShortCircuit(args: {
+  store: SwarmStore
+  provider: Provider
+  command: RunResearchDeepDivePhaseCommand
+  strategyRef: ReturnType<typeof resolveResearchStrategyRef>
+  accumulated: Map<string, CapturedSource>
+  engineCommit: string | undefined
+  started: { deep_dive_id: string; event_id: string }
+  stageAResults: LaneSwarmResult[]
+  judgment: JudgmentResolution
+  moatTests?: MoatTests
+  circleJudgmentPayload?: unknown
+  moatGrounded: boolean
+  /** The registrant's name from EDGAR companyfacts (display-only on the board rows). */
+  entityName?: string
+}) {
+  const { store, provider, command, strategyRef, accumulated, engineCommit, started, stageAResults, judgment } = args
+
+  // Record the Pillar 1–2 findings (same contract as the full path — lanes with zero verified ids skip).
+  for (const lane of stageAResults) {
+    if (lane.verified_ids.length === 0) continue
+    await recordSpecialistFinding(store, {
+      research_case_id: command.research_case_id,
+      finding_id: `finding_${swarmSeg(command.research_case_id)}_${swarmSeg(lane.lane)}`,
+      deep_dive_id: started.deep_dive_id,
+      ...strategyRef,
+      specialist_lane: lane.lane,
+      finding_summary: lane.finding_summary,
+      confidence: lane.confidence,
+      ...(lane.wall_ms === undefined ? {} : {
+        stage_cost: {
+          provider_calls: 1,
+          ...(lane.usage?.input_tokens === undefined ? {} : { input_tokens: lane.usage.input_tokens }),
+          ...(lane.usage?.output_tokens === undefined ? {} : { output_tokens: lane.usage.output_tokens }),
+          wall_ms: lane.wall_ms,
+        },
+      }),
+      caveats: lane.status === 'incomplete' ? [...lane.caveats, 'status:incomplete'] : lane.caveats,
+      source_ids: lane.verified_ids,
+      causation_id: started.event_id,
+      actor_id: provider.provider_id,
+      idempotency_key: `specialist-finding:${command.research_case_id}:${lane.lane}:v1`,
+    })
+  }
+
+  const resolvedMoatClass = judgment.moat!.resolved_moat_class
+  const verdict = args.moatGrounded ? ('PASS' as const) : ('RESEARCH_MORE' as const)
+  const reason = args.moatGrounded
+    ? `Moat below the wide-moat gate (${resolvedMoatClass}, grounded) — set aside at the moat filter; Pillars 3–4 were not evaluated.`
+    : `Moat gate failed on an UNGROUNDED claim (the model reached for a gate-passing class the cite-verified drivers could not back; resolved '${resolvedMoatClass}') — research incomplete; Pillars 3–4 were not evaluated.`
+  const verifiedIds = [...new Set(stageAResults.flatMap((l) => l.verified_ids))]
+  const sourceIds = verifiedIds.length > 0 ? verifiedIds : command.gate_source_ids
+
+  const judgmentProjection = buildJudgmentProjection(judgment)
+  const analysisEvent: LedgerEventEnvelope<unknown> = {
+    event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+    event_type: 'buffett_munger_analysis_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: started.event_id,
+    actor_type: 'provider',
+    actor_id: provider.provider_id,
+    payload: {
+      research_case_id: command.research_case_id,
+      company_id: command.company_id,
+      ticker: command.ticker,
+      ...(args.entityName === undefined ? {} : { entity_name: args.entityName }),
+      engine_version: ENGINE_VERSION,
+      ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
+      investment_verdict: verdict,
+      strategy_compliance: 'INSUFFICIENT_DATA',
+      valuation_status: 'INSUFFICIENT_DATA',
+      next_required_action: args.moatGrounded
+        ? 'No further research — failed at the moat filter (Pillar 2). "Run remaining pillars anyway" re-runs with the gate overridden.'
+        : 'Re-run to ground the moat thesis — the gate failed on an ungrounded claim, not a demonstrated narrow moat.',
+      // GATED-DOSSIER INVARIANT (owner): the pillar frame reads this flag — Pillars 3–4 render
+      // "not evaluated — failed at the moat filter" (no numbers exist to quarantine: they never ran).
+      moat_gate_short_circuited: true,
+      ...(args.circleJudgmentPayload !== undefined ? { circle_competence: args.circleJudgmentPayload } : {}),
+      ...(args.moatTests !== undefined ? { moat_tests: args.moatTests } : {}),
+      // B3: Pillar 1 ran in Stage A — its one-pager renders even on a gated dossier.
+      ...((() => {
+        const op = stageAResults.find((l) => l.lane === 'understand')?.one_pager
+        return op !== undefined ? { one_pager: op } : {}
+      })()),
+      valuation: {
+        moat_class: resolvedMoatClass,
+        moat_passes_gate: false,
+        ...(args.moatGrounded ? {} : { moat_grounding_unmet: true }),
+        ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),
+      },
+    },
+    source_ids: sourceIds,
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `analysis:${command.research_case_id}:v1`,
+  }
+  const analysis = await store.append(analysisEvent)
+  const decision = await draftDecision(store, {
+    research_case_id: command.research_case_id,
+    decision_id: command.decision_id,
+    decision: verdict,
+    reason,
+    thesis_summary: reason,
+    evidence_summary: `Pillars 1–2 ran (${stageAResults.map((l) => l.lane).join(', ')}); the moat gate ended the run before Pillar 3–4 spend.`,
+    valuation_rationale: 'Not assessed — the moat filter failed before the valuation pillar ran.',
+    shariah_rationale: 'Front gate passed; the deep Shariah pass was not reached (moat filter).',
+    risks: [reason],
+    open_questions: [reason],
+    causation_id: analysis.event_id,
+    source_ids: sourceIds,
+    idempotency_key: `decision:${command.research_case_id}:v1`,
+  })
+
+  const capturedSoFar = [...accumulated.values()]
+  if (capturedSoFar.length > 0) {
+    await ingestManualSourceBundle({
+      source_ledger_path: command.source_ledger_path,
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      strategy_id: command.strategy_id,
+      provider_id: provider.provider_id,
+      proposed_by_actor_type: 'provider',
+      proposed_by_actor_id: provider.provider_id,
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
+    })
+  }
+
+  return { analysis, decision, moat_gate_short_circuited: true as const, set_aside_outside_circle: undefined }
+}
 
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
@@ -1026,6 +1217,36 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // ---- S2 (Phase 3): the owner's three NAMED moat tests, pure T0 over the EDGAR series ----
+  // Capital efficiency (ROIC bands) / two-engine (revenue + margin trend) / standout (company-side
+  // gross margin; the peer half is the moat lane's labeled judgment). Display/judgment context —
+  // each test fails closed independently; the block never gates a verdict by itself. Omitted
+  // entirely when no EDGAR series exists (nothing to compute over — never fabricated). Computed
+  // BEFORE the lanes so the S6 early-gate short-circuit can carry it on the terminal dossier.
+  const moatTests: MoatTests | undefined =
+    fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0
+      ? computeMoatTests(fundamentals.annual_series)
+      : undefined
+
+  // ---- S5 (Phase 3): MANAGEMENT TALENT T0 + the retained-earnings test — the observation block ----
+  // The owner's three talent criteria (ROIC / payout discipline / debt management) computed
+  // deterministically from the EDGAR series, plus Buffett's retained-earnings test ($1 retained →
+  // >=$1 of market value) from split-adjusted price history. Injected into the management lane as a
+  // reconcile-contract block (like the insider block) and PERSISTED on the analysis payload. Each
+  // piece fails closed independently; offline test mode never touches the network.
+  let managementTalentT0: ManagementTalentT0 | undefined
+  let retainedEarnings: RetainedEarningsTestResult | undefined
+  let managementTalentBlock: string | undefined
+  if (fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0) {
+    managementTalentT0 = computeManagementTalentT0(fundamentals.annual_series)
+    if (deps.retainedEarnings !== undefined) {
+      retainedEarnings = deps.retainedEarnings
+    } else if (!isOfflineTestMode()) {
+      retainedEarnings = await runRetainedEarningsTest(command.ticker, fundamentals.annual_series)
+    }
+    managementTalentBlock = `\n${buildManagementTalentBlock(managementTalentT0, retainedEarnings)}\n`
+  }
+
   // The PRE-VERIFIED-SOURCES block lists the harness's already-content-hash-verified EDGAR primary
   // source_ids and instructs the agent to cite THOSE for filing-backed claims (instead of inventing its
   // own SEC archive URLs, which fetch unreliably). Surfaced to the circle gate, the moat lane, and the
@@ -1110,34 +1331,35 @@ export async function runResearchDeepDivePhase(
     }
     // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An
     // empty claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
-    const groundedDrivers = circle.analysis.cashflow_drivers.filter(
+    const groundedDrivers = circle.analysis.understanding_drivers.filter(
       (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     )
-    const groundedBreakers = circle.analysis.predictability_breakers.filter(
+    const groundedBreakers = circle.analysis.key_moving_parts.filter(
       (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
     )
-    // Bug B: the gate keys off the cashflow_predictability ENUM. A sample votes in-competence ONLY when
-    // the model judged 'durably_predictable' AND both clauses meet the GROUNDED evidence floors
-    // (≥ min_drivers grounded, non-empty cashflow drivers AND ≥ min_breakers grounded, non-empty
-    // predictability breakers). 'not_predictable' / 'uncertain' / a thin gather → fail-closed dissent.
-    const predictability = circle.analysis.cashflow_predictability
+    // C1: the gate keys off the business_understanding ENUM. A sample votes in-competence ONLY when the
+    // model judged 'understood' AND both clauses meet the GROUNDED evidence floors (≥ min_drivers
+    // grounded understanding mechanisms AND ≥ min_breakers grounded key moving parts).
+    // 'not_understood' / 'uncertain' / a thin gather → fail-closed dissent. Cashflow durability is NOT
+    // judged here — the moat pillar owns it (moats are what give companies durable cash).
+    const predictability = circle.analysis.business_understanding
     const driversGrounded = groundedDrivers.length >= gateMinDrivers
     const breakersGrounded = groundedBreakers.length >= gateMinBreakers
-    const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
+    const inCompetence = predictability === 'understood' && driversGrounded && breakersGrounded
     const samplePrefix = gateKSamples > 1 ? `sample ${sampleIndex + 1}/${gateKSamples} dissented — ` : ''
     const unmetReason = inCompetence
       ? undefined
-      : predictability !== 'durably_predictable'
-        ? `circle_competence_unmet: ${samplePrefix}the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
-          + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
-          + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
+      : predictability !== 'understood'
+        ? `circle_competence_unmet: ${samplePrefix}the model judged this business ${predictability === 'not_understood' ? 'NOT understood' : 'of UNCERTAIN comprehensibility'} `
+          + '— it could not explain the core economic engine from the filings. A valid, common, correct '
+          + 'Buffett output. Set aside.'
         : !driversGrounded
-          ? `circle_competence_unmet: ${samplePrefix}the model judged the cashflows durably predictable but only `
-            + `${groundedDrivers.length} grounded cashflow driver(s) met the evidence floor of ${gateMinDrivers} — a thin or `
+          ? `circle_competence_unmet: ${samplePrefix}the model judged the business understood but only `
+            + `${groundedDrivers.length} grounded understanding mechanism(s) met the evidence floor of ${gateMinDrivers} — a thin or `
             + 'ungrounded gather is outside competence (fail-closed). Set aside.'
-          : `circle_competence_unmet: ${samplePrefix}the model grounded the cashflow drivers but only `
-            + `${groundedBreakers.length} grounded predictability breaker(s) met the evidence floor of ${gateMinBreakers} — `
-            + 'the deeper clause is held to the same rigor (fail-closed). Set aside.'
+          : `circle_competence_unmet: ${samplePrefix}the model grounded the understanding mechanisms but only `
+            + `${groundedBreakers.length} grounded key moving part(s) met the evidence floor of ${gateMinBreakers} — `
+            + 'the second question is held to the same rigor (fail-closed). Set aside.'
     circleSamples.push({
       analysis: circle.analysis,
       verified_ids: circle.verified_ids,
@@ -1172,15 +1394,17 @@ export async function runResearchDeepDivePhase(
   // proceed/set-aside signal; cashflow_predictability + model_claimed_predictability carry the enum.
   const freshCircleJudgmentPayload = {
     in_competence: inCompetence,
-    cashflow_predictability: predictability,
-    model_claimed_predictability: predictability,
+    // C1: the judgment is UNDERSTANDING (Pillar 1 IS the circle); legacy events carry the retired
+    // cashflow_predictability keys and project two-era onto the same slots.
+    business_understanding: predictability,
+    model_claimed_understanding: predictability,
     competence_reasoning: circle.analysis.competence_reasoning,
-    cashflow_drivers: circle.analysis.cashflow_drivers.map((d) => ({
+    understanding_drivers: circle.analysis.understanding_drivers.map((d) => ({
       driver: d.driver ?? '',
       citation: d.citation,
       grounded: (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     })),
-    predictability_breakers: circle.analysis.predictability_breakers.map((b) => ({
+    key_moving_parts: circle.analysis.key_moving_parts.map((b) => ({
       breaker: b.breaker ?? '',
       citation: b.citation,
       grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
@@ -1191,7 +1415,7 @@ export async function runResearchDeepDivePhase(
     gate_samples: circleSamples.map((s, i) => ({
       sample: i + 1,
       in_competence: s.inCompetence,
-      model_claimed_predictability: s.predictability,
+      model_claimed_understanding: s.predictability,
       grounded_drivers: s.groundedDrivers.length,
       grounded_breakers: s.groundedBreakers.length,
     })),
@@ -1244,6 +1468,7 @@ export async function runResearchDeepDivePhase(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        ...(fundamentals?.entity_name === undefined ? {} : { entity_name: fundamentals.entity_name }),
         engine_version: ENGINE_VERSION,
         ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
@@ -1388,8 +1613,8 @@ export async function runResearchDeepDivePhase(
   })
 
 
-  // ---- Per-lane swarm ----
-  const laneResults = await runLaneSwarm(lanes, async (lane) => {
+  // ---- Per-lane runner (invoked in STAGES below — S6: the early moat gate sits between them) ----
+  const runLaneFn = async (lane: string): Promise<LaneOutcome> => {
     const laneStartedAt = Date.now() // Phase 2 V5: per-lane stage-cost wall clock
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
@@ -1410,13 +1635,25 @@ export async function runResearchDeepDivePhase(
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
         : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+    // S6: the pillar-1 lane's focus — it absorbs the retired business_quality lane AND
+    // financial_quality's accounting-quality duty (the numeric duties are nationalized: the always-on
+    // valuation stage, the T0 blocks, the moat tests).
+    const laneFocus = lane === 'understand'
+      ? ' PILLAR 1 — UNDERSTAND THE BUSINESS: explain how this business actually makes money — the '
+        + 'business model, unit economics, revenue and cost drivers, segment structure, customer/supplier '
+        + 'dynamics — AND the accounting quality (revenue recognition, one-offs, accrual red flags). '
+        + 'Do NOT re-derive valuation numbers; the harness owns those.'
+      : ''
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
+      + laneFocus
       + (injectFilingNumbers ? primaryFilingBlock : '')
       + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
       + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
       + (insiderBlock !== undefined && INSIDER_LANES.has(lane) ? insiderBlock : '')
+      // S5: the harness-computed talent T0 + retained-earnings observations (management lane only).
+      + (managementTalentBlock !== undefined && lane === 'management' ? managementTalentBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
@@ -1436,8 +1673,11 @@ export async function runResearchDeepDivePhase(
       const moatRequired: RequiredFieldCheck<z.infer<typeof MoatLaneSchema>>[] = [
         { name: 'moat_drivers', present: (a) => Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0, hint: 'the durable competitive advantages, each {advantage, citation} cited to a verified primary source' },
         { name: 'proposed_moat_class', present: (a) => a.proposed_moat_class !== undefined, hint: "'narrow' | 'moderate' | 'wide' | 'monopoly' — your grounded moat judgment" },
-        { name: 'runway_drivers', present: (a) => Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0, hint: 'the reinvestment-runway headroom drivers, each {headroom, citation} cited to a verified primary source' },
-        { name: 'proposed_runway', present: (a) => a.proposed_runway !== undefined, hint: "'proven' | 'limited' | 'none' — your grounded runway judgment" },
+        // S3: the pillar extensions are retry-FORCED (like the fields above); after retries the
+        // resolver fails each closed (direction 'undetermined', no taxonomy chips, no peer table).
+        { name: 'moat_direction', present: (a) => a.moat_direction !== undefined, hint: "'widening' | 'stable' | 'narrowing' — the moat's direction, with cited direction_drivers" },
+        { name: 'direction_drivers', present: (a) => Array.isArray(a.direction_drivers) && a.direction_drivers.length > 0, hint: 'the observable direction evidence, each {evidence, citation} cited to a verified source' },
+        { name: 'peer_standout', present: (a) => a.peer_standout !== undefined, hint: 'the standout test: named industry peers + their gross margins (cited-or-labeled) + your judgment' },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
@@ -1446,7 +1686,7 @@ export async function runResearchDeepDivePhase(
         // numbers block (that stays on the financial lanes), but it DOES get the pre-verified EDGAR
         // source_id so the qualitative moat rows (M3-M6) cite the harness-verified filing id rather than
         // the model's own flaky SEC-archive id — the exact bug that scored KO's wide-moat rows to 0.
-        prompt: basePrompt + MOAT_RUBRIC_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        prompt: basePrompt + MOAT_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerMoatLane',
       }, MoatLaneSchema, {
@@ -1469,11 +1709,7 @@ export async function runResearchDeepDivePhase(
       // undefined → the resolver fails closed to narrow + judgment_degraded, never a silent admit).
       const moatThesisPresent =
         Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0 && a.proposed_moat_class !== undefined
-      // The grounded runway thesis is present only when BOTH the drivers (non-empty) and the proposed
-      // runway survived (the fallback path leaves runway_thesis undefined → the resolver fails closed to a
-      // conservative runway + judgment_degraded; never a silent admit).
-      const runwayThesisPresent =
-        Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0 && a.proposed_runway !== undefined
+      // C2: the runway judged axis is retired — the judgment carries the moat thesis only.
       const moat_judgment: MoatLaneJudgment = {
         ...(moatThesisPresent
           ? {
@@ -1481,17 +1717,12 @@ export async function runResearchDeepDivePhase(
                 moat_drivers: a.moat_drivers,
                 proposed_moat_class: a.proposed_moat_class,
                 moat_reasoning: a.moat_reasoning ?? '',
-              },
-            }
-          : {}),
-        runway: a.runway,
-        ...(a.runway_exceptional !== undefined ? { runway_exceptional: a.runway_exceptional } : {}),
-        ...(runwayThesisPresent
-          ? {
-              runway_thesis: {
-                runway_drivers: a.runway_drivers,
-                proposed_runway: a.proposed_runway,
-                runway_reasoning: a.runway_reasoning ?? '',
+                // S3: direction + peer standout ride the thesis; each fails closed in the resolver
+                // when absent/ungrounded (direction 'undetermined', peers labeled model-asserted).
+                ...(a.moat_direction !== undefined ? { moat_direction: a.moat_direction } : {}),
+                ...(Array.isArray(a.direction_drivers) && a.direction_drivers.length > 0 ? { direction_drivers: a.direction_drivers } : {}),
+                ...(a.direction_reasoning !== undefined ? { direction_reasoning: a.direction_reasoning } : {}),
+                ...(a.peer_standout !== undefined ? { peer_standout: a.peer_standout } : {}),
               },
             }
           : {}),
@@ -1512,7 +1743,100 @@ export async function runResearchDeepDivePhase(
       }
     }
 
-    // ---- Generic lanes (financial_quality, management, risks, …) ----
+    // ---- UNDERSTAND lane (B3, Phase 4): the grounded finding + the book's ONE-PAGER ----
+    // Mirrors the moat/management branches: runValidatedAgent with the one-pager retry-FORCED;
+    // after retries the lane still records (finding + sources) with the one-pager honestly absent.
+    if (lane === 'understand') {
+      const understandRequired: RequiredFieldCheck<z.infer<typeof UnderstandLaneSchema>>[] = [
+        { name: 'one_pager', present: (a) => a.one_pager !== undefined, hint: 'the seven-item one-pager: plain_english (one sentence), segments, revenue_drivers, most_profitable_segments, strengths, weak_spots, growth_levers' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + UNDERSTAND_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerUnderstandLane',
+      }, UnderstandLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: understandRequired,
+        useToolLoop: true,
+        readCorpus: accumulated,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        throw new Error(`Understand lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+        wall_ms: Date.now() - laneStartedAt,
+        ...(a.one_pager !== undefined ? { one_pager: a.one_pager } : {}),
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `understand_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). The one-pager is absent.` }
+          : {}),
+      }
+    }
+
+    // ---- MANAGEMENT lane (S5, Phase 3): the pillar's two traits as GROUNDED CITED THESES ----
+    // INTEGRITY (communication candor + DEF 14A comp structure) and TALENT (capital allocation,
+    // reconciled against the injected T0 block). Mirrors the moat branch: runValidatedAgent with the
+    // judgment blocks retry-FORCED; after retries the resolver fails closed to 'undetermined'
+    // (never a silent clean bill, and the veto can only ever fire on grounded evidence).
+    if (lane === 'management') {
+      const mgmtRequired: RequiredFieldCheck<z.infer<typeof ManagementLaneSchema>>[] = [
+        { name: 'integrity', present: (a) => a.integrity !== undefined, hint: 'the integrity judgment block: communication_observations [{observation, citation}], comp_structure {summary, alignment, citation → the grounded DEF 14A id}, integrity_flags, proposed_integrity, integrity_reasoning' },
+        { name: 'talent', present: (a) => a.talent !== undefined, hint: 'the talent judgment block: talent_drivers [{evidence, citation}], proposed_talent, talent_reasoning — reconciled with the injected T0 observations' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + MANAGEMENT_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerManagementLane',
+      }, ManagementLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: mgmtRequired,
+        useToolLoop: true,
+        readCorpus: accumulated,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        throw new Error(`Management lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      const management_judgment: ManagementLaneThesis = {
+        ...(a.integrity !== undefined ? { integrity: a.integrity } : {}),
+        ...(a.talent !== undefined ? { talent: a.talent } : {}),
+      }
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+        wall_ms: Date.now() - laneStartedAt,
+        management_judgment,
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `management_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). Resolved undetermined.` }
+          : {}),
+      }
+    }
+
+    // ---- Generic lanes (financial_quality, risks, …) ----
     // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
     // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
     // UNCHANGED (Codex's internal sandbox gather, mock). The grounding/citation verification is identical.
@@ -1539,11 +1863,23 @@ export async function runResearchDeepDivePhase(
       verified_ids: withFiling(agent.verified_ids),
       ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
     }
-  }, { concurrency: deps.laneConcurrency ?? 4 })
+  }
+
+  // ---- Stage A (Pillars 1–2): understand + moat — the moat gate is judged BEFORE Pillar 3–4 spend ----
+  // S6 (owner-locked): a below-gate moat SHORT-CIRCUITS the run by default (terminal dossier: Pillars
+  // 1–2 answered, Pillars 3–4 "not evaluated — failed at the moat filter"; management/valuation/red-
+  // team/synthesis provider spend never happens). A user-authored override (moat_gate_override) runs
+  // everything anyway; the LATE verdict rails still gate the verdict — the override buys analysis, not
+  // a pass. Historical 5-lane runs are unaffected (their events are already persisted).
+  const stageALanes = lanes.filter((l) => l !== 'management')
+  const stageAResults = await runLaneSwarm(stageALanes, runLaneFn, { concurrency: deps.laneConcurrency ?? 4 })
 
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
-  const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
+  const moatLaneResult = stageAResults.find((l) => l.lane === 'moat')
   const moatJudgment = moatLaneResult?.moat_judgment
+  // B3: the understand lane's one-pager (stage A) — carried to the analysis payload verbatim,
+  // INCLUDING on the moat-gate short-circuit (Pillar 1 ran; its distillation is shown either way).
+  const onePager = stageAResults.find((l) => l.lane === 'understand')?.one_pager
   // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
   // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
   // digest is assembled). See the derivation after synthesisRuntime.
@@ -1555,32 +1891,69 @@ export async function runResearchDeepDivePhase(
   // COMPLIANT.
 
   // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
-  // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
-  // the computable rows from EDGAR, computes the mechanical anchor, and resolves the final tier under the
-  // ±1 bound + citation rules (uncited/over-range rejected, not averaged; upward needs 2× evidence). The
-  // RESOLVED tier supersedes the holistic moat_class/runway for the valuation. When no rubric is supplied
-  // OR the resolved tier is not a valid downstream class, we fall back to the moat lane's holistic
-  // moat_class/runway (or a conservative default) — visibly flagged. Grounding/citation verification is
-  // unchanged. Resolved BEFORE the red team so its caseDigest sees the resolved tiers.
-  const verifiedCitationHashes = new Set<string>()
+  // Resolved from STAGE A alone (the management lane feeds neither the moat nor the runway axis) so
+  // the EARLY moat gate below judges the exact tier the late rails will see — one source of truth.
+  const stageACitationHashes = new Set<string>()
   for (const s of accumulated.values()) {
     // Only VERIFIED sources (content_hash present) enter the cite-check set — a captured-but-unverified
     // source_id (fetch failed: SSRF/404/redirect-exhausted/network) must not satisfy a citation.
     if (s.content_hash === undefined) continue
-    verifiedCitationHashes.add(s.content_hash)
-    verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
+    stageACitationHashes.add(s.content_hash)
+    stageACitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
   }
   const judgment = resolveJudgmentTiers({
     // MOAT (B6 reframe): the grounded cited thesis (moat_drivers + proposed_moat_class). When the lane
     // omitted it, the moat axis fails closed to narrow + judgment_degraded (the silent-skip guard).
     ...(moatJudgment?.moat_thesis !== undefined ? { moatThesis: moatJudgment.moat_thesis } : {}),
-    // RUNWAY (runway reframe): the grounded cited thesis (runway_drivers + proposed_runway). When the lane
-    // omitted it, the runway axis fails closed to a conservative runway + judgment_degraded.
-    ...(moatJudgment?.runway_thesis !== undefined ? { runwayThesis: moatJudgment.runway_thesis } : {}),
-    // Holistic runway fallback so the resolved runway is NEVER undefined when the grounded thesis is omitted.
-    ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
+    verifiedCitationHashes: stageACitationHashes,
+  })
+
+  // ---- S6: THE EARLY MOAT GATE — Pillar 2 must pass before Pillars 3–4 spend a token ----
+  // GROUNDED-vs-UNGROUNDED mirrors the late rails exactly: a genuinely-narrow grounded thesis is a
+  // set-aside (PASS); an unmet/capped/degraded thesis or an unbacked wide/monopoly claim is
+  // incomplete research (RESEARCH_MORE) — same routing the full pipeline applies.
+  const earlyResolvedMoatClass = judgment.moat!.resolved_moat_class
+  const earlyProposedTier = judgment.moat?.proposed_tier
+  const earlyMoatGrounded = !(
+    judgment.moat?.moat_grounding_unmet === true
+    || judgment.moat?.grounding_capped === true
+    || judgment.moat?.judgment_degraded === 'rubric_not_emitted'
+    || earlyProposedTier === 'wide' || earlyProposedTier === 'monopoly'
+  )
+  if (!moatPassesGate(buffettMungerStrategy, earlyResolvedMoatClass) && command.moat_gate_override !== true) {
+    return await emitMoatGateShortCircuit({
+      store, provider, command, strategyRef, accumulated, engineCommit,
+      started, stageAResults, judgment,
+      ...(moatTests !== undefined ? { moatTests } : {}),
+      ...(circleJudgmentPayload !== undefined ? { circleJudgmentPayload } : {}),
+      moatGrounded: earlyMoatGrounded,
+      ...(fundamentals?.entity_name === undefined ? {} : { entityName: fundamentals.entity_name }),
+    })
+  }
+
+  // ---- Stage B (Pillar 3): management — runs only past the moat gate (or under the override) ----
+  const stageBResults = lanes.includes('management')
+    ? await runLaneSwarm(['management'], runLaneFn, { concurrency: 1 })
+    : []
+  const laneResults: LaneSwarmResult[] = [...stageAResults, ...stageBResults]
+  // S5: the management lane's raw integrity/talent blocks. A missing lane / omitted blocks resolve
+  // 'undetermined' — never a silent clean.
+  const managementLaneThesis = laneResults.find((l) => l.lane === 'management')?.management_judgment ?? {}
+
+  // The FULL verified-citation set (Stage A + Stage B) for every downstream cite-check.
+  const verifiedCitationHashes = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash === undefined) continue
+    verifiedCitationHashes.add(s.content_hash)
+    verifiedCitationHashes.add(s.source_id)
+  }
+
+  // ---- S5 (Phase 3): resolve the MANAGEMENT pillar judgment (integrity + talent, grounded-only) ----
+  const managementJudgment: ResolvedManagementJudgment = resolveManagementJudgment({
+    thesis: managementLaneThesis,
     verifiedCitationHashes,
+    ...(managementTalentT0?.roic.computable === true ? { t0RoicBand: managementTalentT0.roic.band } : {}),
   })
 
   // ---- Record specialist findings ----
@@ -1640,7 +2013,7 @@ export async function runResearchDeepDivePhase(
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
   const redTeamRuntime = resolveRoleRuntime('red_team', provider, command)
-  const redTeamStartedAt = Date.now() // Phase 2 V5: red-team stage-cost wall clock
+  const inversionStartedAt = Date.now() // Phase 2 V5: inversion stage-cost wall clock
   const corpusBeforeSynthesis = [...accumulated.values()]
   const corpusHashesBeforeSynthesis = new Set<string>()
   for (const s of corpusBeforeSynthesis) {
@@ -1650,7 +2023,7 @@ export async function runResearchDeepDivePhase(
     corpusHashesBeforeSynthesis.add(s.content_hash)
     corpusHashesBeforeSynthesis.add(s.source_id)
   }
-  const laneDigest: RedTeamLaneDigest[] = laneResults
+  const laneDigest: InversionLaneDigest[] = laneResults
     .filter((l) => l.verified_ids.length > 0)
     .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
   // ---- Phase 2 V1: the ALWAYS-ON valuation-judgment stage (between the lanes and synthesis) ----
@@ -1672,7 +2045,6 @@ export async function runResearchDeepDivePhase(
       preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
       caseDigest: {
         moat_class: judgment.moat!.resolved_moat_class,
-        runway: judgment.runway!.resolved_runway,
       },
       ...(primaryFilingBlock === undefined ? {} : { primaryFilingBlock }),
       circleDigest: {
@@ -1702,14 +2074,9 @@ export async function runResearchDeepDivePhase(
       status: valuationStageOutcome.status,
       ...(valuationStageOutcome.status === 'ok'
         ? {
-            owner_earnings_basis: valuationStageOutcome.valuation_reasoning.owner_earnings_basis,
-            owner_earnings_citation: valuationStageOutcome.valuation_reasoning.owner_earnings_citation,
             assumed_growth: valuationStageOutcome.valuation_reasoning.assumed_growth,
             assumed_growth_rationale: valuationStageOutcome.valuation_reasoning.assumed_growth_rationale,
             assumed_growth_citation: valuationStageOutcome.valuation_reasoning.assumed_growth_citation,
-            ...(valuationStageOutcome.valuation_reasoning.proposed_buy_below === undefined ? {} : { proposed_buy_below: valuationStageOutcome.valuation_reasoning.proposed_buy_below }),
-            ...(valuationStageOutcome.valuation_reasoning.valuation_status === undefined ? {} : { valuation_status: valuationStageOutcome.valuation_reasoning.valuation_status }),
-            ...(valuationStageOutcome.valuation_reasoning.owner_earnings_bridge === undefined ? {} : { owner_earnings_bridge: valuationStageOutcome.valuation_reasoning.owner_earnings_bridge }),
           }
         : { failure_reason: valuationStageOutcome.reason }),
       corpus_source_ids: [...accumulated.values()].map((s) => s.source_id),
@@ -1726,19 +2093,18 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `valuation-judgment:${command.research_case_id}:v1`,
   } satisfies LedgerEventEnvelope<unknown>)
 
-  const redTeam: RedTeamResult = await runRedTeamPass(
+  const inversion: InversionResult = await runInversionPass(
     redTeamRuntime.provider,
     {
       research_case_id: command.research_case_id,
       ticker: command.ticker,
-      // model-tiering: the red_team registry role — a DIFFERENT model than the lanes when overridden.
+      // model-tiering: reuses the red_team registry role id (config stability) — a DIFFERENT model when overridden.
       model_id: redTeamRuntime.model_id,
       laneDigest,
       // The moat/runway tiers are now resolved from the MOAT lane's rubric BEFORE the red team runs,
       // so the red team gets the concrete resolved tiers as its target (not a pending placeholder).
       caseDigest: {
         moat_class: judgment.moat!.resolved_moat_class,
-        runway: judgment.runway!.resolved_runway,
       },
       corpusSourceIds: corpusBeforeSynthesis.map((s) => s.source_id),
       verifiedCitationHashes: corpusHashesBeforeSynthesis,
@@ -1746,18 +2112,16 @@ export async function runResearchDeepDivePhase(
     { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
   )
 
-  // Compact red-team digest injected into the synthesis prompt so the synthesis verdict/rationale can
-  // RECONCILE with the adversarial findings. The OBLIGATION to answer the strongest objection now lives in
-  // a dedicated FOCUSED call (runRedTeamResponsePass below) — not on this monolithic schema — so this block
-  // is reconciliation context only (no required synthesis_response here).
-  const redTeamPromptBlock = redTeam.status === 'complete'
-    ? `\n\nRED-TEAM PASS (Mechanism 5 — reconcile with this): an adversarial agent attacked this case. `
-      + `Its STRONGEST OBJECTION (severity ${redTeam.strongest_objection.severity}): "${redTeam.strongest_objection.claim}" `
-      + `[cited: ${redTeam.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
-      + `Bear case: ${redTeam.strongest_bear_case} Moat-decay: ${redTeam.moat_decay_scenario} Growth-credit attack: ${redTeam.growth_credit_attack}. `
-      + `Reconcile your verdict + rationale with this objection (a dedicated follow-up call answers it formally). `
-      + `You may echo the objection text into red_team_strongest_objection.`
-    : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
+  // E1: the inversion digest injected into the synthesis prompt — the verdict must WEIGH the strongest
+  // case against before deciding (Munger: invert, always invert). No answer-or-downgrade obligation
+  // machinery; the payload records the inversion and the human audits it on the dossier.
+  const redTeamPromptBlock = inversion.status === 'complete'
+    ? `\n\nINVERSION (Munger: invert, always invert — weigh this before your verdict): the case was argued AGAINST itself. `
+      + `STRONGEST OBJECTION (severity ${inversion.strongest_objection.severity}): "${inversion.strongest_objection.claim}" `
+      + `[cited: ${inversion.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
+      + `Case against: ${inversion.strongest_case_against} Moat-decay: ${inversion.moat_decay_scenario} Growth-credit attack: ${inversion.growth_credit_attack}. `
+      + `Your verdict + rationale must weigh this counter-argument on its merits.`
+    : `\n\nINVERSION: the inversion pass did not complete (${inversion.reason}); the case was NOT argued against itself. `
       + `Proceed, but the harness will surface this gap.`
 
   // ---- Synthesis + decision agent (harness defense 1: schema validation + retry) ----
@@ -1851,9 +2215,6 @@ export async function runResearchDeepDivePhase(
   // timeout). The verdict is NOT flipped — this flag rides ALONGSIDE as a human-visible caveat.
   const shariahDeepScreenIncomplete = shariahPassOutcome.status !== 'ok'
 
-  // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
-  // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
-  const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
   // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are produced + retried on their
   // OWN specialist lanes, and the red-team response on its OWN focused call (below). Synthesis therefore has
   // NO judgment-overlay required fields — it just produces the verdict/thesis/valuation/Shariah rationale.
@@ -1874,24 +2235,6 @@ export async function runResearchDeepDivePhase(
       present: (a) => Array.isArray(a.thesis_break_triggers) && a.thesis_break_triggers.some((t) => (t ?? '').trim().length > 0),
       hint: 'concrete OBSERVABLE events tied to THIS business that would invalidate the thesis ("gross margin falls below X%", "top-2 customer concentration rises") — not generic "if growth slows"',
     },
-    // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — REQUIRED + substantive. A substantive `present`
-    // predicate: ≥1 named source AND a non-empty joint reasoning AND the reasoning for EACH named source is
-    // present (price_gap_reasoning when 'price'; moat_durability_reasoning when 'moat'). Like the other MoS
-    // surface this is forward-looking reasoning, deliberately NOT cite-gated; the retry forces the structure.
-    {
-      name: 'margin_of_safety',
-      present: (a) => {
-        const mos = a.margin_of_safety
-        if (mos === undefined) return false
-        const sources = Array.isArray(mos.sources) ? mos.sources : []
-        if (sources.length === 0) return false
-        if ((mos.reasoning ?? '').trim().length === 0) return false
-        if (sources.includes('price') && (mos.price_gap_reasoning ?? '').trim().length === 0) return false
-        if (sources.includes('moat') && (mos.moat_durability_reasoning ?? '').trim().length === 0) return false
-        return true
-      },
-      hint: 'the synthesis-owned JOINT margin-of-safety judgment: which substitutable source(s) the margin rests on (price gap, moat durability, or both), the reasoning for EACH named source (price_gap_reasoning when "price"; moat_durability_reasoning when "moat"), and a reasoned adequacy + joint reasoning',
-    },
   ]
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
@@ -1905,6 +2248,13 @@ export async function runResearchDeepDivePhase(
     model_id: synthesisRuntime.model_id,
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
+      // B2 (live kimi find, 2026-07-11): the model wrote "verdict is HOLD" (not in the enum) and
+      // self-mapped it to PASS — losing the watchlist candidacy. Calibrate the vocabulary explicitly.
+      + `VERDICT VOCABULARY: emit ONLY BUY | WATCH | PASS | RESEARCH_MORE. There is no HOLD verdict — a `
+      + `quality business at-or-near fair value that you would buy cheaper is WATCH (parked with its re-arm `
+      + `price), NOT PASS. PASS means the business itself fails a filter (moat, management, comprehension) — `
+      + `price alone never makes a wonderful business a PASS. Rule 9: do NOT demand every box tick — judge `
+      + `the thesis as a whole. `
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
       // Phase 2 V4: the valuation judgment (owner-earnings bridge, assumed growth + citations, the
       // buy-below, valuation_status) is OWNED by the dedicated valuation stage that already ran — the
@@ -1912,21 +2262,18 @@ export async function runResearchDeepDivePhase(
       + (valuationStageOutcome.status === 'ok'
         ? `THE VALUATION STAGE already produced the grounded valuation judgment — reconcile with it, do NOT re-value: `
           + `assumed_growth=${valuationStageOutcome.valuation_reasoning.assumed_growth}, `
-          + `${valuationStageOutcome.valuation_reasoning.proposed_buy_below !== undefined ? `proposed_buy_below=${valuationStageOutcome.valuation_reasoning.proposed_buy_below}, ` : ''}`
-          + `${valuationStageOutcome.valuation_reasoning.valuation_status !== undefined ? `valuation_status=${valuationStageOutcome.valuation_reasoning.valuation_status}, ` : ''}`
-          + `basis: ${valuationStageOutcome.valuation_reasoning.owner_earnings_basis} `
+          + `basis: the harness's deterministic FCF (CFO − capex) intrinsic value ` 
         : `The valuation stage did not produce a grounded judgment (${valuationStageOutcome.status === 'failed' ? valuationStageOutcome.reason : 'unavailable'}) — the harness records the valuation as ungrounded; write your valuation_rationale accordingly (do not fabricate figures). `)
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. IMPORTANT: these REQUIRED audit artifacts do NOT argue against your own verdict — every sound thesis still has a nameable wrong-assumption and concrete break triggers; recording them is bookkeeping for the human, not evidence of fragility. Judge the verdict on the thesis itself. `
-      + `MARGIN-OF-SAFETY JOINT JUDGMENT — REQUIRED, do not omit: margin_of_safety. YOU OWN this as a single joint judgment. The margin of safety comes from TWO SUBSTITUTABLE sources: (1) the PRICE-vs-value gap (your proposed_buy_below sits below value), and (2) MOAT DURABILITY (a fortress moat lets TIME bail out estimate error, so it needs LESS price discount). Name in 'sources' which source(s) THIS margin actually rests on — 'price', 'moat', or BOTH (they substitute: a wide-enough moat can carry a thinner price discount, and a deep-enough price discount can carry a narrower moat). For EACH named source give its reasoning: price_gap_reasoning when 'price' (WHY the price gap supplies margin for THIS business), moat_durability_reasoning when 'moat' (WHY the moat's durability supplies margin — and it MUST rest on the GROUNDED moat thesis the moat gate verified above, '${judgment.moat!.resolved_moat_class}', NOT a fresh moat claim). Then give a joint reasoning tying the named source(s) together. Be business-specific, NOT boilerplate. NOTE: do NOT grade the margin's adequacy — the harness computes the margin-of-safety GRADE arithmetically (the buy-below's discount to the reference value vs the uniform required margin); your job is the NARRATIVE of which source(s) carry the margin and why. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
-      + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
+      + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}'`
       + (shariahLaneJudgment !== undefined ? `; the Shariah screen assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
       // citation/corpus-alignment (KO regression): surface the harness's already-verified EDGAR source_id
-      // so owner_earnings_citation / assumed_growth_citation cite the id the harness reliably verifies
+      // so assumed_growth_citation cites the id the harness reliably verifies
       // (the cite-check below FAILS CLOSED on an unverifiable citation) instead of the model's own flaky
       // SEC-archive id.
       + (preVerifiedSourcesBlock ?? '')
@@ -1989,19 +2336,16 @@ export async function runResearchDeepDivePhase(
   ]
   let valuationReasoning: ValuationReasoning | undefined = valuationCandidates[0]
   // Cite-check the (possibly-replaced) valuation_reasoning citations against the content_hash-verified corpus.
-  const groundValuation = (vr: ValuationReasoning | undefined): { ownerGrounded: boolean; growthGrounded: boolean; ownerCite?: string; growthCite?: string } => {
-    const ownerCite = vr?.owner_earnings_citation
+  // E2: the owner-earnings citation is retired — the growth citation is the stage's grounding gate.
+  const groundValuation = (vr: ValuationReasoning | undefined): { growthGrounded: boolean; growthCite?: string } => {
     const growthCite = vr?.assumed_growth_citation
     return {
-      ownerGrounded: ownerCite !== undefined && isCitationGrounded(ownerCite, synthesisCorpusHashes),
       growthGrounded: growthCite !== undefined && isCitationGrounded(growthCite, synthesisCorpusHashes),
-      ...(ownerCite === undefined ? {} : { ownerCite }),
       ...(growthCite === undefined ? {} : { growthCite }),
     }
   }
   for (const candidate of valuationCandidates) {
-    const cg = groundValuation(candidate)
-    if (cg.ownerGrounded && cg.growthGrounded) {
+    if (groundValuation(candidate).growthGrounded) {
       valuationReasoning = candidate
       break
     }
@@ -2011,7 +2355,7 @@ export async function runResearchDeepDivePhase(
   // layer (the agent grounded at least one source of its OWN) is independent of the valuation_reasoning and is
   // NOT something the focused call can repair — it stays evaluated on the decision agent itself.
   const valuationGroundingUnmet =
-    valuationReasoning === undefined || !g.ownerGrounded || !g.growthGrounded
+    valuationReasoning === undefined || !g.growthGrounded
 
   // ---- FOCUSED valuation-reasoning fallback (the focused decomposition) ----
   // The monolithic decision schema intermittently DROPS valuation_reasoning (KO: the narrative reasoned a
@@ -2029,7 +2373,7 @@ export async function runResearchDeepDivePhase(
     // were already tried above — nothing is re-called here; the gate stays unmet with a VISIBLE note.
     valuationReasoningDegraded = valuationStageOutcome.status === 'ok'
       ? 'valuation_reasoning_retry_exhausted: neither the valuation stage nor the synthesis produced '
-        + 'owner-earnings/assumed-growth citations that verify against the corpus — the valuation stays '
+        + 'an assumed-growth citation that verifies against the corpus — the valuation stays '
         + 'ungrounded. Routed to RESEARCH_MORE; re-run on a more capable model.'
       : `valuation_reasoning_retry_exhausted: the valuation stage did not produce a usable, grounded `
         + `valuation_reasoning after ${valuationStageOutcome.attempts} attempt(s) (${valuationStageOutcome.reason}) `
@@ -2042,7 +2386,7 @@ export async function runResearchDeepDivePhase(
   // the verified valuation-citation ids into dec.verified_ids (source_id-shaped only — never a raw
   // content hash, since these ids flow into event source_ids). The layer still fails closed when the
   // agent cited nothing verifiable at all (Test 1 shape: its citations do not verify → nothing folds).
-  for (const cite of [g.ownerCite, g.growthCite]) {
+  for (const cite of [g.growthCite]) {
     if (cite === undefined || dec.verified_ids.includes(cite)) continue
     const corpusMatch = accumulated.get(cite)
     if (corpusMatch !== undefined && corpusMatch.content_hash !== undefined) {
@@ -2050,9 +2394,7 @@ export async function runResearchDeepDivePhase(
     }
   }
 
-  const ownerEarningsCitation = g.ownerCite
   const assumedGrowthCitation = g.growthCite
-  const ownerEarningsGrounded = g.ownerGrounded
   const synthesisGroundingUnmet =
     dec.verified_ids.length === 0
     || valuationGroundingUnmet
@@ -2063,66 +2405,17 @@ export async function runResearchDeepDivePhase(
       ? 'synthesis_grounding_unmet: the decision agent cited no verified source of its own (dec.verified_ids empty) — '
         + 'a confident verdict citing nothing verifiable. Routed to RESEARCH_MORE; re-run.'
       : valuationReasoning === undefined
-        ? 'synthesis_grounding_unmet: the decision agent produced no valuation_reasoning (owner-earnings + assumed-growth '
-          + 'basis/citations) and the focused valuation-reasoning call could not ground one — its valuation is ungrounded. '
-          + 'Routed to RESEARCH_MORE; re-run.'
-        : !ownerEarningsGrounded
-          ? `synthesis_grounding_unmet: owner_earnings_citation '${ownerEarningsCitation ?? '(absent)'}' did not verify `
-            + 'against the corpus — the owner-earnings basis is ungrounded. Routed to RESEARCH_MORE; re-run.'
-          : `synthesis_grounding_unmet: assumed_growth_citation '${assumedGrowthCitation ?? '(absent)'}' did not verify `
-            + 'against the corpus — the assumed-growth rationale is ungrounded. Routed to RESEARCH_MORE; re-run.'
+        ? 'synthesis_grounding_unmet: the valuation stage produced no valuation_reasoning (assumed growth + citation) '
+          + '— its valuation is ungrounded. Routed to RESEARCH_MORE; re-run.'
+        : `synthesis_grounding_unmet: assumed_growth_citation '${assumedGrowthCitation ?? '(absent)'}' did not verify `
+          + 'against the corpus — the assumed-growth rationale is ungrounded. Routed to RESEARCH_MORE; re-run.'
 
-  // ---- Mechanism 5: dedicated red-team-RESPONSE call (the focused decomposition) ----
-  // The synthesis_response that answers the red team's strongest objection is produced by a SMALL focused
-  // grounded call (NOT the monolithic synthesis schema, which a live model kept dropping it from). It runs
-  // ONLY when a live (cite-checked) objection exists; it cites the verified corpus and is forced by
-  // runValidatedAgent's retry. On exhaustion/failure the response stays undefined → the existing
-  // deterministic red_team_objection_unaddressed enforcement fires (visible fallback; the run completes).
-  let redTeamSynthesisResponse: SynthesisResponse | undefined
-  let redTeamResponseDegraded: string | undefined
-  if (redTeamObjectionLive && redTeam.status === 'complete') {
-    // Reuse the red_team registry role for the follow-up so it can run on the same (or a pinned) model.
-    const responseRuntime = resolveRoleRuntime('red_team', provider, command)
-    const responseOutcome = await runRedTeamResponsePass(
-      responseRuntime.provider,
-      {
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        model_id: responseRuntime.model_id,
-        strongestObjection: redTeam.strongest_objection,
-        laneDigest,
-        corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
-      },
-      { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
-    )
-    if (responseOutcome.status === 'ok') {
-      redTeamSynthesisResponse = responseOutcome.synthesis_response
-      remember(responseOutcome.captured)
-    } else {
-      // Visible degradation: the dedicated call also failed after its attempts. The run still completes;
-      // buildRedTeamLayer flags red_team_objection_unaddressed (the response stays undefined below).
-      redTeamResponseDegraded =
-        `red_team_response_retry_exhausted: the dedicated red-team-response call did not produce a usable `
-        + `synthesis_response after ${responseOutcome.attempts} attempt(s) (${responseOutcome.reason}). `
-        + `The red-team objection is recorded as unaddressed — re-run on a more capable model.`
-    }
-  }
-
-  // ---- Mechanism 5: red-team obligation enforcement (deterministic — "silence is not an option") ----
-  // The red team handed synthesis its strongest objection; the dedicated red-team-response call MUST have
-  // answered it with cited evidence or accepted it and downgraded. The harness builds the red-team layer
-  // and — when the red team completed with a LIVE (cite-checked) objection and the focused call supplied
-  // NO usable response — flags red_team_objection_unaddressed + appends it to open_questions
-  // (conservative: never silently dropped). A red-team-incomplete state is also surfaced as an open
-  // question. The downgrade (mode 'accepted_downgraded') is recorded in the layer for the verdict.
-  const { layer: redTeamLayer, openQuestion: redTeamOpenQuestion } = buildRedTeamLayer({
-    redTeam,
-    synthesisResponse: redTeamSynthesisResponse,
-  })
-  // Phase 2 V5: the red-team stage's spend (1 adversarial call; +1 focused response when it fired).
-  ;(redTeamLayer as Record<string, unknown>)['stage_cost'] = {
-    provider_calls: redTeamSynthesisResponse !== undefined ? 2 : 1,
-    wall_ms: Date.now() - redTeamStartedAt,
+  // ---- E1: build the inversion layer (no obligation machinery — the payload records it) ----
+  const { layer: inversionLayer, openQuestion: inversionOpenQuestion } = buildInversionLayer({ inversion })
+  // Phase 2 V5: the inversion stage's spend (one focused call — the red-team response pass is retired).
+  ;(inversionLayer as Record<string, unknown>)['stage_cost'] = {
+    provider_calls: 1,
+    wall_ms: Date.now() - inversionStartedAt,
   }
 
   const allVerified = [
@@ -2226,11 +2519,6 @@ export async function runResearchDeepDivePhase(
   if (valuationReasoningDegraded !== undefined) {
     degradedFlags.push(valuationReasoningDegraded)
   }
-  // The dedicated red-team-response call exhausted its retries (the focused decomposition's own visible
-  // fallback) — surfaced so the gap is seen; the red_team_objection_unaddressed open question is also set.
-  if (redTeamResponseDegraded !== undefined) {
-    degradedFlags.push(redTeamResponseDegraded)
-  }
   // Per-lane schema-retry exhaustion (the moat lane omitted its REQUIRED judgment block after 2 attempts)
   // — surfaced exactly like the synthesis path so the gap is visible, not silent.
   if (moatLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(moatLaneResult.judgment_retry_degraded)
@@ -2249,10 +2537,10 @@ export async function runResearchDeepDivePhase(
       + '(segment-revenue + impermissible-income) did not complete; the verdict rests on the quick-screen gate.',
     )
   }
-  if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
+  if (judgment.moat?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
-      'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat/runway thesis; the moat '
-      + 'class and reinvestment runway were resolved from the holistic lane judgment (or a conservative default), '
+      'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat thesis; the moat '
+      + 'class was resolved from the holistic lane judgment (or a conservative default), '
       + 'NOT from a grounded, cite-verified thesis.',
     )
   }
@@ -2344,225 +2632,69 @@ export async function runResearchDeepDivePhase(
     degradedFlags.push(moatGroundingReason)
   }
 
-  // Phase 2 V4: the valuation stage owns the judged bridge inputs (the monolithic block is gone).
-  const modelBridge = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.owner_earnings_bridge : undefined
-
-  // ---- EDGAR-anchored owner-earnings bridge ("judgment proposes, code computes") ----
-  // When EDGAR fundamentals are present, the harness anchors NI/D&A/capex/SBC/diluted-shares to the
-  // PRIMARY 10-K and recomputes maintenance capex from the LLM's proxy tier (its only capex judgment):
-  //   maintenance_capex = min(D&A, capex × maintenance_fraction)   (buffett-valuation-method-v2 Step 2)
-  // The LLM still supplies the JUDGMENT overlay: the maintenance fraction (via tier), the normalized
-  // working-capital change, and any one-off normalization to net income. When EDGAR is absent
-  // (non-US ticker / feed down / test fallback) we keep TODAY's behavior (model-proposed bridge).
+  // ---- E2 (owner-locked 2026-07-12): OWNER EARNINGS IS RETIRED ----------------------------------
+  // The book basis is the ONLY basis: FCF = CFO − capex, both tagged XBRL facts (T0). The judged
+  // owner-earnings bridge (maintenance-capex proxy tier + normalized ΔWC — the two most assumption-
+  // heavy numbers in the engine) is gone from the stage schema and from this file. A filer that does
+  // not tag CFO gets an HONESTLY UNPRICED dossier (thresholds deferred on data) — never a proxy-built
+  // fallback. The purely factual capex-vs-D&A note survives as the reinvestment-mix read.
   const edgarAnnual = fundamentals?.latest_annual
-  const edgarBridgeUsable =
-    edgarAnnual !== undefined
-    && Number.isFinite(edgarAnnual.net_income_musd ?? NaN)
-    && Number.isFinite(edgarAnnual.d_and_a_musd ?? NaN)
-    && Number.isFinite(edgarAnnual.capex_musd ?? NaN)
-    && Number.isFinite(edgarAnnual.sbc_musd ?? NaN)
-    && Number.isFinite(edgarAnnual.diluted_shares_m ?? NaN)
-    && (edgarAnnual.diluted_shares_m ?? 0) > 0
-
-  // The model proposes a normalization DELTA to net income (proposed normalized NI − reported NI);
-  // applied to EDGAR's reported NI so the LLM keeps the normalization judgment without restating the
-  // primary figure. The dNWC overlay is taken straight from the model bridge (signed).
-  const bridge_basis: 'sec_edgar' | 'model_proposed' = edgarBridgeUsable ? 'sec_edgar' : 'model_proposed'
-
-  let net_income: number
-  let d_and_a: number
-  let maintenance_capex: number
-  let stock_based_comp: number
-  let shares_outstanding: number
-  let bridge_fiscal_year: number | undefined
-  let bridge_source_id: string | undefined
-  // The deterministic Greenwald/D&A maintenance-capex proxy is now a SANITY-CHECK REFERENCE (NOT the binding
-  // OE input). Surfaced on the valuation payload + used for the advisory divergence flag; undefined when the
-  // EDGAR series is too thin to compute either proxy.
-  let maintenance_capex_proxy_reference: number | undefined
-
-  if (edgarBridgeUsable && edgarAnnual !== undefined) {
-    // Phase 2 V4: the judged bridge comes from the valuation stage; when the stage failed (or omitted
-    // it) the harness falls back to CONSERVATIVE deterministic defaults — the most maintenance-heavy
-    // tier ('80'), a zero NI normalization, ΔNWC 0 — deterministic facts + the conservative proxy, no
-    // judgment fabricated, with a visible flag below.
-    if (modelBridge === undefined) {
-      degradedFlags.push(
-        'bridge_judgment_unavailable: the valuation stage supplied no judged owner-earnings bridge — '
-        + "EDGAR-anchored conservative defaults used (tier '80' maintenance fraction, zero NI "
-        + 'normalization, ΔNWC 0). Owner earnings may be understated; re-run for a judged bridge.',
-      )
-    }
-    const maintenance_fraction = maintenanceFractionForTier(modelBridge?.maintenance_capex_proxy_tier ?? '80')
-    const edgar_d_and_a = edgarAnnual.d_and_a_musd as number
-    const edgar_capex = edgarAnnual.capex_musd as number
-    // Net income is ANCHORED to EDGAR's reported figure. The model may propose a one-off NORMALIZATION
-    // (buffett-valuation-method-v2 Step 2), but only as a BOUNDED delta (±OE_NORMALIZATION_MAX_FRACTION ×
-    // |edgar NI|). A wild proposal — net_income 0 while EDGAR is substantially positive, non-finite, or a
-    // delta beyond the band — is CLAMPED + flagged so the EDGAR anchor (not the model) owns the figure.
-    // This fixes the prior no-op (edgar + (model − edgar) = model) that let net_income=0 void the valuation.
-    const niAnchor = anchorNetIncomeToEdgar(modelBridge?.net_income ?? edgarAnnual.net_income_musd!, edgarAnnual.net_income_musd!)
-    net_income = niAnchor.value
-    if (niAnchor.clamped && niAnchor.flag !== undefined) degradedFlags.push(niAnchor.flag)
-    d_and_a = edgar_d_and_a
-    // Maintenance-vs-growth capex is a JUDGMENT — what fraction of total capex is maintenance. Per the
-    // architecture that judgment is the MODEL's (grounded in the EDGAR capex/D&A facts, cite-verified via
-    // A1's owner_earnings_citation), NOT the deterministic Greenwald/D&A proxy. The OE arithmetic stays
-    // deterministic; only its maint-capex INPUT is the model's number. NI/D&A/SBC remain EDGAR-anchored.
-    //
-    // The Greenwald/D&A proxy (Greenwald vs D&A floor, more conservative) is kept as a SANITY-CHECK
-    // REFERENCE (surfaced + an advisory divergence flag), never the binding input. The legacy
-    // min(D&A, capex × model tier) remains the SAFE fallback when the model's value is rejected by the
-    // deterministic envelope (or when EDGAR is absent). The model tier still informs that fallback.
-    maintenance_capex_proxy_reference = fundamentals?.annual_series !== undefined
-      ? estimateMaintenanceCapex(fundamentals.annual_series).maintenance_capex
-      : undefined
-    const legacyMaint = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
-    // Deterministic sanity ENVELOPE (arithmetic guard, NOT a judgment): the model's maintenance_capex must
-    // be finite and within [0, total capex]. It cannot be negative; it cannot exceed total capex (that is
-    // not maintenance — it is a units/logic error). Outside the envelope → reject the model's value with a
-    // VISIBLE flag and fall back to the SAFE value (the proxy reference, else the legacy tier fallback).
-    // The FALLBACK is held to the SAME envelope (SPGI dogfood 2026-07-10): on amortization-heavy filers
-    // the D&A-tied proxy can exceed total capex by multiples — substituting it after rejecting the
-    // model's value for the same violation understates OE and skews every implied-growth/fair-value read.
-    const uncappedSafeMaint = maintenance_capex_proxy_reference ?? legacyMaint
-    const safeMaint = Number.isFinite(edgar_capex) ? Math.min(uncappedSafeMaint, edgar_capex) : uncappedSafeMaint
-    const modelMaint = modelBridge?.maintenance_capex ?? safeMaint // stage-absent → the safe value binds
-    if (!Number.isFinite(edgar_capex)) {
-      // Without a total-capex upper bound the envelope cannot be enforced — fall back to the safe value.
-      maintenance_capex = safeMaint
-      degradedFlags.push(
-        `oe_bridge_maintenance_capex_envelope_unenforceable: total capex unavailable from EDGAR — cannot bound `
-        + `the model's maintenance_capex=${modelMaint}. Falling back to the conservative proxy reference (${safeMaint}).`,
-      )
-    } else if (!Number.isFinite(modelMaint) || modelMaint < 0 || modelMaint > edgar_capex) {
-      maintenance_capex = safeMaint
-      degradedFlags.push(
-        `range_check_rejected: maintenance_capex=${modelMaint} is outside the envelope [0, total capex ${edgar_capex}] `
-        + `(negative or exceeds total capex is a units/logic error, not maintenance). Value discarded; fell back to the `
-        + `conservative Greenwald/D&A proxy reference (${safeMaint}).`,
-      )
-    } else {
-      // The model's judged maintenance_capex is the binding OE input.
-      maintenance_capex = modelMaint
-      // ADVISORY divergence flag (NEVER blocks the verdict; the human audits): the model's maint capex is
-      // MATERIALLY below the conservative proxy → more aggressive OE → higher value. Flag for verification.
-      if (
-        maintenance_capex_proxy_reference !== undefined
-        && maintenance_capex_proxy_reference > 0
-        && modelMaint < maintenance_capex_proxy_reference * (1 - MAINTENANCE_CAPEX_DIVERGENCE_FRACTION)
-      ) {
-        degradedFlags.push(
-          `maintenance_capex_below_proxy: the model assumes maintenance capex ($${modelMaint}M) materially below the `
-          + `conservative Greenwald/D&A proxy ($${maintenance_capex_proxy_reference}M) — verify the basis; owner earnings `
-          + `may be overstated. Advisory only (does not change the verdict).`,
-        )
-      }
-    }
-    stock_based_comp = edgarAnnual.sbc_musd as number  // SBC always subtracted, in full
-    shares_outstanding = edgarAnnual.diluted_shares_m as number  // CURRENT diluted shares
-    bridge_fiscal_year = edgarAnnual.fiscal_year
-    bridge_source_id = primaryFilingSourceId
-  } else if (modelBridge === undefined) {
-    // Phase 2 V4: no EDGAR anchor AND no judged bridge — there is nothing to compute owner earnings
-    // from. Degrade visibly; the per-share valuation stays uncomputed (INSUFFICIENT_DATA downstream).
-    degradedFlags.push(
-      'bridge_judgment_unavailable: the valuation stage supplied no judged owner-earnings bridge and no '
-      + 'EDGAR fundamentals resolved — owner earnings not computable (fail-closed).',
-    )
-    net_income = Number.NaN
-    d_and_a = Number.NaN
-    maintenance_capex = Number.NaN
-    stock_based_comp = Number.NaN
-    shares_outstanding = Number.NaN
-  } else {
-    net_income = modelBridge.net_income
-    d_and_a = modelBridge.depreciation_amortization
-    // Harness defense 3: a model-proposed maintenance capex that exceeds revenue (or is negative/
-    // non-finite) is implausible — reject it and fall back to D&A as a safe proxy (the OE bridge caps
-    // maintenance capex at D&A anyway), recording a visible flag rather than feeding a garbage number.
-    const revenueForCheck = fundamentals?.latest_annual?.revenue_musd
-    const maintSanity = revenueForCheck !== undefined && Number.isFinite(revenueForCheck)
-      ? sanitizeMaintenanceCapex(modelBridge.maintenance_capex, { revenue: revenueForCheck })
-      : (Number.isFinite(modelBridge.maintenance_capex) && modelBridge.maintenance_capex >= 0
-        ? { value: modelBridge.maintenance_capex, rejected: false as const }
-        : { value: undefined, rejected: true as const, flag: `range_check_rejected: maintenance_capex=${modelBridge.maintenance_capex} is non-finite or negative. Value discarded.` })
-    if (maintSanity.rejected && 'flag' in maintSanity && maintSanity.flag !== undefined) degradedFlags.push(maintSanity.flag)
-    maintenance_capex = maintSanity.value ?? Math.max(0, Number.isFinite(d_and_a) ? d_and_a : 0)
-    stock_based_comp = modelBridge.stock_based_comp
-    shares_outstanding = modelBridge.shares_outstanding
-  }
-
-  // The model's signed working-capital overlay is range-sanity'd against revenue: a ΔNWC whose magnitude
-  // exceeds |revenue| (or is non-finite) is implausible (units/scale error) and discarded (→ 0) with a
-  // visible flag, rather than feeding a spurious OE swing. (The sign is preserved when accepted.)
-  const revenueForNwc = fundamentals?.latest_annual?.revenue_musd
-  const proposedNwc = modelBridge?.normalized_working_capital_change ?? 0
-  const nwcSanity = revenueForNwc !== undefined && Number.isFinite(revenueForNwc)
-    ? sanitizeWorkingCapitalChange(proposedNwc, { revenue: revenueForNwc })
-    : (Number.isFinite(proposedNwc)
-      ? { value: proposedNwc, rejected: false as const }
-      : { value: undefined, rejected: true as const, flag: `range_check_rejected: normalized_working_capital_change=${proposedNwc} is non-finite. Value discarded (treated as 0).` })
-  if (nwcSanity.rejected && 'flag' in nwcSanity && nwcSanity.flag !== undefined) degradedFlags.push(nwcSanity.flag)
-  const normalized_working_capital_change = nwcSanity.value ?? 0
-
-  // The recorded bridge reflects what the harness actually used (EDGAR-anchored when available),
-  // preserving the model's tier + working-capital judgment. When the bridge is EDGAR-anchored we record
-  // the PRIMARY filing's reporting currency (USD for us-gaap filers, the functional currency for IFRS
-  // 20-F foreign private issuers, e.g. DKK for Novo Nordisk) so downstream currency-consistency checks
-  // (and the qualification scorer) compare like-for-like instead of mixing a DKK bridge with a USD scale.
-  const reporting_currency = edgarBridgeUsable ? fundamentals?.currency : undefined
-  const bridge = {
-    ...(reporting_currency === undefined ? {} : { reporting_currency }),
-    net_income,
-    depreciation_amortization: d_and_a,
-    maintenance_capex,
-    maintenance_capex_proxy_tier: modelBridge?.maintenance_capex_proxy_tier ?? '80',
-    stock_based_comp,
-    normalized_working_capital_change,
-    shares_outstanding,
-  }
-
-  const ownerEarningsVsFcf = ownerEarningsVsFcfDiagnostic(fundamentals?.latest_annual, maintenance_capex)
-  for (const flag of ownerEarningsVsFcf.flags) degradedFlags.push(`fcf_screen: ${flag}`)
-
-  const owner_earnings_total =
-    net_income
-    + d_and_a
-    - maintenance_capex
-    - stock_based_comp
-    - normalized_working_capital_change  // signed: subtract (positive = use of cash, negative = release)
-
-  // Convert total owner earnings ($M) to per-share using diluted shares outstanding (M).
-  // Guard: shares_outstanding must be a positive, finite number — otherwise we cannot compute a
-  // meaningful per-share figure and must degrade gracefully (no bogus huge fair value).
+  const shares_outstanding: number =
+    edgarAnnual?.diluted_shares_m !== undefined
+    && Number.isFinite(edgarAnnual.diluted_shares_m)
+    && edgarAnnual.diluted_shares_m > 0
+      ? edgarAnnual.diluted_shares_m
+      : Number.NaN
   const shares_valid = Number.isFinite(shares_outstanding) && shares_outstanding > 0
-  const normalized_owner_earnings_per_share = shares_valid
-    ? owner_earnings_total / shares_outstanding
+  const reporting_currency = fundamentals?.currency
+
+  // The FCF basis row: the latest EDGAR year where CFO − capex is computable.
+  const latestFcfRow = fundamentals?.annual_series !== undefined
+    ? [...fundamentals.annual_series].sort((a, b) => b.fiscal_year - a.fiscal_year).find((a) => yearFcf(a) !== undefined)
+    : undefined
+  const latestFcfMusd = latestFcfRow !== undefined ? yearFcf(latestFcfRow) : undefined
+  if (latestFcfMusd === undefined) {
+    degradedFlags.push(
+      'fcf_not_computable: free cash flow (CFO − capex) is not computable for this filer (CFO or capex '
+      + 'untagged in the EDGAR series) — the dossier is honestly UNPRICED (fail-closed). No intrinsic '
+      + 'value, buy threshold, or zone is emitted; owner-earnings proxies are retired and never substitute.',
+    )
+  }
+  // T0 provenance for the FCF basis (replaces the owner-earnings bridge block).
+  const fcfBasis = latestFcfRow !== undefined
+    ? {
+        fiscal_year: latestFcfRow.fiscal_year,
+        ...(latestFcfRow.cfo_musd !== undefined ? { cfo_musd: latestFcfRow.cfo_musd } : {}),
+        ...(latestFcfRow.capex_musd !== undefined ? { capex_musd: latestFcfRow.capex_musd } : {}),
+        fcf_musd: latestFcfMusd as number,
+        ...(reporting_currency !== undefined ? { reporting_currency } : {}),
+        ...(primaryFilingSourceId !== undefined ? { source_id: primaryFilingSourceId } : {}),
+      }
     : undefined
 
-  // ---- Phase 2 V3 (owner-validated option A): foreign-filer FX — the price-currency per-share basis ----
-  // The bridge totals + OE/ordinary-share above are in the filing's REPORTING currency (DKK for NVO).
-  // The live price is quoted in USD per LISTED share (ADR for foreign filers). ALL per-share valuation
-  // math below (fair value, implied growth, buy zone, exit multiple, the MoS grade) must run in the
-  // PRICE currency, so the harness converts deterministically: oe/listed-share(USD) =
-  // oe/ordinary-share(reporting) × curated-or-assumed ADR ratio × fx(reporting→USD). A missing FX rate
-  // BLOCKS the per-share valuation (fail-closed, flagged) — never a silent currency mix (the NVO bug).
-  let oe_ps_valuation = normalized_owner_earnings_per_share
+  // E2 survivor: the purely FACTUAL capex-vs-D&A note (no maintenance-capex proxy, no assumptions).
+  const capexVsDa = capexVsDandANote(edgarAnnual)
+
+  // ---- Phase 2 V3 (owner-validated option A): foreign-filer FX — the price-currency basis ----
+  // EDGAR money facts are in the filing\'s REPORTING currency; the live price is USD per LISTED share
+  // (ADR for foreign filers). fxFactor converts reporting-currency money into the USD/listed-share
+  // frame (× ADR ratio × fx). A missing FX rate BLOCKS the per-share valuation (fail-closed, flagged)
+  // — never a silent currency mix (the NVO bug).
+  let fxFactor: number | undefined = 1
   let fxConversion: { reporting_currency: string; price_currency: 'USD'; fx_rate_to_usd: number; adr_ordinary_per_listed: number; adr_ratio_source: 'curated' | 'assumed_1' } | undefined
-  if (oe_ps_valuation !== undefined && reporting_currency !== undefined && reporting_currency !== 'USD') {
+  if (reporting_currency !== undefined && reporting_currency !== 'USD') {
     const fxToUsd = await resolveFxRateValue(reporting_currency, deps)
     const curatedRatio = curatedAdrRatio(command.ticker)
     const adrRatio = curatedRatio ?? 1
     if (fxToUsd === undefined || !Number.isFinite(fxToUsd) || fxToUsd <= 0) {
-      oe_ps_valuation = undefined
+      fxFactor = undefined
       degradedFlags.push(
         `fx_unavailable_valuation_blocked: the filer reports in ${reporting_currency} but no ${reporting_currency}→USD rate `
-        + `resolved — the per-share valuation (fair value / buy zone / implied growth / MoS grade) is blocked rather than `
+        + `resolved — the per-share valuation (intrinsic value / buy zone / implied growth) is blocked rather than `
         + `mixing currencies (fail-closed). The AAOIFI ratio block handles its own conversion separately.`,
       )
     } else {
-      oe_ps_valuation = oe_ps_valuation * adrRatio * fxToUsd
+      fxFactor = adrRatio * fxToUsd
       fxConversion = {
         reporting_currency,
         price_currency: 'USD',
@@ -2579,6 +2711,13 @@ export async function runResearchDeepDivePhase(
       }
     }
   }
+  // Reporting-currency $M → the USD/listed-share money frame (per-share math divides by shares below).
+  const toUsdMusd = (v: number | undefined): number | undefined =>
+    v !== undefined && Number.isFinite(v) && fxFactor !== undefined ? v * fxFactor : undefined
+  const fcfMusdUsd = toUsdMusd(latestFcfMusd)
+  const cashMusdUsd = toUsdMusd(edgarAnnual?.cash_and_securities_musd)
+  const debtMusdUsd = toUsdMusd(edgarAnnual?.total_debt_musd)
+
 
   // F.2 ANCHOR SWAP (SHIPPED): discount = the COMPLIANT risk-free SAVINGS rate (fail-closed to the config
   // default savings rate) + the fixed uniform equity premium (Phase 1.4 / Step 3). GLOBAL config, never an
@@ -2593,7 +2732,19 @@ export async function runResearchDeepDivePhase(
   const risk_free_rate = risk_free_from_config
     ? threadedRiskFree
     : buffettMungerStrategy.valuation.savings_rate_default
-  const discount = discountRate(buffettMungerStrategy, risk_free_rate)
+  void risk_free_rate // retained for the deployment-hurdle/sizing baseline; no longer the valuation discount
+  // Phase 4 (book alignment, owner-locked): the valuation DISCOUNT is the REQUIRED RETURN — flat 15%
+  // default ("anything less, buy the index"), user-set in Settings and threaded per run. The savings
+  // anchor is RETIRED as the valuation discount (it remains the deployment-hurdle baseline).
+  const threadedRequiredReturn = command.required_return
+  const required_return_from_config = typeof threadedRequiredReturn === 'number'
+    && Number.isFinite(threadedRequiredReturn)
+    && threadedRequiredReturn > 0
+    && threadedRequiredReturn < 1
+  const required_return = required_return_from_config
+    ? threadedRequiredReturn
+    : VALUATION_PARAMS.required_return_default
+  const discount = required_return
   // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
   // Implausible model numbers are rejected deterministically and never fed into the valuation — a
   // rejected value falls back to a safe/not-computable value + a VISIBLE flag (mirrors degraded_flags).
@@ -2627,20 +2778,10 @@ export async function runResearchDeepDivePhase(
   if (reinvestmentSanity.rejected && reinvestmentSanity.flag !== undefined) degradedFlags.push(reinvestmentSanity.flag)
   // A rejected reinvestment_rate floors to 0 (no growth credited from an implausible rate).
   const reinvestment_rate = reinvestmentSanity.value ?? 0
-  // resolved_runway is guaranteed defined by resolveJudgmentTiers (never undefined).
-  const runway = judgment.runway!.resolved_runway
-  // runway_exceptional is now the MOAT lane's judgment (spec-correct decomposition), defaulting false.
-  const runway_exceptional = moatJudgment?.runway_exceptional ?? false
-  const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
-  let implied_multiple: number | undefined
-  let terminal_growth_rate: number | undefined
-  let terminal_value_pct_of_iv: number | undefined
-  let cap_exceeded = false
-  // Phase 2 V2: the T0 margin-of-safety grade's reference value — min(internal DCF fair value, the
-  // 18× OE cap value). INTERNAL (the forward-DCF dollar stays unsurfaced); only the grade + discount
-  // percentage are emitted.
+  // E2: the reference value is the BOOK FCF intrinsic value ONLY (set below when computable) — the
+  // internal OE DCF, 18× ceiling, Gordon terminal, and implied_multiple are all retired.
   let mosReferenceValue: number | undefined
 
   // NOTE (R1): maintenance-capex confidence was a widening input for the retired required_growth_gap engine
@@ -2658,7 +2799,7 @@ export async function runResearchDeepDivePhase(
   // as the prior endpoint path floored to 0. Any split adjustment or residual discontinuity is surfaced as a
   // degraded flag so the dossier shows WHY the demonstrated rate may move.
   const demonstratedGrowthResult = fundamentals?.annual_series !== undefined
-    ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series)
+    ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series, { metric: 'fcf' })
     : undefined
   const demonstrated_growth = demonstratedGrowthResult?.growth ?? 0
   if (demonstratedGrowthResult !== undefined) {
@@ -2673,20 +2814,27 @@ export async function runResearchDeepDivePhase(
   // 2026-07-11): these are QUESTIONS for the human, not harness fallbacks — carrying them in
   // degraded_flags made healthy dossiers read as damaged. Merged into sanity_flags at declaration.
   const advisorySanityCarryover: string[] = []
+  // E2 survivor: the factual reinvestment-mix read (advisory when heavy; never a proxy, never a block).
+  if (capexVsDa.growth_capex_heavy) advisorySanityCarryover.push(`capex_mix: ${capexVsDa.note}`)
   const growthResult = creditedGrowth(buffettMungerStrategy, {
     demonstrated_growth,
     ...(laneArguedGrowth !== undefined ? { agent_proposed_growth: laneArguedGrowth } : {}),
   })
   const effective_growth_rate = growthResult.growth
-  const growth_basis: 'edgar_oe_cagr' | 'none' =
-    fundamentals?.annual_series !== undefined && demonstrated_growth > 0 ? 'edgar_oe_cagr' : 'none'
+  // FIX (live find, V rc_v_1783881150952): the lane-argue parser can bind a DECOMPOSITION fragment
+  // ("3% real GDP" inside a 9%-growth rationale) as the lane arguing total growth down — which then
+  // masqueraded as the "demonstrated history" (a false above-history flag) and SUPPRESSED the growth
+  // base-rate burden. The demonstrated-history rate is the capped demonstrated measure, NO lane-argue.
+  const demonstrated_capped = creditedGrowth(buffettMungerStrategy, { demonstrated_growth }).growth
+  const growth_basis: 'edgar_fcf_cagr' | 'none' =
+    fundamentals?.annual_series !== undefined && demonstrated_growth > 0 ? 'edgar_fcf_cagr' : 'none'
   // Above-GDP coupling flag → surfaced so growth is reviewed WITH the moat-durability input.
   if (moat_passes_gate && growthResult.above_gdp && growthResult.above_gdp_flag !== undefined) {
     advisorySanityCarryover.push(growthResult.above_gdp_flag)
   }
-  if (moat_passes_gate && effective_growth_rate === 0) {
+  if (moat_passes_gate && demonstrated_capped === 0) {
     degradedFlags.push(
-      'valuation_degraded: demonstrated_growth_reference_floored_g0 — the demonstrated owner-earnings/share '
+      'valuation_degraded: demonstrated_growth_reference_floored_g0 — the demonstrated FCF/share '
       + 'CAGR was unavailable or non-positive, so the demonstrated-history reference growth was floored to g=0 '
       + '(honest no-growth floor). This is a SANITY reference, not the headline; the headline forward-DCF uses '
       + "the model's cited assumed_growth.",
@@ -2716,91 +2864,19 @@ export async function runResearchDeepDivePhase(
   // sanity checks below) — the cap applies to the MODEL's judgment, never the market-implied read.
   const headline_growth: number | undefined = assumedGrowthUsable ? modelAssumedGrowth : undefined
 
-  // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
-  // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
-  // by shares) and must be discarded rather than persisted.
-  const MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE = 1_000_000
-
+  // E2: the FCF basis gates pricing — honest caveats when it cannot compute (no OE substitutes).
   if (!shares_valid) {
     valuationCaveats.push(
-      'Valuation not computed: shares_outstanding missing or non-positive — cannot derive owner earnings per share. Re-run with grounded share count before relying on any buy price.',
+      'Valuation not computed: diluted shares missing or non-positive — cannot derive a per-share value. Re-run with a grounded share count before relying on any buy price.',
     )
-  } else if (oe_ps_valuation !== undefined && oe_ps_valuation <= 0) {
-    // Negative/zero owner earnings gate (Step 6 gate 2): record a caveat, emit no fair value.
+  } else if (latestFcfMusd !== undefined && latestFcfMusd <= 0) {
     valuationCaveats.push(
-      `Valuation not computed: normalized owner earnings per share (${oe_ps_valuation.toFixed(2)}) is not positive after SBC — fails the owner-earnings gate. No fair value or buy price emitted.`,
+      `Valuation not computed: free cash flow (CFO − capex) is not positive (${latestFcfMusd.toFixed(0)}M) — the book model does not price a cash-burning year. No intrinsic value or buy price emitted.`,
     )
-  } else if (moat_passes_gate && oe_ps_valuation !== undefined) {
-    const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
-    // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
-    const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    // terminal_growth_rate is the per-moat Gordon stage; set it WHENEVER the gate passes with a usable OE/sh,
-    // independent of whether a headline FV is produced — implied_exit_multiple and the reverse-DCF
-    // market_implied_growth both consume it (they fail-closed on undefined otherwise).
-    terminal_growth_rate = terminal_g
-    // INTERNAL forward-DCF (NOT surfaced): computed from the MODEL's cited assumed_growth (headline_growth)
-    // ONLY to derive the implied_multiple + the terminal-share / cap sanity flags. The dollar fair value
-    // itself is no longer emitted or displayed (forward-DCF removal). Computed only when assumed_growth is
-    // grounded + usable (A1); an ungrounded assumed_growth leaves it undefined.
-    if (headline_growth !== undefined) {
-    // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
-    // (no silent truncation), and discards only an absurd (units-bug) value.
-    const valuation = twoStageValuation({
-      oe_ps: oe_ps_valuation,
-      g: headline_growth,
-      terminal_g,
-      discount,
-      ceiling_multiple: valuation_multiple_ceiling,
-      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon,
-    })
-    terminal_value_pct_of_iv = valuation.terminal_value_pct_of_iv
-    cap_exceeded = valuation.cap_exceeded
-    const computedFairValue = valuation.fair_value
-    // Sanity guard: degrade gracefully if the value was discarded (absurd) or implausibly large/non-positive.
-    if (valuation.absurd || computedFairValue === undefined || !Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
-      valuationCaveats.push(
-        `Valuation discarded: computed fair value per share (${computedFairValue !== undefined && Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite/absurd'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
-      )
-    } else {
-      // forward-DCF removal: the dollar forward FV is no longer surfaced; it is used here ONLY to derive the
-      // implied_multiple ratio + the terminal-share / cap sanity flags (+ V2: the MoS grade reference).
-      implied_multiple = computedFairValue / oe_ps_valuation
-      mosReferenceValue = Math.min(computedFairValue, valuation_multiple_ceiling * oe_ps_valuation)
-      // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
-      const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
-      if (highTvShare) {
-        degradedFlags.push(
-          `terminal_value_share_high: terminal value is ${(terminal_value_pct_of_iv * 100).toFixed(0)}% of intrinsic `
-          + `value (> ${(buffettMungerStrategy.valuation.terminal_value_share_flag * 100).toFixed(0)}%) — most of the `
-          + `estimate is a guess about the distant future (a moat-durability judgment). Widens the margin of safety.`,
-        )
-      }
-      // Phase 1.6: the 18× OE cap is a SURFACED flag, not a truncation — an advisory sanity note.
-      if (cap_exceeded) {
-        advisorySanityCarryover.push(
-          `valuation_cap_exceeded: fair value ${computedFairValue.toFixed(2)} exceeds ${valuation_multiple_ceiling}× owner `
-          + `earnings (${(valuation_multiple_ceiling * oe_ps_valuation).toFixed(2)}) — a sanity flag, `
-          + `not a truncation. Re-check the growth/terminal inputs before relying on the buy-below.`,
-        )
-      }
-      // NOTE: the MoS-as-price-haircut knob (widenedMarginOfSafety → margin_of_safety) is RETIRED. The
-      // valuation-core revision moved ALL conservatism into the required_growth_gap (see requiredGrowthGap
-      // below); the SAME documented uncertainties (terminal-value share, maint-capex confidence, above-GDP
-      // durability) now widen the GAP in growth-rate points instead of haircutting the price.
-      //
-      // NOTE: buy_price_per_share is NO LONGER fair_value × (1 − MoS). The valuation-core revision (V3)
-      // moved the buy decision to implied-growth-vs-band, so the buy-below is now the PRICE at which the
-      // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
-      // once the sustainable-growth band and required gap are computed (see the verdict-band section).
-
-      // forward-DCF removal: the forward two-stage DCF "reference fair value" (the dollar fair_value_per_share
-      // / reference_fair_value / fair_value_range band) is no longer surfaced — it read as a contradiction
-      // against the model's buy-below. The reverse-DCF (market-implied growth) is the kept valuation lens. The
-      // forward FV is still computed internally above ONLY to derive the implied_multiple + the terminal-share
-      // / cap sanity flags; it is never emitted or displayed.
-    }
-    } // end if (headline_growth !== undefined) — internal forward-DCF for the implied multiple + sanity flags
+  } else if (latestFcfMusd === undefined) {
+    valuationCaveats.push(
+      'Valuation not computed: free cash flow (CFO − capex) is not computable for this filer — honestly unpriced (fail-closed; owner-earnings proxies are retired).',
+    )
   }
 
   // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
@@ -2821,39 +2897,48 @@ export async function runResearchDeepDivePhase(
   // The avg path carries an explicit currency from the Yahoo chart meta; the spot path defaults to USD.
   const market_cap_currency: string = avgMarketCap?.currency ?? 'USD'
 
-  // ---- Phase 2: reverse-DCF market-implied growth (attachment/presentation only) ----
-  // "What near-term owner-earnings growth does TODAY'S price imply?" — inverts the SAME faded two-stage
-  // DCF the point valuation used (same oe_ps, discount, terminal, horizon basis), so reverse and forward
-  // stay consistent. Fail-closed: omit entirely when no current price or no positive owner earnings/share
-  // (never fabricate a price or a rate). Grounded in the live price already used + the EDGAR oe_ps.
-  // Only computed when a POINT fair value was produced (moat investable, valid OE/share, FV not discarded)
-  // — that guarantees the per-moat terminal_growth_rate the point valuation used is defined, so the reverse
-  // solve inverts the SAME forward DCF. terminalGrowthForMoat throws for non-investable moats, so gating on
-  // fair_value_per_share avoids that path entirely.
-  // market_implied_growth is the PRIMARY lens: the reverse-DCF of TODAY's price against the EDGAR
-  // owner-earnings basis — it does NOT consume the model's assumed_growth, so it must stay ungated when the
-  // assumed_growth is ungrounded (A1 omits the headline FV in that case, but the price+OE-derived
-  // market-implied growth remains grounded and must still compute). It depends ONLY on the inputs
-  // marketImpliedGrowth() actually uses — price, owner-earnings/share, terminal growth, discount, horizon —
-  // NOT on the headline fair_value_per_share.
+  // ---- E2: market-implied growth — the BOOK model inverted (attachment/presentation only) ----
+  // "What growth does TODAY'S price imply under the SAME book model the valuation uses?" — the reverse
+  // solve of fcfIntrinsicValuePerShare (same FCF base, required return, exit multiple, net cash,
+  // horizon), so reverse and forward stay consistent. Fail-closed: omitted when no current price or no
+  // positive FCF (never fabricate a price or a rate). It does NOT consume the model's assumed_growth,
+  // so it stays computable when the assumed growth is ungrounded.
+  const exitProposed = valuationStageOutcome.status === 'ok'
+    ? valuationStageOutcome.valuation_reasoning.industry_exit_multiple
+    : undefined
+  const exitCitationGrounded = exitProposed?.citation !== undefined
+    && isCitationGrounded(exitProposed.citation, verifiedCitationHashes)
+  // OWNER RULE (2026-07-12): the reference band IS the named-comps set — median of the model's own
+  // structured comps, checked deterministically by the resolver (no fixed clamp; absurdity guard only).
+  const exitCompsPfcf = (exitProposed?.comps ?? [])
+    .map((c) => c.p_fcf)
+    .filter((x): x is number => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b)
+  const exitCompsMedian = exitCompsPfcf.length > 0
+    ? (exitCompsPfcf.length % 2 === 1
+        ? exitCompsPfcf[(exitCompsPfcf.length - 1) / 2]!
+        : (exitCompsPfcf[exitCompsPfcf.length / 2 - 1]! + exitCompsPfcf[exitCompsPfcf.length / 2]!) / 2)
+    : undefined
+  const exitResolution = resolveExitMultiple({
+    ...(exitProposed?.multiple !== undefined ? { proposed: exitProposed.multiple } : {}),
+    grounded: exitCitationGrounded,
+    ...(exitCompsMedian !== undefined ? { comps_median: exitCompsMedian } : {}),
+  })
+  // The exit-multiple self-consistency reads (comps median / unstructured / absurd-fallback) join
+  // the advisory sanity channel — visible, never blocking.
+  advisorySanityCarryover.push(...exitResolution.flags)
   let market_implied_growth: number | undefined
-  if (
-    current_price !== undefined
-    && terminal_growth_rate !== undefined
-    && oe_ps_valuation !== undefined
-    && oe_ps_valuation > 0
-  ) {
-    const impliedHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const implied = marketImpliedGrowth({
-      price: current_price,
-      oe_ps: oe_ps_valuation,
-      terminal_g: terminal_growth_rate,
-      discount,
-      horizon: impliedHorizon,
+  if (current_price !== undefined && fcfMusdUsd !== undefined && fcfMusdUsd > 0 && shares_valid) {
+    market_implied_growth = fcfImpliedGrowth({
+      price_per_share: current_price,
+      fcf_musd: fcfMusdUsd,
+      required_return,
+      exit_multiple: exitResolution.multiple,
+      ...(cashMusdUsd !== undefined ? { cash_musd: cashMusdUsd } : {}),
+      ...(debtMusdUsd !== undefined ? { total_debt_musd: debtMusdUsd } : {}),
+      shares_m: shares_outstanding,
+      horizon: VALUATION_PARAMS.stage1_horizon,
     })
-    if (implied.status === 'solved' && implied.implied_growth !== undefined) {
-      market_implied_growth = implied.implied_growth
-    }
   }
 
   // The SHARIAH lane (LLM) identifies the sector status + impermissible income ($M); the harness
@@ -3105,32 +3190,62 @@ export async function runResearchDeepDivePhase(
   // Verdict = the MODEL's investment_verdict, clamped ONLY by the existing cheap deterministic gates:
   // moat-gate (below wide → PASS), Shariah-FAIL → PASS/block, and RESEARCH_MORE when the required data
   // (owner-earnings / price) is missing. There is NO band-derived verdict.
-  const dr = valuationReasoning
-  const assumed_growth = dr?.assumed_growth
-  // Phase 2 V4: the valuation stage owns valuation_status (undefined when the stage failed → the
-  // analysis emission falls back to INSUFFICIENT_DATA below, honestly).
-  const valuation_status = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.valuation_status : undefined
+  // C3 (owner-locked 2026-07-12): valuation_status is DERIVED arithmetic — the computed zones ARE the
+  // status; the model's qualitative price call is retired (declared where the thresholds compute, below).
 
   // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
   // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
   // buy-below read as a contradiction. The reverse-DCF market-implied growth (computed above) is the kept
   // valuation lens; the buy-below is the model's own number.
 
-  // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
-  const proposedBuyBelowRaw = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined
-  // R1 SUPERSEDED (owner-approved 2026-07-11): the OPERATIVE buy-below is COMPUTED — the reference
-  // value margined by the uniform required margin. Live find: the model's free-standing price swung
-  // run-to-run ($350→$650 COST) while its structured judgments stayed stable; judgment now flows
-  // through the stage's INPUTS (growth, bridge) and the arithmetic produces the threshold ("if it can
-  // be computed, compute it" — and the Buffett structure: the entry price FOLLOWS from value and the
-  // required margin). The model's own price stays RECORDED as an ADVISORY cross-check below.
-  const modelProposedBuyBelow = (typeof proposedBuyBelowRaw === 'number'
-    && Number.isFinite(proposedBuyBelowRaw)
-    && proposedBuyBelowRaw > 0)
-    ? proposedBuyBelowRaw
+  // OWNER-LOCKED (2026-07-13): the model's ADVISORY buy price is RETIRED end-to-end — the book's
+  // thresholds are arithmetic (IV × 0.70 / × 0.50), not the model's to propose. The stage no longer
+  // asks for it; a legacy/replay value on the wire is tolerated by the schema and IGNORED here.
+
+  // ---- Phase 4/E2 (owner-locked): the BOOK intrinsic value is the ONLY reference ----
+  // IV = Σ discounted FCF(1..10, at the model's cited growth) + discounted(FCF10 × industry exit
+  // multiple) + cash − debt, per share (all in the USD/listed-share frame via fxFactor). FCF0 = the
+  // latest EDGAR year with CFO − capex computable (T0). The exit multiple is the STAGE's judged
+  // industry P/FCF — cite-checked, clamped to [8, 20], conservative 12× fallback. When FCF is
+  // unavailable the dossier is honestly UNPRICED (fail-closed) — the OE fallback is retired.
+  const fcfValuation = (moat_passes_gate
+    && shares_valid
+    && fcfMusdUsd !== undefined
+    && fcfMusdUsd > 0
+    && headline_growth !== undefined)
+    ? fcfIntrinsicValuePerShare({
+        fcf_musd: fcfMusdUsd,
+        growth: headline_growth,
+        required_return,
+        exit_multiple: exitResolution.multiple,
+        ...(cashMusdUsd !== undefined ? { cash_musd: cashMusdUsd } : {}),
+        ...(debtMusdUsd !== undefined ? { total_debt_musd: debtMusdUsd } : {}),
+        shares_m: shares_outstanding,
+        horizon: VALUATION_PARAMS.stage1_horizon,
+      })
     : undefined
+  const valuation_basis: 'fcf' | undefined = fcfValuation !== undefined ? 'fcf' : undefined
+  const terminal_value_pct_of_iv = fcfValuation?.terminal_value_pct_of_iv
+  if (fcfValuation !== undefined) {
+    mosReferenceValue = fcfValuation.intrinsic_value_per_share
+    // The dominant-uncertainty flag survives on the BOOK model: a high terminal share means most of
+    // the estimate is the exit-sale guess.
+    if (fcfValuation.terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag) {
+      degradedFlags.push(
+        `terminal_value_share_high: the terminal sale is ${(fcfValuation.terminal_value_pct_of_iv * 100).toFixed(0)}% of intrinsic `
+        + `value (> ${(buffettMungerStrategy.valuation.terminal_value_share_flag * 100).toFixed(0)}%) — most of the `
+        + `estimate rides on the year-10 exit multiple. Widens the effective uncertainty; audit the multiple's basis.`,
+      )
+    }
+  }
+
+  // Rule 7: never buy without a MINIMUM 30% margin — the operative buy threshold.
   const buy_below = (mosReferenceValue !== undefined && mosReferenceValue > 0)
     ? Number((mosReferenceValue * (1 - buffettMungerStrategy.valuation.required_margin_of_safety)).toFixed(2))
+    : undefined
+  // Rule 8: the LOAD-UP-THE-TRUCK threshold — a ≥50% discount marks the concentrated-sizing zone.
+  const load_up_below = (mosReferenceValue !== undefined && mosReferenceValue > 0)
+    ? Number((mosReferenceValue * (1 - VALUATION_PARAMS.load_up_margin)).toFixed(2))
     : undefined
 
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
@@ -3141,6 +3256,23 @@ export async function runResearchDeepDivePhase(
   const in_buy_zone = moat_passes_gate && current_price !== undefined && buy_below !== undefined
     ? current_price <= buy_below
     : undefined
+  // Rule 8 zone — same gating discipline as in_buy_zone.
+  const in_load_up_zone = moat_passes_gate && current_price !== undefined && load_up_below !== undefined
+    ? current_price <= load_up_below
+    : undefined
+
+  // C3: the DERIVED valuation status — pure arithmetic against the computed thresholds ("code
+  // computes"): in the buy zone → ATTRACTIVE; below intrinsic value but above the margin → FAIR;
+  // above value → EXPENSIVE; unpriced or no live price → INSUFFICIENT_DATA.
+  const valuation_status: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA' | undefined = !moat_passes_gate
+    ? undefined // the gated invariant below emits INSUFFICIENT_DATA
+    : current_price === undefined || mosReferenceValue === undefined || buy_below === undefined
+      ? 'INSUFFICIENT_DATA'
+      : current_price <= buy_below
+        ? 'ATTRACTIVE'
+        : current_price <= mosReferenceValue
+          ? 'FAIR'
+          : 'EXPENSIVE'
 
   // ---- Phase 2 V2 (owner-validated 2026-07-11): the T0 MARGIN-OF-SAFETY GRADE ----
   // The model no longer grades its own margin (the joint judgment keeps ONLY the narrative — which
@@ -3149,62 +3281,50 @@ export async function runResearchDeepDivePhase(
   // margin (F.13: never moat-tiered — the moat's contribution to safety stays in the surfaced,
   // human-weighted channels). Audit-only, exactly like adequacy was: it NEVER gates the verdict.
   const requiredMos = buffettMungerStrategy.valuation.required_margin_of_safety
-  // Post-flip: the grade measures the MODEL's ADVISORY price (the computed operative threshold is
-  // 25%-margined by construction, so grading it would be a tautology).
-  const margin_of_safety_grade = (modelProposedBuyBelow !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
+  // OWNER-LOCKED (2026-07-13, with the advisory price retired): the grade measures the margin
+  // TODAY'S PRICE actually offers against the computed intrinsic value — (IV − price)/IV vs the
+  // book's 30% bar. 'adequate' ⇔ in the buy zone by construction; the grade is the zone read in
+  // margin vocabulary. Audit-only; it never gates the verdict.
+  const margin_of_safety_grade = (current_price !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
     ? (() => {
-        const discount = (mosReferenceValue - modelProposedBuyBelow) / mosReferenceValue
+        const discount = (mosReferenceValue - current_price) / mosReferenceValue
         const grade: 'adequate' | 'thin' | 'inadequate' =
           discount >= requiredMos ? 'adequate' : discount >= requiredMos / 2 ? 'thin' : 'inadequate'
         return {
           grade,
           price_discount_to_reference: Number(discount.toFixed(4)),
           required_margin: requiredMos,
-          reference_basis: (cap_exceeded ? 'oe_cap_bound' : 'dcf_fair_value') as 'oe_cap_bound' | 'dcf_fair_value',
+          reference_basis: 'dcf_fair_value' as const,
         }
       })()
     : undefined
 
 
-  // ---- implied_exit_multiple: name-specific, flag-only §2 sanity output (NEVER blocks/clamps) ----
-  // The exit P/OE multiple TODAY'S price implies you would have to EXIT at after the explicit horizon, given
-  // the model's growth path. Reuses the existing valuation math — NO new engine:
-  //   OE_H = ownerEarningsAtHorizon(oe_ps, g = model assumed_growth, terminal_g, horizon)   (the SAME faded
-  //          stage-1 path the two-stage DCF + reference FV use)
-  //   implied_exit_multiple = current_price / OE_H
-  // i.e. the price expressed as a multiple of the owner earnings the company is projected to earn at the end
-  // of the explicit window — the P/OE the price requires a future buyer to pay at exit. Name-specific: rises
-  // with the live price and varies with the model's assumed growth + the owner-earnings basis — NOT a config
-  // constant. Fail-closed: omitted unless price + positive OE/share + the model's assumed growth + terminal
-  // all exist, and the result is finite + positive (never a spurious value, so no low-side flag).
-  // A1 SYMMETRY: implied_exit_multiple grows the owner earnings along the MODEL's assumed_growth path, so it
-  // CONSUMES the assumed_growth claim and is gated on the SAME cite-verified signal as the headline
-  // (headline_growth !== undefined). An ungrounded-but-present assumed_growth omits it, exactly like the
-  // headline. (market_implied_growth — the reverse-DCF of price + EDGAR OE — does NOT consume assumed_growth
-  // and stays ungated.)
+  // ---- E2: implied_exit_multiple — the exit multiple TODAY'S price demands (flag-only) ----
+  // Solved directly from the BOOK model given the model's cited growth: the year-10 P/FCF a future
+  // buyer must pay for today's price to work out. Flagged (below) when above the book band's ceiling.
+  // Consumes assumed_growth, so it is gated on the same cite-verified signal as the headline.
   let implied_exit_multiple: number | undefined
   if (
     headline_growth !== undefined
     && current_price !== undefined
     && current_price > 0
-    && oe_ps_valuation !== undefined
-    && oe_ps_valuation > 0
-    && assumed_growth !== undefined
-    && Number.isFinite(assumed_growth)
-    && terminal_growth_rate !== undefined
+    && fcfMusdUsd !== undefined
+    && fcfMusdUsd > 0
+    && shares_valid
   ) {
-    const exitHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const oeAtHorizon = ownerEarningsAtHorizon({
-      oe_ps: oe_ps_valuation,
-      g: assumed_growth,
-      terminal_g: terminal_growth_rate,
-      horizon: exitHorizon,
+    const m = fcfImpliedExitMultiple({
+      price_per_share: current_price,
+      fcf_musd: fcfMusdUsd,
+      growth: headline_growth,
+      required_return,
+      ...(cashMusdUsd !== undefined ? { cash_musd: cashMusdUsd } : {}),
+      ...(debtMusdUsd !== undefined ? { total_debt_musd: debtMusdUsd } : {}),
+      shares_m: shares_outstanding,
+      horizon: VALUATION_PARAMS.stage1_horizon,
     })
-    if (oeAtHorizon > 0 && Number.isFinite(oeAtHorizon)) {
-      const exitMultiple = current_price / oeAtHorizon
-      if (Number.isFinite(exitMultiple) && exitMultiple > 0) {
-        implied_exit_multiple = Math.round(exitMultiple * 10) / 10
-      }
+    if (m !== undefined && Number.isFinite(m) && m > 0) {
+      implied_exit_multiple = Math.round(m * 10) / 10
     }
   }
 
@@ -3220,8 +3340,6 @@ export async function runResearchDeepDivePhase(
   // exit-multiple sanity outputs below are the kept lens.)
   const sanity_flags: string[] = [...advisorySanityCarryover]
   const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
-  const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
-  const fvCapMultiple = valuation_multiple_ceiling
 
   // (a) MODEL-assumed growth above the forecasting-humility cap. OWNER RULE (2026-07-04): the cap
   // disciplines what the METHOD will underwrite — the model's OWN judgment — never the market-implied
@@ -3235,98 +3353,21 @@ export async function runResearchDeepDivePhase(
     )
   }
 
-  // (d/e) SYMMETRIC valuation_status vs evidence contradiction (both directions).
-  if (market_implied_growth !== undefined) {
-    if (valuation_status === 'ATTRACTIVE' && market_implied_growth > singleGrowthCap) {
-      // Over-OPTIMISTIC catch: model calls it attractive, yet the market already prices implausible growth.
-      sanity_flags.push(
-        `sanity_status_contradicts_evidence: model says valuation is ATTRACTIVE, yet today's price already implies `
-        + `~${(market_implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — the market `
-        + `already prices implausible growth, so "attractive" is hard to credit. Re-check.`,
-      )
-    } else if (valuation_status === 'EXPENSIVE' && market_implied_growth <= gdpThreshold) {
-      // Over-PESSIMISTIC catch: model calls it expensive, yet the market implies only modest growth.
-      sanity_flags.push(
-        `sanity_status_contradicts_evidence: model says valuation is EXPENSIVE, yet today's price implies only `
-        + `~${(market_implied_growth * 100).toFixed(1)}% growth (at/below the ${(gdpThreshold * 100).toFixed(0)}% GDP rate) — the market `
-        + `implies only modest growth, so "expensive" is hard to credit. Re-check.`,
-      )
-    }
-  }
-
-  // (d2) DIRECT self-coherence: the model's valuation_status vs its OWN proposed buy-below (in_buy_zone).
-  // The model owns BOTH the qualitative label AND the buy-below number; when they disagree about TODAY's
-  // price the read is internally incoherent (e.g. "EXPENSIVE" while the price is at/below the price it said
-  // it would buy at). The (d/e) check above catches this only INDIRECTLY via market-implied growth — a
-  // contradiction with normal-band implied growth would slip through. This is the direct check. Flag-only —
-  // never blocks/clamps the verdict; the model owns the judgment, the human reconciles.
-  // TOLERANCE (flag-relevance review, 2026-07-11): "ATTRACTIVE, but I'd buy a few percent lower" is a
-  // coherent value-investor position, not a contradiction — the flag fires only when the label and the
-  // buy threshold disagree about today's price by MORE than this band (live SPGI noise: $431 vs $420).
-  const BUY_ZONE_COHERENCE_TOLERANCE = 0.05
-  if (in_buy_zone !== undefined && buy_below !== undefined && current_price !== undefined) {
-    if (valuation_status === 'EXPENSIVE' && in_buy_zone === true && current_price < buy_below * (1 - BUY_ZONE_COHERENCE_TOLERANCE)) {
-      sanity_flags.push(
-        `sanity_status_contradicts_buy_zone: model labels the valuation EXPENSIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is at/below the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
-        + `the label and the buy threshold disagree about today's price. Reconcile (an over-pessimistic label, `
-        + `or a buy-below set too high).`,
-      )
-    } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false && current_price > buy_below * (1 + BUY_ZONE_COHERENCE_TOLERANCE)) {
-      sanity_flags.push(
-        `sanity_status_contradicts_buy_zone: model labels the valuation ATTRACTIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is ABOVE the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
-        + `it calls the price attractive but would not buy at it. Reconcile.`,
-      )
-    }
-  }
+  // C3: the (d/e)+(d2) status-coherence flags are retired with the model's qualitative price call —
+  // the status is now derived from the same arithmetic it used to be checked against.
 
   // Advisory cross-check (R1 superseded, owner-approved 2026-07-11): the model's price view vs the
   // METHOD's computed threshold — divergence >25% asks the human to reconcile.
-  if (buy_below !== undefined && buy_below > 0 && modelProposedBuyBelow !== undefined
-    && Math.abs(modelProposedBuyBelow - buy_below) / buy_below > 0.25) {
+  // OWNER-LOCKED (2026-07-13): the model's ADVISORY buy price is retired — the book's thresholds
+  // are arithmetic (IV × 0.70 / × 0.50), not the model's to propose. The buy_below_divergence and
+  // advisory-implies-absurd-growth flags retired with it (legacy payload keys tolerated on read).
+  // (g) implied EXIT multiple absurdity — DIRECTIONAL, flag-only. Too HIGH (> the book band's 20×
+  // ceiling) → the live price requires exiting at a P/FCF no defensible buyer would pay. The LOW
+  // direction is fail-closed (non-computable emits nothing). Advisory only — never blocks or clamps.
+  if (implied_exit_multiple !== undefined && implied_exit_multiple > exitResolution.multiple * 1.25) {
     sanity_flags.push(
-      `buy_below_divergence: the model's ADVISORY buy price ($${modelProposedBuyBelow.toFixed(2)}) diverges `
-      + `>25% from the METHOD's computed threshold ($${buy_below.toFixed(2)} = reference less the required `
-      + `margin) — reconcile: the model would pay materially ${modelProposedBuyBelow > buy_below ? 'more' : 'less'} than the method.`,
-    )
-  }
-
-  // (f) the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
-  let buyBelowImpliedGrowth: number | undefined
-  if (
-    modelProposedBuyBelow !== undefined
-    && oe_ps_valuation !== undefined
-    && oe_ps_valuation > 0
-    && terminal_growth_rate !== undefined
-  ) {
-    const buyImplied = marketImpliedGrowth({
-      price: modelProposedBuyBelow,
-      oe_ps: oe_ps_valuation,
-      terminal_g: terminal_growth_rate,
-      discount,
-      horizon: stage1HorizonForMoat(buffettMungerStrategy, moatClass),
-    })
-    if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined) {
-      buyBelowImpliedGrowth = buyImplied.implied_growth
-    }
-    if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined && buyImplied.implied_growth > singleGrowthCap) {
-      sanity_flags.push(
-        `sanity_buy_below_implies_absurd_growth: the model's ADVISORY proposed buy-below ($${modelProposedBuyBelow!.toFixed(2)}) still implies `
-        + `~${(buyImplied.implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — even at the "buy" `
-        + `price the market would price in growth the method would refuse to underwrite.`,
-      )
-    }
-  }
-
-  // (g) implied EXIT multiple absurdity — DIRECTIONAL, flag-only. Too HIGH (> the fv_cap_multiple sane high
-  // bound, 18×) → the live price requires exiting at a P/OE no defensible buyer would pay. The LOW direction
-  // is fail-closed: a non-computable / non-positive multiple emits no field and no flag (handled above), so
-  // there is no spurious low-side flag. Advisory only — never blocks the verdict, never clamps the valuation.
-  if (implied_exit_multiple !== undefined && implied_exit_multiple > fvCapMultiple) {
-    sanity_flags.push(
-      `sanity_implied_exit_multiple_high: today's price implies an exit multiple of ${implied_exit_multiple.toFixed(1)}× owner-earnings `
-      + `(> the ${fvCapMultiple}× sanity cap), well above a defensible exit — to merely earn the discount you would have to `
+      `sanity_implied_exit_multiple_high: today's price implies an exit multiple of ${implied_exit_multiple.toFixed(1)}× year-10 FCF `
+      + `(well above the ${exitResolution.multiple}× the method underwrites from the named comps) — to merely earn the discount you would have to `
       + `sell at a richer multiple than the method would underwrite. Treat the price as rich; re-check the inputs.`,
     )
   }
@@ -3346,11 +3387,11 @@ export async function runResearchDeepDivePhase(
     // reference (growth_basis 'none'). Comparing the model's growth against that artificial 0% is a data
     // artifact, not evidence — the floored-g0 degraded flag already tells the "history unavailable" story.
     && growth_basis !== 'none'
-    && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
+    && headline_growth > demonstrated_capped + DEMONSTRATED_HISTORY_MARGIN
   ) {
     sanity_flags.push(
       `sanity_assumed_growth_above_demonstrated_history: the model assumes ~${(headline_growth * 100).toFixed(1)}% near-term `
-      + `growth — above the ~${(effective_growth_rate * 100).toFixed(1)}% demonstrated owner-earnings/share history `
+      + `growth — above the ~${(demonstrated_capped * 100).toFixed(1)}% demonstrated FCF/share history `
       + `(credited reference). Advisory only: verify the durable cited source that defends growth above demonstrated `
       + `history before relying on the headline. The verdict is unchanged — the model owns the growth judgment.`,
     )
@@ -3389,25 +3430,55 @@ export async function runResearchDeepDivePhase(
       + `required margin). Recorded as WATCH until the price enters the zone; the BUY thesis is preserved for auditing.`
     : undefined
 
-  // OWNER RULE (2026-07-10, the SPGI dogfood): a model BUY whose OWN buy-below still implies growth ABOVE
-  // the method's single-growth underwriting cap is not a recordable buy signal — by the method's own
-  // arithmetic, even the "buy" price already pays for growth the method refuses to credit (live SPGI: a
-  // $450 buy-below implying ~16.7% vs the harness's ~$247 fair value; every sanity flag fired and the BUY
-  // still recorded). Same family as the buy-zone clamp: pure T0 arithmetic on the model's own numbers,
-  // conservative-only (BUY → WATCH, never touches WATCH/PASS), the model's full thesis stays recorded.
-  const buyBelowAbsurd =
+  // OWNER RULE (2026-07-10, the SPGI dogfood) — RETIRED 2026-07-13 with the advisory price: the
+  // rail guarded the MODEL's own proposed buy price; the computed threshold (IV × 0.70) cannot
+  // imply above-cap growth by construction, so there is nothing left to guard.
+  const buyBelowAbsurd = false
+  const buyBelowAbsurdReason: string | undefined = undefined
+
+  // OWNER RULE (2026-07-11, Phase 3 S5): the MANAGEMENT VETO — "no price compensates for management
+  // you can't trust", and the owner extended it to TALENT: a model BUY on a GROUNDED worst-tier
+  // management judgment (integrity red_flag OR poor capital-allocation talent) derates to
+  // RESEARCH_MORE with the reason NAMING the failed trait. Escalate-to-human, never an auto-PASS.
+  // The resolver grounds these tiers only on cite-verified evidence (a hallucinated flag renders
+  // "unverified" and resolves undetermined), so this clamp can never fire on an ungrounded claim.
+  const managementVetoTrait: 'integrity' | 'talent' | undefined =
+    MANAGEMENT_PILLAR_POLICY.integrity_veto === 'clamp'
+    && moat_passes_gate
+    && !sectorShariahFail
+    && dec.analysis.investment_verdict === 'BUY'
+      ? (managementJudgment.resolved_integrity === 'red_flag'
+          ? 'integrity'
+          : managementJudgment.resolved_talent === 'poor'
+            ? 'talent'
+            : undefined)
+      : undefined
+  const managementVetoReason = managementVetoTrait !== undefined
+    ? `management_veto (${managementVetoTrait}): the model verdict is BUY but the management pillar resolved a GROUNDED `
+      + (managementVetoTrait === 'integrity'
+          ? 'integrity RED FLAG (a cite-verified high-severity finding)'
+          : 'POOR capital-allocation talent (cite-verified)')
+      + ' — no price compensates for management you cannot trust. Recorded as RESEARCH_MORE pending human '
+      + 'verification of the cited evidence; the BUY thesis is preserved for auditing.'
+    : undefined
+
+  // OWNER RULE (2026-07-11, Phase 3 S3): "a narrowing moat is a sell signal no matter how wide it still
+  // looks." A model BUY on a GROUNDED narrowing moat direction derates to WATCH with the reason surfaced.
+  // The resolver only resolves 'narrowing' when >=1 direction driver cite-verified (an ungrounded or
+  // omitted direction is 'undetermined' and has NO teeth here) — so this clamp can never fire on
+  // hallucinated erosion. Conservative-only: BUY → WATCH; never touches WATCH/PASS/RESEARCH_MORE.
+  const moatNarrowing =
     moat_passes_gate
     && !sectorShariahFail
     && !buyDataUnconfirmed
     && !buyOutOfBuyZone
+    && !buyBelowAbsurd
     && dec.analysis.investment_verdict === 'BUY'
-    && buyBelowImpliedGrowth !== undefined
-    && buyBelowImpliedGrowth > singleGrowthCap
-  const buyBelowAbsurdReason = buyBelowAbsurd && buy_below !== undefined && buyBelowImpliedGrowth !== undefined
-    ? `buy_below_implies_absurd_growth: the model verdict is BUY, but its ADVISORY buy price ($${modelProposedBuyBelow!.toFixed(2)}) `
-      + `already implies ~${(buyBelowImpliedGrowth * 100).toFixed(1)}% growth — above the ${(singleGrowthCap * 100).toFixed(0)}% cap the method `
-      + 'underwrites. Recorded as WATCH: even at the proposed buy price the market would be paying for growth '
-      + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
+    && judgment.moat?.moat_direction === 'narrowing'
+  const moatNarrowingReason = moatNarrowing
+    ? 'moat_narrowing: the model verdict is BUY while the moat lane GROUNDED a narrowing moat direction — '
+      + 'a narrowing moat is a sell signal no matter how wide it still looks. Recorded as WATCH (moat '
+      + 'narrowing); the BUY thesis and the cited direction evidence are preserved for auditing.'
     : undefined
 
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
@@ -3426,13 +3497,17 @@ export async function runResearchDeepDivePhase(
       // investment_verdict is NOT used. (The all-corpus check at I1 stays as the all-empty backstop.)
       : synthesisGroundingUnmet
         ? ('RESEARCH_MORE' as const)
-        : buyDataUnconfirmed
+        : managementVetoTrait !== undefined
           ? ('RESEARCH_MORE' as const)
-          : buyOutOfBuyZone
-            ? ('WATCH' as const)
-            : buyBelowAbsurd
+          : buyDataUnconfirmed
+            ? ('RESEARCH_MORE' as const)
+            : buyOutOfBuyZone
               ? ('WATCH' as const)
-              : dec.analysis.investment_verdict
+              : buyBelowAbsurd
+                ? ('WATCH' as const)
+                : moatNarrowing
+                  ? ('WATCH' as const)
+                  : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -3441,37 +3516,22 @@ export async function runResearchDeepDivePhase(
       ? `Shariah ${shariahJudgment?.sector_status === 'non_compliant' ? 'sector' : 'financial'} status FAIL — pass. ${dec.analysis.decision_reason}`
       : synthesisGroundingUnmet
         ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
-        : buyDataUnconfirmed
-          ? `${buyClampReason} ${dec.analysis.decision_reason}`
-          : buyOutOfZoneReason !== undefined
-            ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
-            : buyBelowAbsurdReason !== undefined
-              ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
-              : dec.analysis.decision_reason
+        : managementVetoReason !== undefined
+          ? `${managementVetoReason} ${dec.analysis.decision_reason}`
+          : buyDataUnconfirmed
+            ? `${buyClampReason} ${dec.analysis.decision_reason}`
+            : buyOutOfZoneReason !== undefined
+              ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
+              : buyBelowAbsurdReason !== undefined
+                ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
+                : moatNarrowingReason !== undefined
+                  ? `${moatNarrowingReason} ${dec.analysis.decision_reason}`
+                  : dec.analysis.decision_reason
 
-  // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
-  // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
-  //   the buy-below) reads margin_of_safety or its adequacy — the verdict is identical whether adequacy is
-  //   'adequate' or 'inadequate'. We carry the structured judgment verbatim onto the analysis payload below
-  //   so the human can audit WHY the margin is adequate; it is never wired into any gate.
-  // GUARD 2: a moat-SOURCED margin must rest on the GROUNDED moat thesis. The moat gate already fails closed
-  //   on an ungrounded moat (a buy thesis cannot reach a passing verdict with an ungrounded moat), so a
-  //   'moat' source on a gate-passing case is grounded by construction. Belt-and-suspenders: when 'moat' is
-  //   claimed as a source we confirm the moat passed the grounded gate (moat_passes_gate AND not
-  //   moat_grounding_unmet); if 'moat' is claimed but the moat is NOT grounded/gate-passing, that is
-  //   incoherent (ungrounded moat = ungrounded margin) → surface a VISIBLE margin_of_safety_moat_ungrounded
-  //   flag rather than silently accept a moat-sourced margin without a grounded moat.
-  // Phase 2 V2/V4: the model-graded adequacy is RETIRED — a model that emits it anyway (live COST
-  // ignored the don't-grade instruction) must not put a second grade on the dossier next to the T0
-  // margin_of_safety_grade. Strip it from NEW events; legacy ledger events keep theirs read-only.
-  const marginOfSafetyJudgmentRaw = dec.analysis.margin_of_safety
-  const marginOfSafetyJudgment = marginOfSafetyJudgmentRaw === undefined
-    ? undefined
-    : (({ adequacy: _retiredAdequacy, ...narrative }) => narrative)(marginOfSafetyJudgmentRaw)
-  const marginRestsOnMoat = Array.isArray(marginOfSafetyJudgment?.sources)
-    && marginOfSafetyJudgment.sources.includes('moat')
-  const moatThesisGrounded = moat_passes_gate && !moat_grounding_unmet
-  const margin_of_safety_moat_ungrounded = marginRestsOnMoat && !moatThesisGrounded
+  // D3 (owner feedback, post-B8): the JOINT margin-of-safety judgment is RETIRED. The book's mechanical
+  // 30%/50% thresholds (margin_of_safety_grade, T0) own the margin; the schema strips a legacy model's
+  // `margin_of_safety` emission as an unknown key, and NEW events carry no judgment/guard fields. Legacy
+  // ledger events keep theirs read-only (projection tolerates by ignore).
 
   // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
@@ -3486,15 +3546,11 @@ export async function runResearchDeepDivePhase(
   // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
   // B6: the moat exceptionality justification is now the GROUNDED moat thesis (cite-verified drivers) —
   // each grounded {advantage, citation} maps onto an {claim, citation_hash} justification. Only grounded
-  // drivers count (an ungrounded driver is no justification). Runway reframe: the grounded runway thesis
-  // (cite-verified headroom drivers) likewise contributes — only grounded {headroom, citation} drivers.
+  // drivers count (an ungrounded driver is no justification). C2: the runway thesis is retired.
   const exceptionalityJustifications = [
     ...((judgment.moat?.moat_drivers ?? [])
       .filter((d) => d.grounded)
       .map((d) => ({ claim: d.advantage, citation_hash: d.citation }))),
-    ...((judgment.runway?.runway_drivers ?? [])
-      .filter((d) => d.grounded)
-      .map((d) => ({ claim: d.headroom, citation_hash: d.citation }))),
   ]
   // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
   const roicForecastGt20 =
@@ -3506,12 +3562,16 @@ export async function runResearchDeepDivePhase(
     .test(`${dec.analysis.growth_assumptions} ${dec.analysis.valuation_rationale}`)
   const baseRateBurden = evaluateBaseRateBurden({
     moat_class: moatClass,
-    credited_growth_rate: effective_growth_rate,
+    // FIX (V live find): the burden guards the growth the valuation actually UNDERWRITES — the
+    // model's cite-verified headline — not the lane-argued credited rail (which a mis-parsed
+    // decomposition fragment can deflate below the trigger, silently suppressing the burden).
+    credited_growth_rate: headline_growth ?? demonstrated_capped,
     roic_forecast_gt_20: roicForecastGt20,
     margin_expansion_claimed: marginExpansionClaimed,
     exceptionality_justifications: exceptionalityJustifications,
   })
   const baseRateFlagsUnmet: BaseRateBurdenFlag[] = baseRateBurden.flags.filter((f) => f.status === 'unmet')
+
   // Conservative downgrade hook: an unmet exceptional burden lowers the synthesis confidence and adds
   // an explicit caveat so the human sees the unmet structural burden (never silently passed).
   const baseRateCaveats = baseRateFlagsUnmet.map((f) =>
@@ -3534,6 +3594,7 @@ export async function runResearchDeepDivePhase(
       research_case_id: command.research_case_id,
       company_id: command.company_id,
       ticker: command.ticker,
+      ...(fundamentals?.entity_name === undefined ? {} : { entity_name: fundamentals.entity_name }),
       engine_version: ENGINE_VERSION,
       ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
       investment_verdict: gatedVerdict,
@@ -3548,36 +3609,42 @@ export async function runResearchDeepDivePhase(
       // synthesis decision; required + substantive (schema + retry), deliberately NOT cite-gated.
       key_wrong_assumption: dec.analysis.key_wrong_assumption,
       thesis_break_triggers: dec.analysis.thesis_break_triggers,
-      // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface: which
-      // substitutable source(s) the margin rests on (price gap / moat durability / both), the per-source
-      // reasoning, and a REASONED adequacy + reasoning. GUARD 1: adequacy is audit-only, never gates — the
-      // verdict above is unchanged by it. Carried verbatim from synthesis; required + substantive (schema +
-      // retry), deliberately NOT cite-gated. Projected under the distinct key margin_of_safety_judgment so it
-      // never collides with the retired legacy `margin_of_safety` haircut string.
-      ...(marginOfSafetyJudgment !== undefined ? { margin_of_safety_judgment: marginOfSafetyJudgment } : {}),
-      // GUARD 2: a moat-sourced margin claimed on a NOT-grounded / NOT-gate-passing moat is incoherent
-      // (ungrounded moat = ungrounded margin) — surfaced visibly, never silently accepted.
-      ...(margin_of_safety_moat_ungrounded ? { margin_of_safety_moat_ungrounded: true } : {}),
       // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
       // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
       circle_competence: circleJudgmentPayload,
       // Insider Form 4 summary (§3.3) — the deterministic harness computation persisted so the dossier
       // renders it model-independently (the management lane only READS it; it may or may not echo it).
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
+      // S2 (Phase 3): the three named moat tests (T0) — pillar-2 display/judgment context.
+      ...(moatTests !== undefined ? { moat_tests: moatTests } : {}),
+      // B3 (Phase 4): the understand lane's seven-item one-pager (the book's Pillar 1 distillation).
+      ...(onePager !== undefined ? { one_pager: onePager } : {}),
+      // S6: permanent label — this analysis ran PAST a failed moat gate under the user-authored
+      // override. The verdict was still gated by the late rails; the label keeps the spend honest.
+      ...(command.moat_gate_override === true && !moat_passes_gate ? { moat_gate_overridden: true } : {}),
+      // S5 (Phase 3): the MANAGEMENT pillar — the resolved integrity/talent judgment (grounded-only
+      // teeth), the injected talent T0 observations, and the retained-earnings test. The veto flags
+      // record when-and-why the rail fired so the dossier explains the clamp.
+      management_judgment: {
+        ...managementJudgment,
+        ...(managementTalentT0 !== undefined ? { talent_t0: managementTalentT0 } : {}),
+        ...(retainedEarnings !== undefined ? { retained_earnings: retainedEarnings } : {}),
+      },
+      ...(managementVetoTrait !== undefined ? { management_veto_applied: managementVetoTrait } : {}),
+      ...(managementVetoReason !== undefined ? { management_veto_reason: managementVetoReason } : {}),
       // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
-        runway,
-        ...(runway_exceptional ? { runway_exceptional } : {}),
         discount_rate: discount,
         // Discount provenance (Phase 1.4 / F.2): the COMPLIANT risk-free SAVINGS rate (app-config or the
         // config default) + the uniform equity premium. basis 'compliant_savings' when sourced from the
         // threaded app-config savings rate; 'config_default' when failed closed to savings_rate_default.
+        // Phase 4: the discount is the REQUIRED RETURN (flat 15% default, user setting) — provenance
+        // records which. (Legacy events carry risk_free_rate/equity_premium; the projection tolerates both.)
         discount_inputs: {
-          risk_free_rate,
-          risk_free_basis: risk_free_from_config ? 'compliant_savings' : 'config_default',
-          equity_premium: buffettMungerStrategy.valuation.equity_premium,
+          required_return,
+          required_return_basis: required_return_from_config ? 'setting' : 'book_default',
         },
         growth_assumptions: dec.analysis.growth_assumptions,
         // HEADLINE growth = the MODEL's cite-verified assumed_growth (the architecture: the model's grounded
@@ -3589,7 +3656,7 @@ export async function runResearchDeepDivePhase(
         // share CAGR through the forecasting-humility cap; lane may argue lower) — DEMOTED to a demonstrated-
         // history SANITY reference. NOT the headline. An advisory sanity flag fires (above) when the model's
         // headline assumed_growth materially exceeds this.
-        demonstrated_growth_reference: effective_growth_rate,
+        demonstrated_growth_reference: demonstrated_capped,
         growth_basis,
         // Phase 7 S4 — data-completeness evidence (item 11): CARRY the demonstrated-growth measure's own
         // window/points/method that the valuation already consumed (persist-only; NO new derivation). Lets
@@ -3603,17 +3670,18 @@ export async function runResearchDeepDivePhase(
           : {}),
         ...(growthResult.above_gdp ? { growth_above_gdp: true } : {}),
         ...(growthResult.cap_binds ? { growth_cap_binds: true } : {}),
-        ...(terminal_growth_rate !== undefined ? { terminal_growth_rate } : {}),
         roic,
         incremental_roic,
         incremental_roic_basis,
         reinvestment_rate,
-        owner_earnings_bridge: bridge,
-        owner_earnings_vs_fcf: ownerEarningsVsFcf,
-        ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
+        // E2: the T0 FCF basis provenance (replaces the owner-earnings bridge) + the factual
+        // capex-vs-D&A reinvestment-mix note (no maintenance-capex proxy anywhere).
+        ...(fcfBasis !== undefined ? { fcf_basis: fcfBasis } : {}),
+        // OPTION C provenance: the diluted count was recovered from the annual report's inline XBRL
+        // (a per-class filer whose share facts companyfacts drops) — labeled, never silent.
+        ...(edgarAnnual?.diluted_shares_source !== undefined ? { share_count_source: edgarAnnual.diluted_shares_source } : {}),
+        capex_vs_da: capexVsDa,
         // Phase 2 V3: the deterministic foreign-filer conversion provenance (reporting→USD × ADR ratio).
-        // normalized_owner_earnings_per_share above stays in the REPORTING currency (per ordinary share);
-        // every per-share valuation output below it is in the PRICE currency via this conversion.
         ...(fxConversion !== undefined ? { fx_conversion: fxConversion } : {}),
         ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
         // Visible degraded flags: each OPTIONAL structured field the model omitted (rubric, Shariah
@@ -3633,9 +3701,7 @@ export async function runResearchDeepDivePhase(
         // value" and its band) are NO LONGER emitted — a dollar reference FV below the model's buy-below read
         // as a contradiction. implied_multiple (a ratio derived from the internal forward FV) is kept, as are
         // the reverse-DCF market_implied_growth + implied_exit_multiple — the kept valuation lens.
-        ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
-        ...(cap_exceeded ? { cap_exceeded: true } : {}),
         // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded
         // verbatim — NOT a derived FV). GATED-DOSSIER INVARIANT (owner, 2026-07-11): on a moat-FAILED
         // case the buy-below was never vetted (the implied-growth/absurdity rails only run for
@@ -3643,17 +3709,11 @@ export async function runResearchDeepDivePhase(
         // explicitly-labeled unvetted_model_proposals audit block instead. Either the pipeline ran and
         // the numbers are vetted, or the dossier says GATED everywhere — never a mix.
         ...(moat_passes_gate && buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
-        // R1 superseded: the model's own price view, recorded as ADVISORY (the divergence flag reconciles).
-        ...(moat_passes_gate && modelProposedBuyBelow !== undefined ? { model_proposed_buy_below: modelProposedBuyBelow } : {}),
-        ...(!moat_passes_gate && (modelProposedBuyBelow !== undefined || valuation_status !== undefined)
-          ? {
-              unvetted_model_proposals: {
-                ...(modelProposedBuyBelow !== undefined ? { proposed_buy_below: modelProposedBuyBelow } : {}),
-                ...(valuation_status !== undefined ? { valuation_status } : {}),
-                note: 'Recorded for audit only — the case was set aside at the moat gate BEFORE the buy-price sanity rails ran; these model proposals are UNVETTED.',
-              },
-            }
-          : {}),
+        // E2: the BOOK intrinsic value per share is now surfaced first-class — it is the computed
+        // reference the whole method margins off (and the sign-off freeze snapshots it verbatim).
+        ...(moat_passes_gate && fcfValuation !== undefined ? { intrinsic_value_per_share: Number(fcfValuation.intrinsic_value_per_share.toFixed(2)) } : {}),
+        // OWNER-LOCKED (2026-07-13): model_proposed_buy_below is RETIRED (legacy payloads keep the
+        // key; the projection/display tolerate it). The thresholds are arithmetic only.
         // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
         // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
@@ -3662,6 +3722,22 @@ export async function runResearchDeepDivePhase(
         //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
+        // Phase 4 (book alignment): the rule-8 LOAD-UP threshold/zone + the valuation basis + the
+        // resolved industry exit multiple (clamped, provenance-labeled).
+        ...(moat_passes_gate && load_up_below !== undefined ? { load_up_below } : {}),
+        ...(in_load_up_zone !== undefined ? { in_load_up_zone } : {}),
+        ...(valuation_basis !== undefined ? { valuation_basis } : {}),
+        ...(moat_passes_gate && fcfValuation !== undefined
+          ? {
+              exit_multiple_used: exitResolution.multiple,
+              exit_multiple_source: exitResolution.source,
+              ...(exitProposed?.basis_note !== undefined ? { exit_multiple_basis_note: exitProposed.basis_note } : {}),
+              // Auditability: the model's STRUCTURED comps + the median the harness checked against —
+              // the ledger proves the self-consistency check ran (a silent pass is not auditable).
+              ...(exitProposed?.comps !== undefined && exitProposed.comps.length > 0 ? { exit_multiple_comps: exitProposed.comps } : {}),
+              ...(exitCompsMedian !== undefined ? { exit_multiple_comps_median: exitCompsMedian } : {}),
+            }
+          : {}),
         // Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; never gates).
         ...(margin_of_safety_grade !== undefined ? { margin_of_safety_grade } : {}),
         // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at
@@ -3669,13 +3745,14 @@ export async function runResearchDeepDivePhase(
         // a flag-only §2 sanity output (see the inline derivation above).
         ...(implied_exit_multiple !== undefined ? { implied_exit_multiple } : {}),
         ...(sanity_flags.length > 0 ? { sanity_flags } : {}),
-        ...(dr !== undefined
+        // E2: owner_earnings_basis is retired from the stage — the model judges growth + the exit
+        // multiple; the harness owns the FCF basis (fcf_basis above, T0).
+        ...(valuationReasoning !== undefined
           ? {
               valuation_reasoning: {
-                owner_earnings_basis: dr.owner_earnings_basis,
-                assumed_growth: dr.assumed_growth,
-                assumed_growth_rationale: dr.assumed_growth_rationale,
-                ...(dr.discount_rationale !== undefined ? { discount_rationale: dr.discount_rationale } : {}),
+                assumed_growth: valuationReasoning.assumed_growth,
+                assumed_growth_rationale: valuationReasoning.assumed_growth_rationale,
+                ...(valuationReasoning.discount_rationale !== undefined ? { discount_rationale: valuationReasoning.discount_rationale } : {}),
               },
             }
           : {}),
@@ -3697,16 +3774,6 @@ export async function runResearchDeepDivePhase(
                 })),
               },
             }
-          : {}),
-        // OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) vs 'model_proposed'.
-        bridge_basis,
-        ...(bridge_fiscal_year !== undefined ? { bridge_fiscal_year } : {}),
-        ...(bridge_source_id !== undefined ? { bridge_source_id } : {}),
-        // SANITY-CHECK REFERENCE: the deterministic Greenwald/D&A maintenance-capex proxy ($M). NOT the
-        // binding OE input (the model judges maintenance capex); surfaced for the human + the advisory
-        // divergence flag (maintenance_capex_below_proxy). Omitted when the EDGAR series is too thin.
-        ...(maintenance_capex_proxy_reference !== undefined
-          ? { maintenance_capex_proxy_reference }
           : {}),
       },
       // Harness-computed AAOIFI Shariah financial ratios (re-verifying the model). Absent when not
@@ -3738,10 +3805,9 @@ export async function runResearchDeepDivePhase(
             },
           }
         : {}),
-      // Mechanism 5: red-team layer — strongest objection + the synthesis response (answered-with-evidence
-      // vs accepted→downgraded), plus the deterministic red_team_objection_unaddressed / red_team_incomplete
-      // flags. Surfaced in the verdict/dossier so an unaddressed strong objection is never silently dropped.
-      red_team: redTeamLayer,
+      // E1: the inversion layer — the case argued against itself (cite-checked objection + the
+      // consensus/social-proof read). Persisted on the inversion layer; no answer-or-downgrade machinery.
+      inversion: inversionLayer,
       // model-tiering-spec dual-model cross-check (moat + Shariah sector only). Present only when a
       // distinct cross-check model was configured for that dimension (off by default). Records the two
       // models + agreement; disagreement also raised requires_human_escalation in open_questions above.
@@ -3836,16 +3902,9 @@ export async function runResearchDeepDivePhase(
 
   const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })
 
-  // Mechanism 5: when synthesis ACCEPTED the red-team objection and downgraded, record the downgrade in
-  // the verdict rationale (the verdict format gains the red-team objection + the synthesis response).
-  const redTeamDowngrade = redTeamLayer.synthesis_response?.mode === 'accepted_downgraded'
-    ? redTeamLayer.synthesis_response.downgrade
-    : undefined
-  const redTeamReasonNote = redTeamDowngrade !== undefined
-    ? ` Red-team accepted → downgraded ${redTeamDowngrade.dimension} (${redTeamDowngrade.from} → ${redTeamDowngrade.to}): ${redTeamLayer.synthesis_response?.text ?? ''}`
-    : redTeamLayer.objection_unaddressed === true
-      ? ` Red-team strongest objection UNADDRESSED by synthesis — see open questions.`
-      : ''
+  // E1: no answer-or-downgrade machinery — the inversion is recorded on the payload; the decision
+  // reason carries no red-team annotation.
+  const redTeamReasonNote = ''
 
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
@@ -3875,11 +3934,17 @@ export async function runResearchDeepDivePhase(
       // OWNER RULE (SPGI dogfood): a model BUY derated to WATCH because its OWN buy-below already prices
       // in above-cap growth is always surfaced — the human sees why the buy price itself is not credible.
       ...(buyBelowAbsurdReason !== undefined ? [buyBelowAbsurdReason] : []),
+      // OWNER RULE (Phase 3 S3): a model BUY derated to WATCH on a GROUNDED narrowing moat is always
+      // surfaced — the human sees the sell-signal principle applied and the cited direction evidence.
+      ...(moatNarrowingReason !== undefined ? [moatNarrowingReason] : []),
+      // OWNER RULE (Phase 3 S5): a model BUY clamped by the MANAGEMENT VETO is always surfaced —
+      // the human sees WHICH trait failed (integrity vs talent) and what evidence to verify.
+      ...(managementVetoReason !== undefined ? [managementVetoReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
       ...crossCheckOpenQuestions,
-      ...(redTeamOpenQuestion !== undefined ? [redTeamOpenQuestion] : []),
+      ...(inversionOpenQuestion !== undefined ? [inversionOpenQuestion] : []),
     ],
     causation_id: completed.event_id,
     source_ids: allVerified,

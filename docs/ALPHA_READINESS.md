@@ -56,7 +56,7 @@ Owlfolio v2 is an automation-first local-use candidate and personal-local operat
 - Audit activity page over append-only event envelopes.
 - Provider status page bounded by catalog capabilities plus latest certification reports.
 - Settings / Data Safety visibility for local backup contents, excluded credential/auth material, and restore-proposal boundaries.
-- Local worker for mock-safe/dry-run `review_reminder` and `watchlist_monitor` scheduled tasks.
+- Local worker for mock-safe/dry-run `re_review_check` and `watchlist_monitor` scheduled tasks.
 
 ## Provider certification evidence
 

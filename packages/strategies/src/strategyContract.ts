@@ -120,8 +120,10 @@ export const portfolioPolicySchema = z.object({
   max_position_weight: z.number().positive().max(1),
   cash_buffer_minimum: z.number().min(0).max(1),
   concentration_style: z.enum(['concentrated', 'diversified']),
-  target_weight_by_moat: targetWeightByMoatSchema,
-  entry_tranches: z.array(entryTrancheSchema).min(1),
+  // OWNER-LOCKED (2026-07-13): retired — the book gives zones + boldness, not weight tables.
+  target_weight_by_moat: targetWeightByMoatSchema.optional(),
+  // OWNER-LOCKED (2026-07-13): retired — the plan shows the two book zones, not a ladder.
+  entry_tranches: z.array(entryTrancheSchema).optional(),
 })
 
 export const strategyContractSchema = strategyMetadataSchema.extend({

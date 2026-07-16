@@ -15,7 +15,6 @@ export async function POST(request: Request, { params }: OpenHoldingRouteContext
 
   try {
     await openPersonalHoldingFromWatchlist(state, watchlistItemId, {
-      shares: formData.get('shares'),
       cost_basis_per_share: formData.get('cost_basis_per_share'),
       currency: formData.get('currency'),
       opened_at: formData.get('opened_at'),

@@ -55,21 +55,6 @@ export type ResearchCaseOwnerEarningsValuationProjection = {
   caveats?: string[]
 }
 
-/**
- * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned). The margin rests on one or both SUBSTITUTABLE sources —
- * the price-vs-value gap ('price') and moat durability ('moat') — with per-source reasoning + a reasoned
- * joint adequacy. NOTE: this is the NEW structured judgment, distinct from the retired legacy
- * `margin_of_safety` haircut STRING on ResearchCaseOwnerEarningsValuationProjection.
- */
-export type ResearchCaseMarginOfSafetyJudgment = {
-  sources: ('price' | 'moat')[]
-  price_gap_reasoning?: string
-  moat_durability_reasoning?: string
-  /** Legacy (pre-V2) model-graded adequacy — read-only; current runs carry the T0
-   *  valuation.margin_of_safety_grade instead. */
-  adequacy?: 'adequate' | 'thin' | 'inadequate'
-  reasoning: string
-}
 
 export type ResearchCaseSpecialistFindingProjection = {
   finding_id: string
@@ -165,10 +150,28 @@ export type ResearchCaseJudgmentAxisProjection = {
   violations?: string[]
   anchor_note?: string
   // ---- Grounded-thesis MOAT projection (B6) — the moat is the model's grounded cited thesis. ----
-  /** The cited durable competitive advantages, each with a cite-verified `grounded` flag. */
-  moat_drivers?: { advantage: string; citation: string; grounded: boolean }[]
+  /** The cited durable competitive advantages, each with a cite-verified `grounded` flag.
+   *  S3: `moat_type` tags the taxonomy type (absent on legacy/untyped drivers). */
+  moat_drivers?: { advantage: string; citation: string; grounded: boolean; moat_type?: string }[]
   /** Count of distinct grounded drivers (non-empty advantage AND cite-verified citation). */
   grounded_driver_count?: number
+  // ---- S3 (Phase 3): taxonomy + direction + peer standout (moat axis; absent on legacy events). ----
+  /** Distinct taxonomy types of the GROUNDED drivers (dossier chips). */
+  resolved_moat_types?: string[]
+  /** Grounded-only direction; 'undetermined' when unclaimed or claimed-but-ungrounded. */
+  moat_direction?: string
+  /** The cited direction evidence with grounded stamps. */
+  direction_drivers?: { evidence: string; citation: string; grounded: boolean }[]
+  /** True when a direction was proposed but no driver grounded (claimed-but-unbacked). */
+  direction_ungrounded?: boolean
+  direction_reasoning?: string
+  /** The peer-standout judgment; each peer stamped model_asserted when its figure did not verify. */
+  peer_standout?: {
+    peers?: { name: string; gross_margin_note: string; citation?: string; model_asserted?: boolean; grounded?: boolean }[]
+    judgment?: string
+    reasoning?: string
+    grounded_peer_count?: number
+  }
   /** True when the model proposed a gate-passing tier (wide/monopoly) the grounded thesis couldn't back. */
   moat_grounding_unmet?: boolean
   /** Advisory: a grounded gate-passing moat sits on a WEAK EDGAR quant. Surfaced, never blocks. */
@@ -235,30 +238,29 @@ export type ResearchCaseSourceDisciplineProjection = {
 }
 
 /**
- * Mechanism 5 (Red-Team Pass): the adversarial pre-synthesis run + the synthesis obligation. Carries
- * the strongest objection (cited to the corpus) and the synthesis response (answered-with-evidence vs
- * accepted→downgraded), plus the deterministic flags: `objection_unaddressed` (synthesis was silent on
- * a live objection — surfaced, never dropped) and the `red_team_incomplete` status (the case was not
- * adversarially tested because the red-team agent timed out/failed).
+ * E1/G: the INVERSION pass — the case argued against itself (standalone since the lattice retired). TWO-ERA: new events emit
+ * `inversion`; legacy events carry `red_team` (same family shape) and project onto the SAME field —
+ * the legacy-only obligation fields (synthesis_response, objection_unaddressed, weakest_rubric_items)
+ * are tolerated by ignore.
  */
-export type ResearchCaseRedTeamSynthesisResponseProjection = {
-  mode?: string
-  text?: string
-  downgrade?: { dimension?: string; from?: string; to?: string }
-}
-
-export type ResearchCaseRedTeamProjection = {
+export type ResearchCaseInversionProjection = {
   status?: string
   reason?: string
-  strongest_bear_case?: string
-  weakest_rubric_items?: { lane?: string; item?: string; why?: string }[]
+  /** The case-against narrative (legacy events fall back from strongest_bear_case). */
+  strongest_case_against?: string
   moat_decay_scenario?: string
   growth_credit_attack?: string
   shared_narrative_blindspots?: string[]
   strongest_objection?: { claim?: string; severity?: string; citations?: string[] }
   uncited_objection_refs?: string[]
-  synthesis_response?: ResearchCaseRedTeamSynthesisResponseProjection
-  objection_unaddressed?: boolean
+  /** The cite-checked thesis-vs-consensus read (Munger's social-proof check). */
+  consensus_check?: {
+    consensus_view?: string
+    thesis_vs_consensus?: string
+    variant_justification?: string
+    citations?: string[]
+    grounded?: boolean
+  }
 }
 
 // Circle-of-competence judgment: the grounded model judgment of whether it understands THIS business well
@@ -279,18 +281,20 @@ export type ResearchCaseCircleCompetenceProjection = {
    */
   in_competence?: boolean
   /**
-   * The model's predictability VERDICT (Bug B): 'durably_predictable' is the ONLY value that proceeds; a
-   * well-understood but cyclical/commodity business is 'not_predictable' → set aside. Absent on legacy
-   * events (which carried only the in_competence boolean).
+   * C1 (owner-locked 2026-07-12): the circle judgment is UNDERSTANDING — 'understood' is the only value
+   * that proceeds. TWO-ERA slot: legacy events project their retired cashflow_predictability enum
+   * ('durably_predictable' | 'not_predictable' | 'uncertain') onto this same field, read-only.
    */
-  cashflow_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
-  /** The model's raw predictability claim (the enum, before the harness's grounding fail-closed). */
-  model_claimed_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
-  /** LEGACY: the model's raw boolean claim on old events (before the enum). Read for back-compat only. */
+  judgment?: string
+  /** The model's raw claim (either era's enum, before the harness's grounding fail-closed). */
+  model_claimed_judgment?: string
+  /** LEGACY: the model's raw boolean claim on old events (before any enum). Read for back-compat only. */
   model_claimed_in_competence?: boolean
   competence_reasoning?: string
-  cashflow_drivers?: ResearchCaseCircleClaimProjection[]
-  predictability_breakers?: ResearchCaseCircleClaimProjection[]
+  /** TWO-ERA: understanding mechanisms (new) or cashflow drivers (legacy) — the same claim shape. */
+  drivers?: ResearchCaseCircleClaimProjection[]
+  /** MULTI-ERA: key moving parts (G/P1) ?? comprehension gaps ?? predictability breakers (legacy). */
+  breakers?: ResearchCaseCircleClaimProjection[]
   /** Set when the gate failed closed (model outside-competence OR an ungrounded clause). */
   circle_competence_unmet?: boolean
   reason?: string
@@ -332,7 +336,7 @@ export type ResearchCaseValuationProjection = {
    * project — the legacy Treasury figure maps into `risk_free_rate` (and its basis into `risk_free_basis`)
    * so old dossiers keep rendering a discount provenance.
    */
-  discount_inputs?: { risk_free_rate?: number; risk_free_basis?: string; equity_premium?: number }
+  discount_inputs?: { risk_free_rate?: number; risk_free_basis?: string; equity_premium?: number; required_return?: number; required_return_basis?: string }
   growth_assumptions?: string
   /**
    * HEADLINE growth = the MODEL's cite-verified assumed_growth (architecture: the model's grounded judgment
@@ -443,6 +447,26 @@ export type ResearchCaseValuationProjection = {
   reference_fair_value?: number
   /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
   in_buy_zone?: boolean
+  // ---- B2 (Phase 4, book alignment) ----
+  /** Rule 8 — the LOAD-UP threshold (intrinsic value × (1 − 50%)). */
+  load_up_below?: number
+  /** Rule 8 — pure arithmetic: current_price <= load_up_below (the concentrated-sizing zone). */
+  in_load_up_zone?: boolean
+  /** 'fcf' (the book basis) | 'owner_earnings_fallback' (CFO untagged — margined off the OE reference). */
+  valuation_basis?: string
+  /** E2: the BOOK intrinsic value per share (the computed FCF reference the thresholds margin off). */
+  intrinsic_value_per_share?: number
+  /** E2: the T0 FCF basis provenance (fiscal year, CFO, capex, FCF, currency, source id). */
+  fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string }
+  /** E2 survivor: the purely factual capex-vs-D&A reinvestment-mix note (no maintenance proxy). */
+  capex_vs_da?: { total_capex_musd?: number; d_and_a_musd?: number; capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string }
+  /** The resolved industry P/FCF exit multiple + its provenance (model_grounded/clamped/asserted/fallback). */
+  exit_multiple_used?: number
+  exit_multiple_source?: string
+  exit_multiple_basis_note?: string
+  /** The model's structured comps + the median the harness self-consistency-checked against. */
+  exit_multiple_comps?: { name?: string; p_fcf?: number }[]
+  exit_multiple_comps_median?: number
   /**
    * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — current price ÷ forward
    * owner earnings (OE/share grown to the explicit horizon at the MODEL's assumed growth along the same
@@ -456,6 +480,12 @@ export type ResearchCaseValuationProjection = {
    * optimistic + over-pessimistic catches + absurdity flags). NEVER blocks the verdict — advisory only.
    */
   sanity_flags?: string[]
+  /** OPTION C: 'inline_xbrl_class_a' when the diluted count was recovered from the filing's inline XBRL. */
+  share_count_source?: string
+  /** HONEST unpriced/not-computed reasons (e.g. "diluted shares missing") — load-bearing when IV is absent. */
+  valuation_caveats?: string[]
+  /** Harness-degradation notes (e.g. shariah_ratios_unverified) — visible, never silent. */
+  degraded_flags?: string[]
   /** RELIGHTENED DECISION (R1): the MODEL's cited valuation reasoning (it shows its work). */
   valuation_reasoning?: ResearchCaseValuationReasoningProjection
   /**
@@ -531,7 +561,8 @@ export type ResearchCaseAdmitRiskFieldProjection = {
 
 /** Cheapness summary (Phase-1 OE / EV) that surfaced the name for the admit judgment. */
 export type ResearchCaseAdmitCheapnessProjection = {
-  owner_earnings_yield?: number
+  /** E2: the FCF yield (legacy events carry owner_earnings_yield onto the same slot). */
+  fcf_yield?: number
   ev?: number
   cheap?: boolean
   reason?: string
@@ -721,6 +752,8 @@ export type ResearchCaseReReviewProjection = {
   prior_thesis_summary?: string
   new_filings: { form: string; filed: string; url: string; weight: string }[]
   skipped_filings: { form: string; filed: string; url: string; weight: string }[]
+  /** A new ANNUAL filing (10-K/20-F/40-F) landed since the decision — the full re-analysis is due. */
+  new_annual_filing?: { form: string; filed: string; url: string }
   re_review_ungrounded?: boolean
   ungrounded_reason?: string
   checked_at?: string
@@ -790,6 +823,8 @@ export type ResearchCaseProjection = {
   candidate_id?: string
   company_id?: string
   ticker?: string
+  /** The registrant's name from EDGAR companyfacts, stamped on the analysis payload (display-only). */
+  entity_name?: string
   strategy_id?: string
   strategy_version?: string
   quick_screen_id?: string
@@ -830,6 +865,38 @@ export type ResearchCaseProjection = {
   circle_competence?: ResearchCaseCircleCompetenceProjection
   /** Deterministic insider Form 4 summary (§3.3), when the deep dive computed one. */
   insider_summary?: ResearchCaseInsiderSummaryProjection
+  /**
+   * The three named moat tests (S2, Phase 3 pillars) — T0 over the EDGAR series: capital efficiency
+   * (ROIC bands), two-engine (revenue + margin trend), standout (company-side gross margin; the peer
+   * half is the moat lane's labeled judgment). Absent on legacy events / runs without fundamentals.
+   */
+  moat_tests?: ResearchCaseMoatTestsProjection
+  /**
+   * The book's seven-item one-pager (B3, Phase 4) — the understand lane's Pillar 1 distillation.
+   * Present on gated dossiers too (Pillar 1 runs in Stage A). Absent on legacy events.
+   */
+  one_pager?: {
+    plain_english?: string
+    segments?: string[]
+    revenue_drivers?: string[]
+    most_profitable_segments?: string[]
+    strengths?: string[]
+    weak_spots?: string[]
+    growth_levers?: string[]
+  }
+  /**
+   * The management pillar's resolved judgment (S5, Phase 3): integrity (communication + comp) and
+   * talent (capital allocation), grounded-only teeth, plus the injected talent T0 observations and
+   * the retained-earnings test. Absent on legacy events.
+   */
+  management_judgment?: ResearchCaseManagementJudgmentProjection
+  /** Which trait fired the management veto ('integrity' | 'talent'), when the BUY clamp applied. */
+  management_veto_applied?: string
+  management_veto_reason?: string
+  /** S6: the run ended at the EARLY moat gate — Pillars 3–4 were never evaluated (no numbers exist). */
+  moat_gate_short_circuited?: boolean
+  /** S6: the run continued PAST a failed moat gate under the user-authored override (labeled spend). */
+  moat_gate_overridden?: boolean
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -862,7 +929,7 @@ export type ResearchCaseProjection = {
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
-  red_team?: ResearchCaseRedTeamProjection
+  inversion?: ResearchCaseInversionProjection
   /** Task 4.2c: the newest admit-judgment recommendation OBSERVATION (recomputed fresh on-demand). */
   admit_recommendation?: ResearchCaseAdmitRecommendationProjection
   /** Phase 5 S7: the newest sizing recommendation OBSERVATION (the S6 assembler, recomputed on-demand). */
@@ -870,6 +937,11 @@ export type ResearchCaseProjection = {
   /** Phase 6 S8: the newest sell-decision OBSERVATION for a HELD name (advisory; never closes the holding). */
   sell_recommendation?: ResearchCaseSellRecommendationProjection
   synthesis_id?: string
+  /**
+   * H (2026-07-12): the synthesis agent's own reconciliation narrative (how the pillar findings were
+   * reconciled into the thesis) — from `deep_dive_synthesis_drafted.synthesis_summary`. Absent on legacy.
+   */
+  synthesis_summary?: string
   decision_id?: string
   investment_verdict?: string
   strategy_compliance?: string
@@ -894,21 +966,8 @@ export type ResearchCaseProjection = {
    * confident diff.
    */
   re_review?: ResearchCaseReReviewProjection
-  /**
-   * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
-   * safety comes from TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Synthesis names
-   * which source(s) the margin rests on, gives the per-source reasoning, and a REASONED adequacy + reasoning.
-   * adequacy is audit-only (never a gate). Distinct field name (NOT the retired legacy `margin_of_safety`
-   * haircut string on the owner-earnings valuation block) so legacy events replay without collision.
-   * Legacy-tolerant: absent on old analysis events.
-   */
-  margin_of_safety_judgment?: ResearchCaseMarginOfSafetyJudgment
-  /**
-   * GUARD 2: set true when the synthesis claimed 'moat' as a margin-of-safety source but the moat was NOT
-   * grounded / did not pass the grounded moat gate — an incoherent moat-sourced margin (ungrounded moat =
-   * ungrounded margin), surfaced visibly rather than silently accepted. Legacy-tolerant (absent on old events).
-   */
-  margin_of_safety_moat_ungrounded?: boolean
+  // D3: margin_of_safety_judgment / margin_of_safety_moat_ungrounded are RETIRED — legacy events
+  // carrying the payload keys are tolerated by ignore (never projected).
   decision?: string
   user_approved?: boolean
   reason?: string
@@ -960,34 +1019,6 @@ function getNumber(payload: Record<string, unknown>, key: string): number | unde
   return typeof value === 'number' && isFinite(value) ? value : undefined
 }
 
-/**
- * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — legacy-tolerant extraction of the NEW structured
- * judgment. Distinct from the retired legacy `margin_of_safety` haircut STRING (which is intentionally never
- * projected). Only a well-formed judgment (≥1 valid source + valid adequacy + non-empty reasoning) projects;
- * anything else → undefined (graceful fallback). Never throws — old events without it simply project nothing.
- */
-function getMarginOfSafetyJudgment(
-  payload: Record<string, unknown>,
-  key: string,
-): ResearchCaseMarginOfSafetyJudgment | undefined {
-  const value = payload[key]
-  if (!isRecord(value)) return undefined
-  const rawSources = value['sources']
-  if (!Array.isArray(rawSources)) return undefined
-  const sources = rawSources.filter((s): s is 'price' | 'moat' => s === 'price' || s === 'moat')
-  if (sources.length === 0) return undefined
-  // Phase 2 V2: adequacy is legacy-optional (current runs carry the T0 grade on the valuation instead).
-  const adequacy = value['adequacy']
-  const validAdequacy = adequacy === 'adequate' || adequacy === 'thin' || adequacy === 'inadequate' ? adequacy : undefined
-  const reasoning = value['reasoning']
-  if (typeof reasoning !== 'string' || reasoning.trim().length === 0) return undefined
-  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, ...(validAdequacy === undefined ? {} : { adequacy: validAdequacy }), reasoning }
-  const priceGap = value['price_gap_reasoning']
-  if (typeof priceGap === 'string' && priceGap.length > 0) judgment.price_gap_reasoning = priceGap
-  const moatDurability = value['moat_durability_reasoning']
-  if (typeof moatDurability === 'string' && moatDurability.length > 0) judgment.moat_durability_reasoning = moatDurability
-  return judgment
-}
 
 /**
  * Extract the human checklist answers map from a payload, decision-neutrally — verbatim, no scoring.
@@ -1149,14 +1180,67 @@ function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | u
   if (Array.isArray(rawDrivers)) {
     const drivers = rawDrivers
       .filter(isRecord)
-      .map((d) => ({ advantage: getString(d, 'advantage'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
-      .filter((d): d is { advantage: string; citation: string; grounded: boolean } => d.advantage !== undefined && d.citation !== undefined)
+      .map((d) => {
+        const moat_type = getString(d, 'moat_type')
+        return {
+          advantage: getString(d, 'advantage'), citation: getString(d, 'citation'), grounded: d['grounded'] === true,
+          ...(moat_type !== undefined ? { moat_type } : {}),
+        }
+      })
+      .filter((d): d is { advantage: string; citation: string; grounded: boolean; moat_type?: string } => d.advantage !== undefined && d.citation !== undefined)
     if (drivers.length > 0) projected.moat_drivers = drivers
   }
   const grounded_driver_count = getNumber(value, 'grounded_driver_count')
   if (grounded_driver_count !== undefined) projected.grounded_driver_count = grounded_driver_count
   if (value['moat_grounding_unmet'] === true) projected.moat_grounding_unmet = true
   if (value['quant_contradicts_moat'] === true) projected.quant_contradicts_moat = true
+  // ---- S3 (Phase 3): taxonomy + direction + peer standout — legacy events omit these (tolerated). ----
+  const rawTypes = value['resolved_moat_types']
+  if (Array.isArray(rawTypes)) {
+    const types = rawTypes.filter((t): t is string => typeof t === 'string')
+    if (types.length > 0) projected.resolved_moat_types = types
+  }
+  const moat_direction = getString(value, 'moat_direction')
+  if (moat_direction !== undefined) projected.moat_direction = moat_direction
+  const rawDirectionDrivers = value['direction_drivers']
+  if (Array.isArray(rawDirectionDrivers)) {
+    const drivers = rawDirectionDrivers
+      .filter(isRecord)
+      .map((d) => ({ evidence: getString(d, 'evidence'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+      .filter((d): d is { evidence: string; citation: string; grounded: boolean } => d.evidence !== undefined && d.citation !== undefined)
+    if (drivers.length > 0) projected.direction_drivers = drivers
+  }
+  if (value['direction_ungrounded'] === true) projected.direction_ungrounded = true
+  const direction_reasoning = getString(value, 'direction_reasoning')
+  if (direction_reasoning !== undefined) projected.direction_reasoning = direction_reasoning
+  const rawPeerStandout = value['peer_standout']
+  if (isRecord(rawPeerStandout)) {
+    const ps: NonNullable<ResearchCaseJudgmentAxisProjection['peer_standout']> = {}
+    const rawPeers = rawPeerStandout['peers']
+    if (Array.isArray(rawPeers)) {
+      const peers = rawPeers
+        .filter(isRecord)
+        .map((p) => {
+          const citation = getString(p, 'citation')
+          return {
+            name: getString(p, 'name'), gross_margin_note: getString(p, 'gross_margin_note'),
+            ...(citation !== undefined ? { citation } : {}),
+            ...(typeof p['model_asserted'] === 'boolean' ? { model_asserted: p['model_asserted'] } : {}),
+            ...(typeof p['grounded'] === 'boolean' ? { grounded: p['grounded'] } : {}),
+          }
+        })
+        .filter((p): p is { name: string; gross_margin_note: string; citation?: string; model_asserted?: boolean; grounded?: boolean } =>
+          p.name !== undefined && p.gross_margin_note !== undefined)
+      if (peers.length > 0) ps.peers = peers
+    }
+    const psJudgment = getString(rawPeerStandout, 'judgment')
+    if (psJudgment !== undefined) ps.judgment = psJudgment
+    const psReasoning = getString(rawPeerStandout, 'reasoning')
+    if (psReasoning !== undefined) ps.reasoning = psReasoning
+    const grounded_peer_count = getNumber(rawPeerStandout, 'grounded_peer_count')
+    if (grounded_peer_count !== undefined) ps.grounded_peer_count = grounded_peer_count
+    if (Object.keys(ps).length > 0) projected.peer_standout = ps
+  }
   // ---- Grounded-thesis RUNWAY fields (runway reframe) — legacy events omit these (tolerated). ----
   const rawRunwayDrivers = value['runway_drivers']
   if (Array.isArray(rawRunwayDrivers)) {
@@ -1222,20 +1306,19 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
   const value = payload['circle_competence']
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseCircleCompetenceProjection = {}
-  const isPredictabilityEnum = (v: unknown): v is 'durably_predictable' | 'not_predictable' | 'uncertain' =>
-    v === 'durably_predictable' || v === 'not_predictable' || v === 'uncertain'
-  // Bug B: project the predictability enum. Legacy-tolerant — old events carry only the in_competence
-  // boolean; keep reading it (and map a legacy true → durably_predictable-equivalent for display below).
+  // C1 two-era: the judgment slot reads business_understanding (new) ?? cashflow_predictability (legacy).
   if (typeof value['in_competence'] === 'boolean') projected.in_competence = value['in_competence']
-  if (isPredictabilityEnum(value['cashflow_predictability'])) projected.cashflow_predictability = value['cashflow_predictability']
-  if (isPredictabilityEnum(value['model_claimed_predictability'])) projected.model_claimed_predictability = value['model_claimed_predictability']
+  const judgment = getString(value, 'business_understanding') ?? getString(value, 'cashflow_predictability')
+  if (judgment !== undefined) projected.judgment = judgment
+  const claimed = getString(value, 'model_claimed_understanding') ?? getString(value, 'model_claimed_predictability')
+  if (claimed !== undefined) projected.model_claimed_judgment = claimed
   if (typeof value['model_claimed_in_competence'] === 'boolean') projected.model_claimed_in_competence = value['model_claimed_in_competence']
   const competence_reasoning = getString(value, 'competence_reasoning')
   if (competence_reasoning !== undefined) projected.competence_reasoning = competence_reasoning
   const reason = getString(value, 'reason')
   if (reason !== undefined) projected.reason = reason
   if (typeof value['circle_competence_unmet'] === 'boolean') projected.circle_competence_unmet = value['circle_competence_unmet']
-  const drivers = value['cashflow_drivers']
+  const drivers = value['understanding_drivers'] ?? value['cashflow_drivers']
   if (Array.isArray(drivers)) {
     const mapped = drivers.filter(isRecord).map((d): ResearchCaseCircleClaimProjection => {
       const c: ResearchCaseCircleClaimProjection = {}
@@ -1246,9 +1329,9 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
       if (typeof d['grounded'] === 'boolean') c.grounded = d['grounded']
       return c
     })
-    if (mapped.length > 0) projected.cashflow_drivers = mapped
+    if (mapped.length > 0) projected.drivers = mapped
   }
-  const breakers = value['predictability_breakers']
+  const breakers = value['key_moving_parts'] ?? value['comprehension_gaps'] ?? value['predictability_breakers']
   if (Array.isArray(breakers)) {
     const mapped = breakers.filter(isRecord).map((b): ResearchCaseCircleClaimProjection => {
       const c: ResearchCaseCircleClaimProjection = {}
@@ -1259,7 +1342,7 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
       if (typeof b['grounded'] === 'boolean') c.grounded = b['grounded']
       return c
     })
-    if (mapped.length > 0) projected.predictability_breakers = mapped
+    if (mapped.length > 0) projected.breakers = mapped
   }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
@@ -1291,16 +1374,17 @@ function getSourceDiscipline(payload: Record<string, unknown>): ResearchCaseSour
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
-function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjection | undefined {
-  const value = payload['red_team']
+function getInversion(payload: Record<string, unknown>): ResearchCaseInversionProjection | undefined {
+  // Two-era: new events emit `inversion`; legacy events carry `red_team` (same family shape).
+  const value = isRecord(payload['inversion']) ? payload['inversion'] : payload['red_team']
   if (!isRecord(value)) return undefined
-  const projected: ResearchCaseRedTeamProjection = {}
+  const projected: ResearchCaseInversionProjection = {}
   const status = getString(value, 'status')
   if (status !== undefined) projected.status = status
   const reason = getString(value, 'reason')
   if (reason !== undefined) projected.reason = reason
-  const strongest_bear_case = getString(value, 'strongest_bear_case')
-  if (strongest_bear_case !== undefined) projected.strongest_bear_case = strongest_bear_case
+  const caseAgainst = getString(value, 'strongest_case_against') ?? getString(value, 'strongest_bear_case')
+  if (caseAgainst !== undefined) projected.strongest_case_against = caseAgainst
   const moat_decay_scenario = getString(value, 'moat_decay_scenario')
   if (moat_decay_scenario !== undefined) projected.moat_decay_scenario = moat_decay_scenario
   const growth_credit_attack = getString(value, 'growth_credit_attack')
@@ -1309,19 +1393,6 @@ function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjec
   if (blindspots !== undefined) projected.shared_narrative_blindspots = blindspots
   const uncited = getStringArray(value, 'uncited_objection_refs')
   if (uncited !== undefined) projected.uncited_objection_refs = uncited
-  if (typeof value['objection_unaddressed'] === 'boolean') projected.objection_unaddressed = value['objection_unaddressed']
-
-  const rawWeak = value['weakest_rubric_items']
-  if (Array.isArray(rawWeak)) {
-    const items = rawWeak.filter(isRecord).map((w) => {
-      const item: { lane?: string; item?: string; why?: string } = {}
-      const lane = getString(w, 'lane'); if (lane !== undefined) item.lane = lane
-      const it = getString(w, 'item'); if (it !== undefined) item.item = it
-      const why = getString(w, 'why'); if (why !== undefined) item.why = why
-      return item
-    }).filter((w) => Object.keys(w).length > 0)
-    if (items.length > 0) projected.weakest_rubric_items = items
-  }
 
   const rawObj = value['strongest_objection']
   if (isRecord(rawObj)) {
@@ -1332,20 +1403,15 @@ function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjec
     if (Object.keys(obj).length > 0) projected.strongest_objection = obj
   }
 
-  const rawResp = value['synthesis_response']
-  if (isRecord(rawResp)) {
-    const resp: ResearchCaseRedTeamSynthesisResponseProjection = {}
-    const mode = getString(rawResp, 'mode'); if (mode !== undefined) resp.mode = mode
-    const text = getString(rawResp, 'text'); if (text !== undefined) resp.text = text
-    const rawDown = rawResp['downgrade']
-    if (isRecord(rawDown)) {
-      const down: { dimension?: string; from?: string; to?: string } = {}
-      const dimension = getString(rawDown, 'dimension'); if (dimension !== undefined) down.dimension = dimension
-      const from = getString(rawDown, 'from'); if (from !== undefined) down.from = from
-      const to = getString(rawDown, 'to'); if (to !== undefined) down.to = to
-      if (Object.keys(down).length > 0) resp.downgrade = down
-    }
-    if (Object.keys(resp).length > 0) projected.synthesis_response = resp
+  const rawConsensus = value['consensus_check']
+  if (isRecord(rawConsensus)) {
+    const cc: NonNullable<ResearchCaseInversionProjection['consensus_check']> = {}
+    const consensus_view = getString(rawConsensus, 'consensus_view'); if (consensus_view !== undefined) cc.consensus_view = consensus_view
+    const tvc = getString(rawConsensus, 'thesis_vs_consensus'); if (tvc !== undefined) cc.thesis_vs_consensus = tvc
+    const vj = getString(rawConsensus, 'variant_justification'); if (vj !== undefined) cc.variant_justification = vj
+    const ccCitations = getStringArray(rawConsensus, 'citations'); if (ccCitations !== undefined) cc.citations = ccCitations
+    if (typeof rawConsensus['grounded'] === 'boolean') cc.grounded = rawConsensus['grounded']
+    if (Object.keys(cc).length > 0) projected.consensus_check = cc
   }
 
   return Object.keys(projected).length === 0 ? undefined : projected
@@ -1366,8 +1432,8 @@ function getAdmitRiskField(value: unknown): ResearchCaseAdmitRiskFieldProjection
 function getAdmitCheapness(value: unknown): ResearchCaseAdmitCheapnessProjection | undefined {
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseAdmitCheapnessProjection = {}
-  const owner_earnings_yield = getNumber(value, 'owner_earnings_yield')
-  if (owner_earnings_yield !== undefined) projected.owner_earnings_yield = owner_earnings_yield
+  const fcf_yield = getNumber(value, 'fcf_yield') ?? getNumber(value, 'owner_earnings_yield')
+  if (fcf_yield !== undefined) projected.fcf_yield = fcf_yield
   const ev = getNumber(value, 'ev')
   if (ev !== undefined) projected.ev = ev
   const cheap = getBoolean(value, 'cheap')
@@ -1546,6 +1612,182 @@ function getSellRecommendation(
   return projected
 }
 
+/**
+ * One named moat test (tolerant flat shape over the computable/not-computable union): the harness
+ * computed it T0; the projection re-displays, never re-derives. Unknown keys are dropped.
+ */
+export type ResearchCaseMoatTestProjection = {
+  computable?: boolean
+  reason?: string
+  note?: string
+  years_used?: number
+  // capital efficiency
+  band?: string
+  median_roic?: number
+  latest_roic?: number
+  // two-engine
+  revenue_engine?: boolean
+  margin_engine?: boolean
+  passes?: boolean
+  revenue_cagr?: number
+  margin_trend_bps_per_year?: number
+  // standout (company side)
+  basis?: string
+  gross_margin_latest?: number
+  gross_margin_median?: number
+  gross_margin_trend_bps_per_year?: number
+}
+
+export type ResearchCaseMoatTestsProjection = {
+  capital_efficiency?: ResearchCaseMoatTestProjection
+  two_engine?: ResearchCaseMoatTestProjection
+  standout?: ResearchCaseMoatTestProjection
+}
+
+function getMoatTest(value: unknown): ResearchCaseMoatTestProjection | undefined {
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseMoatTestProjection = {}
+  for (const key of ['computable', 'revenue_engine', 'margin_engine', 'passes'] as const) {
+    const v = value[key]
+    if (typeof v === 'boolean') projected[key] = v
+  }
+  for (const key of [
+    'years_used', 'median_roic', 'latest_roic', 'revenue_cagr', 'margin_trend_bps_per_year',
+    'gross_margin_latest', 'gross_margin_median', 'gross_margin_trend_bps_per_year',
+  ] as const) {
+    const n = getNumber(value, key)
+    if (n !== undefined) projected[key] = n
+  }
+  for (const key of ['reason', 'note', 'band', 'basis'] as const) {
+    const s = getString(value, key)
+    if (s !== undefined) projected[key] = s
+  }
+  return projected
+}
+
+/**
+ * The management pillar's resolved judgment (S5) — a tolerant structural copy: the harness resolved
+ * it; the projection re-displays. Nested T0/retained blocks are self-describing computable unions,
+ * copied with the same tolerant primitive as the moat tests.
+ */
+export type ResearchCaseManagementJudgmentProjection = {
+  resolved_integrity?: string
+  resolved_talent?: string
+  judgment_degraded?: boolean
+  t0_contradicts_talent?: boolean
+  integrity?: {
+    communication_observations?: { observation: string; citation: string; grounded?: boolean }[]
+    comp_structure?: { summary?: string; incentive_metrics?: string[]; alignment?: string; citation?: string }
+    comp_grounded?: boolean
+    flags?: { claim: string; severity?: string; citation: string; grounded?: boolean }[]
+    grounded_high_flag_count?: number
+    proposed_integrity?: string
+    integrity_reasoning?: string
+  }
+  talent?: {
+    talent_drivers?: { evidence: string; citation: string; grounded?: boolean }[]
+    grounded_driver_count?: number
+    proposed_talent?: string
+    talent_reasoning?: string
+    talent_grounding_capped?: boolean
+  }
+  talent_t0?: Record<string, unknown>
+  retained_earnings?: Record<string, unknown>
+}
+
+function getManagementJudgment(payload: Record<string, unknown>): ResearchCaseManagementJudgmentProjection | undefined {
+  const value = payload['management_judgment']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseManagementJudgmentProjection = {}
+  const resolved_integrity = getString(value, 'resolved_integrity')
+  if (resolved_integrity !== undefined) projected.resolved_integrity = resolved_integrity
+  const resolved_talent = getString(value, 'resolved_talent')
+  if (resolved_talent !== undefined) projected.resolved_talent = resolved_talent
+  if (value['judgment_degraded'] === true) projected.judgment_degraded = true
+  if (value['t0_contradicts_talent'] === true) projected.t0_contradicts_talent = true
+  const rawIntegrity = value['integrity']
+  if (isRecord(rawIntegrity)) {
+    const integrity: NonNullable<ResearchCaseManagementJudgmentProjection['integrity']> = {}
+    const rawObs = rawIntegrity['communication_observations']
+    if (Array.isArray(rawObs)) {
+      const obs = rawObs.filter(isRecord)
+        .map((o) => ({ observation: getString(o, 'observation'), citation: getString(o, 'citation'), grounded: o['grounded'] === true }))
+        .filter((o): o is { observation: string; citation: string; grounded: boolean } => o.observation !== undefined && o.citation !== undefined)
+      if (obs.length > 0) integrity.communication_observations = obs
+    }
+    const rawComp = rawIntegrity['comp_structure']
+    if (isRecord(rawComp)) {
+      const comp: NonNullable<NonNullable<ResearchCaseManagementJudgmentProjection['integrity']>['comp_structure']> = {}
+      const summary = getString(rawComp, 'summary')
+      if (summary !== undefined) comp.summary = summary
+      const alignment = getString(rawComp, 'alignment')
+      if (alignment !== undefined) comp.alignment = alignment
+      const citation = getString(rawComp, 'citation')
+      if (citation !== undefined) comp.citation = citation
+      const metrics = getStringArray(rawComp, 'incentive_metrics')
+      if (metrics !== undefined) comp.incentive_metrics = metrics
+      integrity.comp_structure = comp
+    }
+    if (typeof rawIntegrity['comp_grounded'] === 'boolean') integrity.comp_grounded = rawIntegrity['comp_grounded']
+    const rawFlags = rawIntegrity['flags']
+    if (Array.isArray(rawFlags)) {
+      const flags = rawFlags.filter(isRecord)
+        .map((f) => {
+          const severity = getString(f, 'severity')
+          return {
+            claim: getString(f, 'claim'), citation: getString(f, 'citation'), grounded: f['grounded'] === true,
+            ...(severity !== undefined ? { severity } : {}),
+          }
+        })
+        .filter((f): f is { claim: string; citation: string; grounded: boolean; severity?: string } => f.claim !== undefined && f.citation !== undefined)
+      if (flags.length > 0) integrity.flags = flags
+    }
+    const ghfc = getNumber(rawIntegrity, 'grounded_high_flag_count')
+    if (ghfc !== undefined) integrity.grounded_high_flag_count = ghfc
+    const proposed_integrity = getString(rawIntegrity, 'proposed_integrity')
+    if (proposed_integrity !== undefined) integrity.proposed_integrity = proposed_integrity
+    const integrity_reasoning = getString(rawIntegrity, 'integrity_reasoning')
+    if (integrity_reasoning !== undefined) integrity.integrity_reasoning = integrity_reasoning
+    projected.integrity = integrity
+  }
+  const rawTalent = value['talent']
+  if (isRecord(rawTalent)) {
+    const talent: NonNullable<ResearchCaseManagementJudgmentProjection['talent']> = {}
+    const rawDrivers = rawTalent['talent_drivers']
+    if (Array.isArray(rawDrivers)) {
+      const drivers = rawDrivers.filter(isRecord)
+        .map((d) => ({ evidence: getString(d, 'evidence'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+        .filter((d): d is { evidence: string; citation: string; grounded: boolean } => d.evidence !== undefined && d.citation !== undefined)
+      if (drivers.length > 0) talent.talent_drivers = drivers
+    }
+    const gdc = getNumber(rawTalent, 'grounded_driver_count')
+    if (gdc !== undefined) talent.grounded_driver_count = gdc
+    const proposed_talent = getString(rawTalent, 'proposed_talent')
+    if (proposed_talent !== undefined) talent.proposed_talent = proposed_talent
+    const talent_reasoning = getString(rawTalent, 'talent_reasoning')
+    if (talent_reasoning !== undefined) talent.talent_reasoning = talent_reasoning
+    if (rawTalent['talent_grounding_capped'] === true) talent.talent_grounding_capped = true
+    projected.talent = talent
+  }
+  // The T0 + retained blocks are harness-computed self-describing unions — carried as tolerant records.
+  if (isRecord(value['talent_t0'])) projected.talent_t0 = value['talent_t0'] as Record<string, unknown>
+  if (isRecord(value['retained_earnings'])) projected.retained_earnings = value['retained_earnings'] as Record<string, unknown>
+  return projected
+}
+
+function getMoatTests(payload: Record<string, unknown>): ResearchCaseMoatTestsProjection | undefined {
+  const value = payload['moat_tests']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseMoatTestsProjection = {}
+  const ce = getMoatTest(value['capital_efficiency'])
+  if (ce !== undefined) projected.capital_efficiency = ce
+  const te = getMoatTest(value['two_engine'])
+  if (te !== undefined) projected.two_engine = te
+  const so = getMoatTest(value['standout'])
+  if (so !== undefined) projected.standout = so
+  return projected
+}
+
 function getInsiderSummary(payload: Record<string, unknown>): ResearchCaseInsiderSummaryProjection | undefined {
   const value = payload['insider_summary']
   if (!isRecord(value)) {
@@ -1607,10 +1849,15 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
     const risk_free_rate = getNumber(di, 'risk_free_rate') ?? getNumber(di, 'ten_year_treasury')
     const risk_free_basis = getString(di, 'risk_free_basis') ?? getString(di, 'ten_year_treasury_basis')
     const equity_premium = getNumber(di, 'equity_premium')
+    // B2 (Phase 4): the current provenance shape — the flat required return (setting | book_default).
+    const required_return = getNumber(di, 'required_return')
+    const required_return_basis = getString(di, 'required_return_basis')
     projected.discount_inputs = {
       ...(risk_free_rate !== undefined ? { risk_free_rate } : {}),
       ...(risk_free_basis !== undefined ? { risk_free_basis } : {}),
       ...(equity_premium !== undefined ? { equity_premium } : {}),
+      ...(required_return !== undefined ? { required_return } : {}),
+      ...(required_return_basis !== undefined ? { required_return_basis } : {}),
     }
   }
   const fxRaw = value['fx_conversion']
@@ -1710,10 +1957,64 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (proposed_buy_below !== undefined) projected.proposed_buy_below = proposed_buy_below
   const in_buy_zone = getBoolean(value, 'in_buy_zone')
   if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
+  // B2 (Phase 4): the load-up threshold/zone + the valuation basis + exit-multiple provenance.
+  const load_up_below = getNumber(value, 'load_up_below')
+  if (load_up_below !== undefined) projected.load_up_below = load_up_below
+  const intrinsic_value_per_share = getNumber(value, 'intrinsic_value_per_share')
+  if (intrinsic_value_per_share !== undefined) projected.intrinsic_value_per_share = intrinsic_value_per_share
+  const rawFcfBasis = value['fcf_basis']
+  if (isRecord(rawFcfBasis)) {
+    const fb: NonNullable<ResearchCaseValuationProjection['fcf_basis']> = {}
+    const fy = getNumber(rawFcfBasis, 'fiscal_year'); if (fy !== undefined) fb.fiscal_year = fy
+    const cfo = getNumber(rawFcfBasis, 'cfo_musd'); if (cfo !== undefined) fb.cfo_musd = cfo
+    const capex = getNumber(rawFcfBasis, 'capex_musd'); if (capex !== undefined) fb.capex_musd = capex
+    const fcf = getNumber(rawFcfBasis, 'fcf_musd'); if (fcf !== undefined) fb.fcf_musd = fcf
+    const cur = getString(rawFcfBasis, 'reporting_currency'); if (cur !== undefined) fb.reporting_currency = cur
+    const sid = getString(rawFcfBasis, 'source_id'); if (sid !== undefined) fb.source_id = sid
+    if (Object.keys(fb).length > 0) projected.fcf_basis = fb
+  }
+  const rawCapexDa = value['capex_vs_da']
+  if (isRecord(rawCapexDa)) {
+    const cd: NonNullable<ResearchCaseValuationProjection['capex_vs_da']> = {}
+    const tc = getNumber(rawCapexDa, 'total_capex_musd'); if (tc !== undefined) cd.total_capex_musd = tc
+    const da = getNumber(rawCapexDa, 'd_and_a_musd'); if (da !== undefined) cd.d_and_a_musd = da
+    const r = getNumber(rawCapexDa, 'capex_to_d_and_a'); if (r !== undefined) cd.capex_to_d_and_a = r
+    if (typeof rawCapexDa['growth_capex_heavy'] === 'boolean') cd.growth_capex_heavy = rawCapexDa['growth_capex_heavy']
+    const note = getString(rawCapexDa, 'note'); if (note !== undefined) cd.note = note
+    if (Object.keys(cd).length > 0) projected.capex_vs_da = cd
+  }
+  const in_load_up_zone = getBoolean(value, 'in_load_up_zone')
+  if (in_load_up_zone !== undefined) projected.in_load_up_zone = in_load_up_zone
+  const valuation_basis = getString(value, 'valuation_basis')
+  if (valuation_basis !== undefined) projected.valuation_basis = valuation_basis
+  const exit_multiple_comps_median = getNumber(value, 'exit_multiple_comps_median')
+  if (exit_multiple_comps_median !== undefined) projected.exit_multiple_comps_median = exit_multiple_comps_median
+  const rawComps = value['exit_multiple_comps']
+  if (Array.isArray(rawComps)) {
+    const comps: { name?: string; p_fcf?: number }[] = []
+    for (const c of rawComps.filter(isRecord)) {
+      const name = getString(c, 'name')
+      const p_fcf = getNumber(c, 'p_fcf')
+      comps.push({ ...(name !== undefined ? { name } : {}), ...(p_fcf !== undefined ? { p_fcf } : {}) })
+    }
+    if (comps.length > 0) projected.exit_multiple_comps = comps
+  }
+  const exit_multiple_used = getNumber(value, 'exit_multiple_used')
+  if (exit_multiple_used !== undefined) projected.exit_multiple_used = exit_multiple_used
+  const exit_multiple_source = getString(value, 'exit_multiple_source')
+  if (exit_multiple_source !== undefined) projected.exit_multiple_source = exit_multiple_source
+  const exit_multiple_basis_note = getString(value, 'exit_multiple_basis_note')
+  if (exit_multiple_basis_note !== undefined) projected.exit_multiple_basis_note = exit_multiple_basis_note
   const implied_exit_multiple = getNumber(value, 'implied_exit_multiple')
   if (implied_exit_multiple !== undefined) projected.implied_exit_multiple = implied_exit_multiple
   const sanity_flags = getStringArray(value, 'sanity_flags')
   if (sanity_flags !== undefined) projected.sanity_flags = sanity_flags
+  const share_count_source = getString(value, 'share_count_source')
+  if (share_count_source !== undefined) projected.share_count_source = share_count_source
+  const valuation_caveats = getStringArray(value, 'valuation_caveats')
+  if (valuation_caveats !== undefined) projected.valuation_caveats = valuation_caveats
+  const degraded_flags = getStringArray(value, 'degraded_flags')
+  if (degraded_flags !== undefined) projected.degraded_flags = degraded_flags
   const valuation_reasoning = getValuationReasoning(value)
   if (valuation_reasoning !== undefined) projected.valuation_reasoning = valuation_reasoning
   // LEGACY (R1 tolerates): the retired band verdict_state still projects from old events (no throw); new
@@ -1834,6 +2135,7 @@ function applyString(
     | 'finding_id'
     | 'specialist_lane'
     | 'synthesis_id'
+    | 'synthesis_summary'
     | 'decision_id'
     | 'investment_verdict'
     | 'strategy_compliance'
@@ -1852,6 +2154,7 @@ function applyString(
     | 'supersedes_research_case_id'
     | 'engine_version'
     | 'engine_commit'
+    | 'entity_name'
   >,
   value: string | undefined,
 ): void {
@@ -2181,6 +2484,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'deep_dive_id', getString(event.payload, 'deep_dive_id'))
       applyString(researchCase, 'synthesis_id', getString(event.payload, 'synthesis_id'))
+      applyString(researchCase, 'synthesis_summary', getString(event.payload, 'synthesis_summary'))
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       continue
@@ -2198,6 +2502,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'deep_dive_id', getString(event.payload, 'deep_dive_id'))
       applyString(researchCase, 'synthesis_id', getString(event.payload, 'synthesis_id'))
+      applyString(researchCase, 'synthesis_summary', getString(event.payload, 'synthesis_summary'))
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       continue
@@ -2239,16 +2544,14 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // MARGIN-OF-SAFETY AUDIT SURFACE — legacy-tolerant guarded reads (absent on old analysis events).
       applyString(researchCase, 'key_wrong_assumption', getString(event.payload, 'key_wrong_assumption'))
       applyStringArray(researchCase, 'thesis_break_triggers', getStringArray(event.payload, 'thesis_break_triggers'))
-      // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) + Guard-2 incoherence flag. Distinct field name so
-      // the retired legacy `margin_of_safety` haircut string never collides; old events simply project nothing.
-      const marginOfSafetyJudgment = getMarginOfSafetyJudgment(event.payload, 'margin_of_safety_judgment')
-      if (marginOfSafetyJudgment !== undefined) researchCase.margin_of_safety_judgment = marginOfSafetyJudgment
-      const marginOfSafetyMoatUngrounded = getBoolean(event.payload, 'margin_of_safety_moat_ungrounded')
-      if (marginOfSafetyMoatUngrounded !== undefined) researchCase.margin_of_safety_moat_ungrounded = marginOfSafetyMoatUngrounded
+      // D3: the joint MoS judgment is retired — legacy payload keys (margin_of_safety_judgment,
+      // margin_of_safety_moat_ungrounded) are tolerated by ignore.
       // Root-level engine-version provenance (stamped at all three emission sites). Legacy-tolerant:
       // absent on pre-versioning events → undefined (so the dossier marker shows "unknown · pre-versioning").
       applyString(researchCase, 'engine_version', getString(event.payload, 'engine_version'))
       applyString(researchCase, 'engine_commit', getString(event.payload, 'engine_commit'))
+      // Display-only registrant name (board rows show "TICKER — Name"); legacy events simply lack it.
+      applyString(researchCase, 'entity_name', getString(event.payload, 'entity_name'))
       const valuation = getValuation(event.payload)
       if (valuation !== undefined) {
         researchCase.valuation = valuation
@@ -2261,6 +2564,31 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (insiderSummary !== undefined) {
         researchCase.insider_summary = insiderSummary
       }
+      const moatTests = getMoatTests(event.payload)
+      if (moatTests !== undefined) {
+        researchCase.moat_tests = moatTests
+      }
+      const rawOnePager = event.payload['one_pager']
+      if (isRecord(rawOnePager)) {
+        const op: NonNullable<ResearchCaseProjection['one_pager']> = {}
+        const plain_english = getString(rawOnePager, 'plain_english')
+        if (plain_english !== undefined) op.plain_english = plain_english
+        for (const key of ['segments', 'revenue_drivers', 'most_profitable_segments', 'strengths', 'weak_spots', 'growth_levers'] as const) {
+          const arr = getStringArray(rawOnePager, key)
+          if (arr !== undefined) op[key] = arr
+        }
+        if (Object.keys(op).length > 0) researchCase.one_pager = op
+      }
+      const managementJudgment = getManagementJudgment(event.payload)
+      if (managementJudgment !== undefined) {
+        researchCase.management_judgment = managementJudgment
+      }
+      const managementVetoApplied = getString(event.payload, 'management_veto_applied')
+      if (managementVetoApplied !== undefined) researchCase.management_veto_applied = managementVetoApplied
+      const managementVetoReason = getString(event.payload, 'management_veto_reason')
+      if (managementVetoReason !== undefined) researchCase.management_veto_reason = managementVetoReason
+      if (getBoolean(event.payload, 'moat_gate_short_circuited') === true) researchCase.moat_gate_short_circuited = true
+      if (getBoolean(event.payload, 'moat_gate_overridden') === true) researchCase.moat_gate_overridden = true
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial
@@ -2280,9 +2608,9 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (sourceDiscipline !== undefined) {
         researchCase.source_discipline = sourceDiscipline
       }
-      const redTeam = getRedTeam(event.payload)
-      if (redTeam !== undefined) {
-        researchCase.red_team = redTeam
+      const inversionLayer = getInversion(event.payload)
+      if (inversionLayer !== undefined) {
+        researchCase.inversion = inversionLayer
       }
       continue
     }
@@ -2407,6 +2735,13 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         ...(typeof p['prior_thesis_summary'] === 'string' ? { prior_thesis_summary: p['prior_thesis_summary'] } : {}),
         new_filings: filings(p['new_filings']),
         skipped_filings: filings(p['skipped_filings']),
+        ...(p['new_annual_filing'] !== null && typeof p['new_annual_filing'] === 'object'
+          ? { new_annual_filing: {
+              form: String((p['new_annual_filing'] as Record<string, unknown>)['form'] ?? ''),
+              filed: String((p['new_annual_filing'] as Record<string, unknown>)['filed'] ?? ''),
+              url: String((p['new_annual_filing'] as Record<string, unknown>)['url'] ?? ''),
+            } }
+          : {}),
         ...(p['re_review_ungrounded'] === true ? { re_review_ungrounded: true } : {}),
         ...(typeof p['ungrounded_reason'] === 'string' ? { ungrounded_reason: p['ungrounded_reason'] } : {}),
         ...(typeof p['checked_at'] === 'string' ? { checked_at: p['checked_at'] } : {}),

@@ -142,23 +142,23 @@ describe('LearnTabs', () => {
     expect(nextTabIndex(2, 'a', LEARN_TABS.length)).toBe(2) // ignored key
   })
 
-  it('renders the live two-stage DCF params + the R1 model-proposes-buy-below reframe on the strategy panel', () => {
+  it('E2c: renders the live BOOK-model params (FCF, comps-anchored exit, 15% required return, 30/50 margins)', () => {
     const html = render('strategy')
     const lower = html.toLowerCase()
-    // Live params still render: 18× cap + the savings-anchored discount. F.2 — the discount anchor is the
-    // compliant savings rate (effective default 7.5%), which the Learn panel rounds to a whole percent (8%).
-    expect(html).toContain('18×')
-    expect(html).toContain('8%')
-    // R1 reframe: the model proposes the verdict/valuation/buy-below with cited reasoning; the two-stage
-    // DCF is a cross-check sanity reference, not the decision; a sanity-check flags absurdity, human decides.
-    expect(lower).toContain('the model proposes')
-    expect(lower).toContain('cited reasoning')
-    expect(lower).toContain('buy-below')
-    expect(lower).toContain('cross-check')
-    expect(lower).toContain('sanity-check')
-    // The monopoly tier no longer loosens valuation — it is described as a durability signal.
-    expect(lower).toContain('durability')
-    expect(lower).toContain('uniform')
+    // Owner rule (2026-07-12): the fixed exit band is retired — the exit multiple is anchored to
+    // the model's own NAMED comparables (median, tilted conservative); no band renders.
+    expect(html).not.toContain('8–20×')
+    expect(html.toLowerCase()).toContain('named comparables')
+    expect(html).toContain('15%')
+    expect(html).toContain('30%')
+    expect(html).toContain('50%')
+    // The book reframe: the harness computes the intrinsic value; the model's two cited judgments.
+    expect(lower).toContain('cfo − capex')
+    expect(lower).toContain('exit multiple')
+    expect(lower).toContain('margin of safety')
+    expect(lower).not.toContain('market-implied growth') // F: the implied lens is retired
+    // FCF is honest fail-closed (no proxy).
+    expect(lower).toContain('fail-closed')
     // The retired band/gap framing must NOT be reintroduced (Phase-8 tripwire — retired band/MoS terms).
     expect(lower).not.toContain('required growth gap')
     expect(lower).not.toContain('sustainable-growth band')
@@ -183,10 +183,10 @@ describe('LearnTabs', () => {
     expect(html).toContain('already-wonderful')
     expect(html).toContain('permanent-loss risk')
     expect(html).toContain('bear case')
-    // Admit human-decided: signed thesis (not pre-filled) + provisional-MoS buy-below.
+    // Admit human-decided: signed thesis (not pre-filled) + computed buy-below.
     expect(html).toContain('signed thesis')
     expect(html).toContain('never pre-filled')
-    expect(html).toContain('provisional')
+    expect(html).toContain('computed')
     // NO OVERCLAIM: no admit-recommendation panel yet.
     expect(html).toContain('no admit-recommendation panel yet')
   })
@@ -233,7 +233,7 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('screened out')
     // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
     // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).
-    expect(html.toLowerCase()).toContain('thesis re-review')
+    expect(html.toLowerCase()).toContain('check-in') // renamed from 'thesis re-review' (owner, Phase 4)
     expect(html.toLowerCase()).toContain('since a decision')
     expect(html.toLowerCase()).toContain('intact, weakened, broken')
     expect(html.toLowerCase()).toContain('inconclusive')

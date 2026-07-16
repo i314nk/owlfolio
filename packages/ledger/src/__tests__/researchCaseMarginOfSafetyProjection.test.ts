@@ -80,9 +80,9 @@ describe('projectResearchCases — margin-of-safety audit surface', () => {
     expect(rc.investment_verdict).toBe('WATCH')
   })
 
-  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned): the structured judgment projects under the DISTINCT
-  // key margin_of_safety_judgment (never colliding with the retired legacy `margin_of_safety` haircut string).
-  it('projects the structured margin_of_safety_judgment (sources + per-source reasoning + adequacy)', () => {
+  // D3: the joint MoS judgment is RETIRED — legacy events carrying the payload keys are tolerated by
+  // ignore: replay never throws and neither key surfaces on the projection.
+  it('D3: legacy margin_of_safety_judgment / moat_ungrounded payload keys are ignored (no throw, not projected)', () => {
     const cases = projectResearchCases([
       created(),
       analysisDrafted({
@@ -93,22 +93,13 @@ describe('projectResearchCases — margin-of-safety audit surface', () => {
           adequacy: 'adequate',
           reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
         },
+        margin_of_safety_moat_ungrounded: true,
       }),
     ])
     const rc = cases.find((c) => c.research_case_id === RC)!
-    expect(rc.margin_of_safety_judgment?.sources).toEqual(['price', 'moat'])
-    expect(rc.margin_of_safety_judgment?.adequacy).toBe('adequate')
-    expect(rc.margin_of_safety_judgment?.moat_durability_reasoning).toContain('moat')
-    expect(rc.margin_of_safety_judgment?.reasoning.length).toBeGreaterThan(0)
-  })
-
-  it('projects the Guard-2 margin_of_safety_moat_ungrounded flag when present', () => {
-    const cases = projectResearchCases([
-      created(),
-      analysisDrafted({ margin_of_safety_moat_ungrounded: true }),
-    ])
-    const rc = cases.find((c) => c.research_case_id === RC)!
-    expect(rc.margin_of_safety_moat_ungrounded).toBe(true)
+    expect('margin_of_safety_judgment' in rc).toBe(false)
+    expect('margin_of_safety_moat_ungrounded' in rc).toBe(false)
+    expect(rc.investment_verdict).toBe('WATCH')
   })
 
   // FAIL-CLOSED: the shariah deep re-screen lane grounded no verifiable source (skipped), so the deep
@@ -147,19 +138,19 @@ describe('projectResearchCases — margin-of-safety audit surface', () => {
       }),
     ])
     const rc = cases.find((c) => c.research_case_id === RC)!
-    // The retired legacy string is NOT projected as the new structured judgment.
-    expect(rc.margin_of_safety_judgment).toBeUndefined()
+    // The retired legacy string is NOT projected.
+    expect('margin_of_safety_judgment' in rc).toBe(false)
     // Replay did not throw; the rest projects.
     expect(rc.investment_verdict).toBe('WATCH')
   })
 
-  it('legacy-tolerant: a malformed margin_of_safety_judgment (no valid sources) projects nothing, no throw', () => {
+  it('legacy-tolerant: a malformed margin_of_safety_judgment projects nothing, no throw', () => {
     const cases = projectResearchCases([
       created(),
       analysisDrafted({ margin_of_safety_judgment: { sources: [], adequacy: 'adequate', reasoning: 'x' } }),
     ])
     const rc = cases.find((c) => c.research_case_id === RC)!
-    expect(rc.margin_of_safety_judgment).toBeUndefined()
+    expect('margin_of_safety_judgment' in rc).toBe(false)
     expect(rc.investment_verdict).toBe('WATCH')
   })
 })

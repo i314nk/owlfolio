@@ -51,17 +51,18 @@ describe('/learn Quality & bias hygiene copy', () => {
     }
   })
 
-  it('makes no overclaim: states it forces the question and does NOT score / pass-fail / auto-reject', () => {
+  it('makes no overclaim: states it frames the question and does NOT score / pass-fail / auto-reject', () => {
     const lower = html.toLowerCase()
-    // It must SAY it is not a gate/score (forces the question, never scores).
-    expect(lower).toMatch(/forces the question|never scores|not a (score|gate)|no pass\/fail|never auto-reject/)
-    // Business = agent-marshaled evidence + human affirms; cognitive = human-only (agent never pre-fills).
+    // It must SAY it is not a gate/score (prompts, never scores).
+    expect(lower).toMatch(/prompts, not gates|never scores|not a (score|gate)|no pass\/fail|never auto-reject/)
+    // Business = agent-marshaled evidence; cognitive = human-only (agent never pre-fills).
     expect(lower).toContain('human')
     expect(lower).toMatch(/marshal|evidence/)
-    // Completion-block on admission + re-underwrite sign-off.
-    expect(lower).toMatch(/completion-block|completion block/)
+    // REVIEW RETIRED (2026-07-14): the sign-off completion-blocks are GONE (review-and-promote = the
+    // promote is the commitment) — the copy must say there is no checklist ceremony at sign-off.
+    expect(lower).not.toMatch(/completion-block|completion block/)
+    expect(lower).toMatch(/no checklist ceremony|promote itself is the human commitment/)
     expect(lower).toMatch(/admission|admit/)
-    expect(lower).toMatch(/re-underwrite|re-underwrite sign-off|review/)
   })
 
   it('renders NO "{n} of {m} addressed" progress/score readout (copy lists items, never counts them)', () => {
@@ -74,13 +75,15 @@ describe('/learn Quality & bias hygiene copy', () => {
 describe('/strategy hygiene line', () => {
   const html = renderStrategy()
 
-  it('mentions the two hygiene checklists as a completion-block, decision-neutral', () => {
+  it('mentions the two hygiene checklists as decision-neutral prompts (no sign-off ceremony)', () => {
     const lower = html.toLowerCase()
     expect(lower).toMatch(/hygiene|bias check/)
     expect(lower).toMatch(/business/)
     expect(lower).toMatch(/cognitive/)
-    expect(lower).toMatch(/completion-block|completion block/)
-    // No overclaim: forces the question / does not score.
-    expect(lower).toMatch(/forces the question|never scores|not a (score|gate)|never auto-reject/)
+    // REVIEW RETIRED (2026-07-14): no completion-block claim survives.
+    expect(lower).not.toMatch(/completion-block|completion block/)
+    expect(lower).toMatch(/no checklist ceremony|promote itself is the human commitment/)
+    // No overclaim: prompts / does not score.
+    expect(lower).toMatch(/prompts, not gates|never scores|not a (score|gate)|never auto-reject/)
   })
 })

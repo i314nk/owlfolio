@@ -7,7 +7,7 @@ import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../li
 import { evaluateOnboardingGate } from '../../../../lib/onboardingGate'
 import { enqueueResearchRun } from '../../../../lib/workflow'
 
-function parseRequestBody(body: unknown): { ticker: string; company_id?: string; supersedes_research_case_id?: string } {
+function parseRequestBody(body: unknown): { ticker: string; company_id?: string; supersedes_research_case_id?: string; moat_gate_override?: boolean } {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('Request body must be an object')
   }
@@ -33,10 +33,20 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string;
     supersedesResearchCaseId = record.supersedes_research_case_id.trim()
   }
 
+  // S6: the user-authored moat-gate override — strictly boolean true (anything else is malformed).
+  let moatGateOverride: boolean | undefined
+  if ('moat_gate_override' in record && record.moat_gate_override !== undefined) {
+    if (record.moat_gate_override !== true && record.moat_gate_override !== false) {
+      throw new Error('moat_gate_override must be a boolean')
+    }
+    moatGateOverride = record.moat_gate_override
+  }
+
   return {
     ticker,
     ...(companyId === undefined || companyId.length === 0 ? {} : { company_id: companyId }),
     ...(supersedesResearchCaseId === undefined ? {} : { supersedes_research_case_id: supersedesResearchCaseId }),
+    ...(moatGateOverride === true ? { moat_gate_override: true } : {}),
   }
 }
 

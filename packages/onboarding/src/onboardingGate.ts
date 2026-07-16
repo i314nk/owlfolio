@@ -1,5 +1,4 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { projectInvestableCapital } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
 import { type EnvKeyOptions } from './envKeys'
 import { buildOnboardingGate, LLM_API_KEY_GROUPS, type OnboardingGate } from './providerKeys'
@@ -7,11 +6,11 @@ import { projectConnectedProviders } from './providerConnections'
 
 /**
  * Server-side evaluation of the onboarding gate against the real sources of
- * truth: the ledger (connected providers + investable capital). The deep-dive
+ * truth: the ledger (connected providers). The deep-dive
  * start path composes this with the existing `research_engine_enabled` switch and
  * refuses with a NAMED missing item when incomplete.
  *
- * The gate is frontier-LLM-connected + investable-capital-set ONLY. A market-data
+ * The gate is frontier-LLM-connected ONLY (scale-down S5). A market-data
  * API key is NOT a prerequisite (the owner uses SEC EDGAR directly), so it never
  * blocks research even though it remains a settable tool key on the providers page.
  */
@@ -40,27 +39,24 @@ export type EvaluateOnboardingGateArgs = {
 const FRONTIER_LLM_GROUP_IDS = new Set(LLM_API_KEY_GROUPS.map((group) => group.id))
 
 export async function evaluateOnboardingGate(args: EvaluateOnboardingGateArgs): Promise<OnboardingGate> {
-  const [ledgerFrontierLlm, hasCapital] = await readLedgerSignals(args.ledgerPath)
+  const ledgerFrontierLlm = await readLedgerSignals(args.ledgerPath)
   const hasFrontierLlm = ledgerFrontierLlm || args.configuredProviderReady === true
 
   return buildOnboardingGate({
     has_frontier_llm_connected: hasFrontierLlm,
-    has_investable_capital: hasCapital,
   })
 }
 
-async function readLedgerSignals(ledgerPath: string | undefined): Promise<[boolean, boolean]> {
+async function readLedgerSignals(ledgerPath: string | undefined): Promise<boolean> {
   if (ledgerPath === undefined) {
-    return [false, false]
+    return false
   }
 
   const store = new SQLiteEventStore(ledgerPath)
   try {
     const events = await store.list()
     const connected = projectConnectedProviders(events)
-    const hasFrontierLlm = connected.some((providerId) => FRONTIER_LLM_GROUP_IDS.has(providerId))
-    const hasCapital = projectInvestableCapital(events) !== undefined
-    return [hasFrontierLlm, hasCapital]
+    return connected.some((providerId) => FRONTIER_LLM_GROUP_IDS.has(providerId))
   } finally {
     store.close()
   }

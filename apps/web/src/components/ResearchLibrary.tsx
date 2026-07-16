@@ -1,6 +1,8 @@
 import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import type { ResearchCaseProjection, ResearchCaseStage } from '@owlfolio/ledger/projections/researchCaseProjection'
+
+import { titleCaseEntityName } from '../lib/entityName'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { OwlButtonLink, RouteHeader } from './designSystem'
@@ -277,18 +279,27 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
       { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' } },
       createElement(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: '0.15rem' } },
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.15rem', minWidth: 0 } },
+        // "TICKER — Company Name": the registrant name (title-cased from EDGAR) rides the title row
+        // and shrinks behind an ellipsis; legacy cases without a recorded name keep the id line.
         createElement(
-          'a',
-          {
-            className: 'owl-focusable',
-            href: `/research/${researchCase.research_case_id}`,
-            style: dossierLinkStyle,
-            'aria-label': `Open research dossier for ${ticker}`,
-          },
-          ticker,
+          'div',
+          { style: { alignItems: 'baseline', display: 'flex', gap: '0.45rem', minWidth: 0 } },
+          createElement(
+            'a',
+            {
+              className: 'owl-focusable',
+              href: `/research/${researchCase.research_case_id}`,
+              style: { ...dossierLinkStyle, whiteSpace: 'nowrap' },
+              'aria-label': `Open research dossier for ${ticker}`,
+            },
+            ticker,
+          ),
+          researchCase.entity_name !== undefined
+            ? createElement('span', { style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(researchCase.entity_name)}`)
+            : null,
         ),
-        company !== undefined
+        researchCase.entity_name === undefined && company !== undefined
           ? createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, company)
           : null,
       ),

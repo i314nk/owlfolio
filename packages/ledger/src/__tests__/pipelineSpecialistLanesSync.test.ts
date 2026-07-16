@@ -1,6 +1,6 @@
 /**
- * Drift-guard: PIPELINE_SPECIALIST_LANES must match the canonical 5-lane
- * Buffett-Munger deep-dive set in @owlfolio/workflow.
+ * Drift-guard: PIPELINE_SPECIALIST_LANES must match the canonical PILLAR
+ * Buffett-Munger deep-dive set in @owlfolio/workflow (S6, Phase 3).
  *
  * NOTE: @owlfolio/workflow depends on @owlfolio/ledger, so importing workflow
  * from this package would create a circular dependency. The cross-package
@@ -20,15 +20,13 @@ import { PIPELINE_SPECIALIST_LANES } from '../projections/pipelineProjection'
  * Shariah is not a parallel lane — it is the always-on focused Shariah-reasoning pass.
  */
 const EXPECTED_LANES = [
-  'business_quality',
+  'understand',
   'moat',
   'management',
-  'financial_quality',
-  'risks',
 ] as const
 
 describe('PIPELINE_SPECIALIST_LANES drift guard', () => {
-  it('matches the 5-lane buffettMungerDeepDiveLanes contract (valuation and shariah are focused passes, not lanes)', () => {
+  it('matches the pillar buffettMungerDeepDiveLanes contract (valuation and shariah are focused passes, not lanes)', () => {
     expect([...PIPELINE_SPECIALIST_LANES]).toEqual([...EXPECTED_LANES])
   })
 })

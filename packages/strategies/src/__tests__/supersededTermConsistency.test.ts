@@ -58,7 +58,6 @@ const SCAN_SET: string[] = [
   'apps/web/src/components/ResearchCasePanel.tsx',
   'apps/web/src/components/WatchlistPanel.tsx',
   'apps/web/src/components/PipelineObservatory.tsx',
-  'apps/web/src/components/PerformancePanel.tsx',
 ]
 
 /**
@@ -137,14 +136,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // band the implied growth is judged against) and must NOT trip — so the matcher requires "ceiling".
     label: 'growth-band-ceiling — replaced by one named single_growth_cap (Phase 1.3)',
     pattern: /growth[\s-]band[\s-]ceiling|band[\s-]ceiling/i,
-    allow: [
-      {
-        file: 'docs/architecture/owlfolio-v2-buffett-munger-strategy.md',
-        snippet:
-          'This replaces the retired stacked reinvestment×ROIC + growth-band-ceilings + ROIC-eligibility-gate stack',
-        reason: '§4.2 names the RETIRED growth-band-ceilings stack to say it was replaced by one named cap.',
-      },
-    ],
+    // The strategy doc's book-model rewrite (2026-07) dropped its retirement-describing mention of the
+    // stacked growth-band-ceilings trio entirely, so no allow entries remain — any new hit is stale copy.
+    allow: [],
   },
   {
     // Valuation-core revision: the MoS-as-PRICE-HAIRCUT knob is retired. Conservatism is now the required
@@ -152,47 +146,23 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel, and
     // the post-mortem field lives in packages. (The `widenedMarginOfSafety`/`marginOfSafetyForMoat`
     // functions were removed as dead code.)
-    label: 'margin of safety as a PRICE haircut — retired; the model proposes a buy-below with cited reasoning (R1)',
-    pattern: /margin of safety|\bMoS\b|fair[\s-]value range|provisional[\s-]*MoS/i,
+    // B2/E2c UPDATE (2026-07-12): "margin of safety" is CURRENT vocabulary again — the BOOK method's
+    // rule 7 (buy ≥30% below IV) and rule 8 (load up ≥50% below) are COMPUTED margins off the FCF
+    // intrinsic value, owner-locked. What stays retired is the R1-era HAIRCUT/RANGE framing: a
+    // "fair-value range" and a "provisional MoS" applied as a price haircut to a forward fair value.
+    // The pattern now targets only the retired framings; the book's margin-of-safety copy is current.
+    label: 'MoS as a fair-value-range price HAIRCUT — retired framing (R1); the book 30/50 margins are current',
+    pattern: /fair[\s-]value range|provisional[\s-]*MoS|MoS[\s-]*haircut|haircut(?:ed)?\s+(?:the\s+)?fair\s+value/i,
     scan: UI_COPY_SCAN_SET,
-    // RELIGHTENED DECISION (R1): the MoS-as-haircut framing is now fully GONE from the UI copy (the
-    // StrategyOverview retirement comment that named "price-discount margin of safety" was removed when the
-    // band/gap copy was reframed to model-proposes-buy-below). No allow entry is needed — the term must not
-    // appear in the UI copy at all.
     allow: [],
   },
   {
     label: 'valuation multiple as a HARD cap / truncation — now a surfaced cap_exceeded FLAG (Phase 1.6)',
     // A multiple framed as a hard cap or a (silent) truncation. The current copy says it is NOT one of these.
     pattern: /hard\s*cap|hard\s*truncation|silent(?:ly)?\s*truncat|\btruncat\w*/i,
-    allow: [
-      {
-        file: 'docs/architecture/owlfolio-v2-buffett-munger-strategy.md',
-        snippet:
-          '**`fv_cap_multiple = 18`** is a **surfaced sanity FLAG, not a hard truncation** (Phase 1.6): when the raw FV exceeds 18× OE the harness sets a `cap_exceeded` flag (which **widens the MoS**) and KEEPS the value. Only at/above `fv_absurd_multiple = 100×` OE is the value discarded as a units/scale-error guard. (The old 18× hard cap is gone.)',
-        reason: '§4.3 explicitly says the 18× multiple is a surfaced flag, NOT a hard truncation/hard cap.',
-      },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: '`fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`',
-        reason: 'StrategyOverview surfaced-flag worked example states it is NOT a silent truncation.',
-      },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: 'cap_exceeded sanity flag, not be truncated',
-        reason: 'StrategyOverview prose: a value above the multiple raises a flag, is NOT truncated.',
-      },
-      {
-        file: 'apps/web/src/components/LearnTabs.tsx',
-        snippet: '`fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`',
-        reason: 'LearnTabs surfaced-flag worked example states it is NOT a silent truncation.',
-      },
-      {
-        file: 'apps/web/src/components/LearnTabs.tsx',
-        snippet: 'owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.',
-        reason: 'LearnTabs prose: the multiple raises a surfaced flag, is NEVER silently truncated.',
-      },
-    ],
+    // E2 (2026-07-12): the cap_exceeded machinery is retired with the OE DCF, and the strategy doc's
+    // book-model rewrite dropped the 18×-flag passage — no allow entries remain anywhere.
+    allow: [],
   },
   // ─── Phase-8 cohesion sweep: the newly-retired DECISION mechanisms (R1 model-decides rework) ──────────
   //
@@ -340,11 +310,8 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
         snippet: 'Treasury anchor is RETIRED',
         reason: 'valuationParams ANCHOR-SWAP-F2 comment names the Treasury anchor to say it is RETIRED (negation).',
       },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: 'Treasury anchor is retired',
-        reason: 'StrategyOverview F.2 prose states the interest-bearing Treasury anchor is retired (negation).',
-      },
+      // SCALE-DOWN S1: the StrategyOverview savings/Treasury prose left with the conviction-sizing
+      // section — no mention remains, so no allow entry.
     ],
   },
   {
