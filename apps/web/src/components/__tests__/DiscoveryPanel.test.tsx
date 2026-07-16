@@ -48,7 +48,8 @@ function render(over: Partial<Parameters<typeof DiscoveryPanel>[0]> = {}): strin
   return renderToStaticMarkup(createElement(DiscoveryPanel, {
     candidates: [],
     quarters: [],
-    heldOrWatchedTickers: [],
+    heldTickers: [],
+    watchedTickers: [],
     ...over,
   }))
 }
@@ -92,7 +93,7 @@ describe('the 13F discovery page', () => {
   })
 
   it('renders the action matrix: investor columns, ▲/▼ cells with conviction titles, rank chips, and the hold/watch flag', () => {
-    const html = render({ quarters: [berkshireQuarter, himalayaQuarter], heldOrWatchedTickers: ['COST'] })
+    const html = render({ quarters: [berkshireQuarter, himalayaQuarter], watchedTickers: ['COST'] })
     // Columns: one initial per tracked investor (7 on the roster).
     for (const initials of ['WB', 'MP', 'MB', 'LL', 'SK', 'BA', 'GS']) {
       expect(html).toContain(`>${initials}<`)
@@ -103,9 +104,29 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('Berkshire Hathaway (Warren Buffett): NEW position — 6.0% of the book · 13F 2026Q1')
     expect(html).toContain('2 BUYING')
     expect(html).toContain('1 SELLING')
-    expect(html).toContain('⚑ HOLD/WATCH')
+    expect(html).toContain('⚑ WATCHED')
     // No performance numbers, no live prices — filing values only.
     expect(html).not.toMatch(/return/i)
+  })
+
+  it('one home per name: a HELD name gets a portfolio route instead of admission triage (SPGI dogfood)', () => {
+    const spgiBuy = quarter({
+      buys: [{ cusip: '78409V104', issuer: 'S&amp;P GLOBAL INC', ticker: 'SPGI', signal_type: 'NEW_POSITION', conviction_pct: 0.016 }],
+    })
+    const candidates = [{
+      candidate_id: 'cand_spgi', ticker: 'SPGI', company_name: 'S&P Global', market: 'US',
+      strategy_id: 'buffett-munger', discovery_source: '13f_clone', status: 'discovered',
+      dedupe_key: 'spgi', discovered_at: '2026-07-16', source_ids: [],
+    }] as never
+    const html = render({ quarters: [spgiBuy], candidates, heldTickers: ['SPGI'] })
+    expect(html).toContain('⚑ YOU HOLD')
+    expect(html).toContain('You hold this name')
+    expect(html).toContain('/portfolio')
+    // No admission triage on a name that already has a home.
+    expect(html).not.toContain('Accept for screening')
+    // The XML entity decodes for display even on legacy payloads.
+    expect(html).toContain('S&amp;P Global Inc')  // '&' re-escaped by React: the DECODED name, cased right
+    expect(html).not.toContain('Amp;p')
   })
 
   it('names the investor alongside the firm on manager cards — mapping legacy SEC filer names via the CIK', () => {

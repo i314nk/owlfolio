@@ -150,7 +150,20 @@ function tagText(block: string, tag: string): string | undefined {
   // Namespace-agnostic single-tag extraction: matches <tag>…</tag> and <ns:tag>…</ns:tag>.
   const re = new RegExp(`<(?:[\\w.-]+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?${tag}>`, 'i')
   const m = re.exec(block)
-  return m?.[1]?.trim()
+  const text = m?.[1]?.trim()
+  return text === undefined ? undefined : decodeXmlEntities(text)
+}
+
+/** 13F info tables escape issuer names ('S&amp;P GLOBAL INC') — decode so the ledger stores the real name. */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
 }
 
 function tagNumber(block: string, tag: string): number | undefined {

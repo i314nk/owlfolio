@@ -25,8 +25,10 @@ export type DiscoveryPanelProps = {
   runStatus?: DiscoveryPanelRunStatus
   /** Roster-filtered latest quarter per manager (buys + sells ride each quarter). */
   quarters: Discovery13fQuarter[]
-  /** Uppercased tickers currently HELD or WATCHED — flags the matrix rows that touch the user's own names. */
-  heldOrWatchedTickers: string[]
+  /** Tickers currently HELD — the matrix flags these and routes to the portfolio, never to triage. */
+  heldTickers: string[]
+  /** Tickers currently WATCHED — flagged, routed to the watchlist instead of triage. */
+  watchedTickers: string[]
 }
 
 const mono2xs = { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } as const
@@ -97,11 +99,14 @@ export function investorInitials(managerName: string): string {
  * performance numbers, no auto-promotion, no prices. Server component (createElement, no JSX);
  * triage actions stay in the client component.
  */
-export function DiscoveryPanel({ candidates, runStatus, quarters, heldOrWatchedTickers }: DiscoveryPanelProps) {
+export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, watchedTickers }: DiscoveryPanelProps) {
   const discovered = candidates.filter((c) => c.status === 'discovered')
   const queued = candidates.filter((c) => c.status === 'queued_for_quick_screen')
   const resolved = candidates.filter((c) => c.status === 'rejected' || c.status === 'promoted_to_research_case')
-  const held = new Set(heldOrWatchedTickers.map((t) => t.toUpperCase()))
+  const homes: NameHomes = {
+    held: new Set(heldTickers.map((t) => t.toUpperCase())),
+    watched: new Set(watchedTickers.map((t) => t.toUpperCase())),
+  }
 
   const runStatusLine = runStatus?.last_run_status === 'running'
     ? 'Running…'
@@ -115,7 +120,7 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldOrWatchedT
     Fragment,
     null,
     createSummaryHeader(runStatusLine),
-    createActionMatrixSection(matrix, quarters, discovered, held),
+    createActionMatrixSection(matrix, quarters, discovered, homes),
     leftoverDiscovered.length === 0 ? null : createLeftoverCandidatesSection(leftoverDiscovered),
     // Manager portfolios — compact expandable cards per tracked manager's latest quarter.
     createElement(
@@ -217,11 +222,13 @@ function matrixGridStyle(managerCount: number): CSSProperties {
   }
 }
 
+type NameHomes = { held: Set<string>; watched: Set<string> }
+
 function createActionMatrixSection(
   matrix: MatrixRow[],
   quarters: Discovery13fQuarter[],
   discovered: DiscoveryCandidateProjection[],
-  held: Set<string>,
+  homes: NameHomes,
 ) {
   const managers = CLONER_LIST.filter((m) => m.cik !== undefined)
   const quarterByCik = new Map(quarters.map((q) => [q.cik, q]))
@@ -271,7 +278,7 @@ function createActionMatrixSection(
           'div',
           { style: { display: 'grid', gap: '0.1rem', overflowX: 'auto' } },
           header,
-          ...matrix.map((row) => createMatrixRow(row, managers, held, candidateByTicker)),
+          ...matrix.map((row) => createMatrixRow(row, managers, homes, candidateByTicker)),
         ),
   )
 }
@@ -279,10 +286,14 @@ function createActionMatrixSection(
 function createMatrixRow(
   row: MatrixRow,
   managers: typeof CLONER_LIST[number][],
-  held: Set<string>,
+  homes: NameHomes,
   candidateByTicker: Map<string, DiscoveryCandidateProjection>,
 ) {
-  const flagged = row.ticker !== undefined && held.has(row.ticker.toUpperCase())
+  const ticker = row.ticker?.toUpperCase()
+  const home: 'held' | 'watched' | undefined = ticker !== undefined && homes.held.has(ticker)
+    ? 'held'
+    : ticker !== undefined && homes.watched.has(ticker) ? 'watched' : undefined
+  const flagged = home !== undefined
   const summaryChip = row.buying > 0 && row.selling > 0
     ? createElement('span', { key: 's', style: { ...mono2xs, color: 'var(--owl-color-muted)' } }, 'MIXED')
     : row.buying > 0
@@ -314,11 +325,21 @@ function createMatrixRow(
       'span',
       { key: 'sum', style: { display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', whiteSpace: 'nowrap' } },
       summaryChip,
-      flagged ? createElement('span', { key: 'own', style: { ...mono2xs, color: CELL_AMBER_TEXT } }, '⚑ HOLD/WATCH') : null,
+      flagged ? createElement('span', { key: 'own', style: { ...mono2xs, color: CELL_AMBER_TEXT } }, home === 'held' ? '⚑ YOU HOLD' : '⚑ WATCHED') : null,
     ),
   )
 
-  const candidate = row.ticker === undefined ? undefined : candidateByTicker.get(row.ticker.toUpperCase())
+  // ONE HOME PER NAME: a held or watched name already has its research home — the expansion routes
+  // there instead of offering admission triage (a held name must never be 'accepted for screening').
+  const candidate = row.ticker === undefined || home !== undefined ? undefined : candidateByTicker.get(row.ticker.toUpperCase())
+  const homeLine = home === undefined
+    ? null
+    : createElement(
+        'p',
+        { className: 'owl-row-helper', style: { margin: 0 } },
+        home === 'held' ? 'You hold this name — review your own thesis: ' : 'Already on your watchlist: ',
+        createElement('a', { href: home === 'held' ? '/portfolio' : '/watchlist', style: { color: 'var(--owl-color-gold-bright)' } }, home === 'held' ? 'open the portfolio' : 'open the watchlist'),
+      )
   const details = createElement(
     'div',
     { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.35rem', margin: '0.3rem 0 0.5rem' } },
@@ -327,6 +348,7 @@ function createMatrixRow(
       if (cell === undefined) return []
       return [createElement('p', { key: m.cik, className: 'owl-row-helper', style: { margin: 0 } }, cellTitle(cell, shortManagerName(m.manager_name)))]
     }),
+    homeLine,
     candidate === undefined
       ? null
       : createElement(DiscoveryCandidateActions, { candidateId: candidate.candidate_id, status: candidate.status }),

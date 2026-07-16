@@ -186,6 +186,21 @@ describe('applyShariahSectorPreFilter', () => {
 // Cloner list
 // ---------------------------------------------------------------------------
 
+describe('parse13fInfoTable — XML entity decoding', () => {
+  it('decodes issuer-name entities so the ledger never stores S&amp;P (SPGI dogfood, 2026-07-16)', () => {
+    const xml = `<informationTable><infoTable>
+      <nameOfIssuer>S&amp;P GLOBAL INC</nameOfIssuer>
+      <titleOfClass>COM &quot;A&quot;</titleOfClass>
+      <cusip>78409V104</cusip>
+      <value>1000000</value>
+      <shrsOrPrnAmt><sshPrnamt>2000</sshPrnamt></shrsOrPrnAmt>
+    </infoTable></informationTable>`
+    const [holding] = parse13fInfoTable(xml, { value_unit: 'dollars' })
+    expect(holding?.issuer).toBe('S&P GLOBAL INC')
+    expect(holding?.title_class).toBe('COM "A"')
+  })
+})
+
 describe('CLONER_LIST', () => {
   it('contains Berkshire with the confirmed CIK and never emits a guessed CIK', () => {
     const berkshire = CLONER_LIST.find((m) => m.manager_name.includes('Berkshire'))

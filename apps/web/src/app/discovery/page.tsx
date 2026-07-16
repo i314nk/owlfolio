@@ -28,10 +28,8 @@ export default async function DiscoveryPage() {
     // Display follows the LIVE roster; quarter events from removed managers stay as audit history.
     const rosterCiks = CLONER_LIST.flatMap((m) => (m.cik === undefined ? [] : [m.cik]))
     const { quarters } = projectDiscovery13f(events, { ciks: rosterCiks })
-    const heldOrWatchedTickers = [
-      ...projectHoldings(events).flatMap((h) => (h.ticker === undefined ? [] : [h.ticker])),
-      ...projectWatchlist(events).flatMap((w) => (w.ticker === undefined ? [] : [w.ticker])),
-    ]
+    const heldTickers = projectHoldings(events).flatMap((h) => (h.ticker === undefined ? [] : [h.ticker]))
+    const watchedTickers = projectWatchlist(events).flatMap((w) => (w.ticker === undefined ? [] : [w.ticker]))
 
     return createElement(
       'main',
@@ -45,7 +43,8 @@ export default async function DiscoveryPage() {
         candidates,
         ...(runStatus !== undefined ? { runStatus } : {}),
         quarters,
-        heldOrWatchedTickers,
+        heldTickers,
+        watchedTickers,
       }),
     )
   } finally {
