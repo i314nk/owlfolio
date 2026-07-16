@@ -17,7 +17,7 @@ const trackBase: CSSProperties = {
   width: '2.6rem',
 }
 const trackOn: CSSProperties = { ...trackBase, background: 'rgba(52, 211, 153, 0.55)', border: '1px solid rgba(52, 211, 153, 0.6)' }
-const thumbBase: CSSProperties = { background: '#f8fafc', borderRadius: '999px', display: 'block', height: '1.05rem', transition: 'transform 120ms ease', width: '1.05rem' }
+const thumbBase: CSSProperties = { background: 'var(--owl-color-bright)', borderRadius: '999px', display: 'block', height: '1.05rem', transition: 'transform 120ms ease', width: '1.05rem' }
 const thumbOn: CSSProperties = { ...thumbBase, transform: 'translateX(1.15rem)' }
 
 /**
@@ -85,7 +85,7 @@ export function ShariahSettingsPanel({ initialEnabled }: { initialEnabled: boole
             state === 'saving' ? 'Saving…' : 'Save',
           )
         : null,
-      state === 'saved' && !dirty ? createElement('span', { style: { color: '#4ade80', fontSize: 'var(--owl-text-sm)' } }, 'Saved') : null,
+      state === 'saved' && !dirty ? createElement('span', { style: { color: 'var(--owl-color-positive)', fontSize: 'var(--owl-text-sm)' } }, 'Saved') : null,
       state === 'error' ? createElement('span', { style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-sm)' } }, error ?? 'Unable to save') : null,
     ),
     createElement(

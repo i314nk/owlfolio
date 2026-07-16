@@ -37,10 +37,10 @@ export function createPriceLadderElement(args: { iv?: number; load?: number; buy
       // The live-price marker (only when a price snapshot/quote exists).
       livePrice === undefined ? null : createElement('div', {
         'data-testid': 'price-ladder-marker',
-        style: { background: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', borderRadius: '1px', bottom: '-0.3rem', left: pct(livePrice), position: 'absolute' as const, top: '-0.3rem', transform: 'translateX(-50%)', width: '3px' },
+        style: { background: inZone ? 'var(--owl-color-positive)' : 'var(--owl-color-risk-bright)', borderRadius: '1px', bottom: '-0.3rem', left: pct(livePrice), position: 'absolute' as const, top: '-0.3rem', transform: 'translateX(-50%)', width: '3px' },
       }),
       livePrice === undefined ? null : createElement('div', {
-        style: { color: inZone ? '#4ade80' : 'var(--owl-color-risk-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, left: pct(livePrice), position: 'absolute' as const, bottom: 'calc(100% + 0.35rem)', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
+        style: { color: inZone ? 'var(--owl-color-positive)' : 'var(--owl-color-risk-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, left: pct(livePrice), position: 'absolute' as const, bottom: 'calc(100% + 0.35rem)', transform: 'translateX(-50%)', whiteSpace: 'nowrap' as const },
       }, `price $${livePrice.toFixed(2)}`),
       tick(load, `load up $${load.toFixed(2)}`, 'tick-load'),
       tick(buy, `buy $${buy.toFixed(2)}`, 'tick-buy'),

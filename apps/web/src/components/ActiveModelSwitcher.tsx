@@ -104,7 +104,7 @@ export function ActiveModelSwitcher({ switcher }: ActiveModelSwitcherProps) {
       'data-testid': 'workspace-model-capability',
       style: {
         color: switcher.active_model_capability === 'capable'
-          ? '#4ade80'
+          ? 'var(--owl-color-positive)'
           : switcher.active_model_capability === 'failed'
             ? 'var(--owl-color-risk-bright)'
             : 'var(--owl-color-gold-bright)',

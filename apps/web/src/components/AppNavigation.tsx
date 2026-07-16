@@ -65,10 +65,10 @@ function BrandBookMark(): ReactNode {
     // The gold ribbon bookmark on the right-hand page.
     createElement('path', {
       d: 'M16.2 5.1 V10.4 L17.8 9 L19.4 10.4 V5.3',
-      stroke: 'var(--owl-color-gold-bright, #f0c96a)',
       strokeLinecap: 'round',
       strokeLinejoin: 'round',
       strokeWidth: 1.5,
+      style: { stroke: 'var(--owl-color-gold-bright, #f0c96a)' },
     }),
   )
 }

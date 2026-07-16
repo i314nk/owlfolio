@@ -194,9 +194,9 @@ function createSummaryHeader(runStatusLine: string) {
 // The action heat-map matrix
 // ---------------------------------------------------------------------------
 
-const CELL_GREEN = '74, 222, 128'
-const CELL_RED = '248, 113, 113'
-const CELL_AMBER = '251, 191, 36'
+const CELL_GREEN = 'var(--owl-rgb-positive)'
+const CELL_RED = 'var(--owl-rgb-risk)'
+const CELL_AMBER = 'var(--owl-rgb-amber)'
 
 function cellColor(cell: MatrixCell): { color: string; glyph: string } {
   const rgb = cell.signal === 'EXIT' ? CELL_RED : cell.signal === 'MEANINGFUL_TRIM' ? CELL_AMBER : CELL_GREEN
@@ -456,7 +456,7 @@ function createManagerCard(quarter: Discovery13fQuarter) {
 
 function createHoldingLine(holding: Discovery13fHolding, totalValue: number) {
   const pct = totalValue > 0 ? `${((holding.value / totalValue) * 100).toFixed(1)}%` : '—'
-  const changeColor = holding.change === 'NEW' || holding.change === 'ADD' ? '#4ade80' : holding.change === 'TRIM' ? '#fbbf24' : 'var(--owl-color-quiet)'
+  const changeColor = holding.change === 'NEW' || holding.change === 'ADD' ? 'var(--owl-color-positive)' : holding.change === 'TRIM' ? '#fbbf24' : 'var(--owl-color-quiet)'
   return createElement(
     'p',
     { key: holding.cusip, style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', margin: 0 } },

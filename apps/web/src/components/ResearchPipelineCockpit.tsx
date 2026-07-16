@@ -88,14 +88,14 @@ const eyebrowStyle = {
 }
 
 const mutedStyle = {
-  color: '#9aa4b7',
+  color: 'var(--owl-color-muted-cool)',
   margin: 0,
 }
 
 const pillStyle = {
   border: '1px solid rgba(148, 163, 184, 0.22)',
   borderRadius: '999px',
-  color: '#cbd5e1',
+  color: 'var(--owl-color-helper)',
   display: 'inline-flex',
   fontSize: 'var(--owl-text-sm)',
   fontWeight: 800,
@@ -125,7 +125,7 @@ export function ResearchPipelineCockpit({
         {
           id: 'research-pipeline-cockpit-title',
           className: 'owl-page-title',
-          style: { color: '#f7f8ff', lineHeight: 1, margin: 0 },
+          style: { color: 'var(--owl-color-bright)', lineHeight: 1, margin: 0 },
         },
         'Strategy pipeline cockpit',
       ),
@@ -157,10 +157,10 @@ export function ResearchPipelineCockpit({
       createElement(
         'details',
         { style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', boxShadow: 'none' } },
-        createElement('summary', { style: { color: '#f7f8ff', cursor: 'pointer', fontWeight: 900 } }, 'How this pipeline works'),
+        createElement('summary', { style: { color: 'var(--owl-color-bright)', cursor: 'pointer', fontWeight: 900 } }, 'How this pipeline works'),
         createElement(
           'p',
-          { style: { color: '#cbd5e1', margin: '0.75rem 0 0' } },
+          { style: { color: 'var(--owl-color-helper)', margin: '0.75rem 0 0' } },
           'Discovery candidates enter a strategy queue, the grounded Shariah gate and circle-of-competence gate decide cheaply whether the deep dive is worth spending on, and provider drafts never become watchlist or holding state without a user-authored transition.',
         ),
         createElement(
@@ -191,7 +191,7 @@ function createPipelineSection(section: ResearchPipelineSection) {
     createElement(
       'header',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, section.title),
+      createElement('h2', { style: { color: 'var(--owl-color-bright)', fontSize: 'var(--owl-text-md)', margin: 0 } }, section.title),
       createElement('span', { style: pillStyle }, `${section.items.length}`),
     ),
     section.items.length === 0
@@ -206,7 +206,7 @@ function createPipelineSection(section: ResearchPipelineSection) {
 
 function createPipelineItem(item: ResearchPipelineItem) {
   const label = item.href === undefined
-    ? createElement('span', { style: { color: '#f7f8ff', fontWeight: 900 } }, item.label)
+    ? createElement('span', { style: { color: 'var(--owl-color-bright)', fontWeight: 900 } }, item.label)
     : createElement('a', { href: item.href, style: actionLinkStyle }, item.label)
 
   return createElement(
@@ -236,7 +236,7 @@ function createPipelineItem(item: ResearchPipelineItem) {
         createElement('strong', null, 'Investment brief: '),
         item.summary,
       ),
-    createElement('p', { style: { color: '#cbd5e1', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
+    createElement('p', { style: { color: 'var(--owl-color-helper)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
   )
 }
 

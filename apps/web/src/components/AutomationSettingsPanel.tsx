@@ -168,7 +168,7 @@ const pausedNoticeBannerStyle: CSSProperties = {
   background: 'rgba(239, 68, 68, 0.09)',
   border: '1px solid rgba(239, 68, 68, 0.22)',
   borderRadius: '0.7rem',
-  color: '#fca5a5',
+  color: 'var(--owl-color-risk-soft)',
   fontSize: 'var(--owl-text-base)',
   fontWeight: 650,
   lineHeight: 1.45,
@@ -211,7 +211,7 @@ const savedFeedbackStyle: CSSProperties = {
 }
 
 const errorFeedbackStyle: CSSProperties = {
-  color: '#fca5a5',
+  color: 'var(--owl-color-risk-soft)',
   fontSize: 'var(--owl-text-sm)',
 }
 

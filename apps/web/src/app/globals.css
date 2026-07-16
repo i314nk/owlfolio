@@ -27,6 +27,20 @@
   /* Risk / negative / overvalued / impaired */
   --owl-color-risk: #ef4444;
   --owl-color-risk-bright: #f87171;
+  --owl-color-risk-soft: #fca5a5;
+  --owl-color-risk-pale: #fecaca;
+  /* Positive figures / zone chips / matrix buys (brighter than the accent pair) */
+  --owl-color-positive: #4ade80;
+  --owl-color-positive-soft: #bbf7d0;
+  /* Body-text brights + cool helper greys (PALETTES 2026-07-16: tokenized from component literals) */
+  --owl-color-text-soft: #dbe3ef;
+  --owl-color-bright: #f8fafc;
+  --owl-color-helper: #cbd5e1;
+  --owl-color-muted-cool: #9aa4b7;
+  /* RGB triplets for alpha-composed chips (rgba(var(--owl-rgb-*), a)) */
+  --owl-rgb-positive: 74, 222, 128;
+  --owl-rgb-risk: 248, 113, 113;
+  --owl-rgb-amber: 251, 191, 36;
   --owl-color-finance-blue: #0f766e;
   --owl-color-shariah: #22c55e;
   /* Kept for backward compat; aliases gold */

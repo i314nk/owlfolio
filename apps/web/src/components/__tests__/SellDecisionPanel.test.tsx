@@ -111,13 +111,13 @@ describe('SellDecisionPanel — Phase 6 S8b', () => {
     expect(html).toContain('Correct posture')
     expect(html).toContain('disposition brake working as designed')
     // POSITIVE posture: emerald accent border is used.
-    expect(html).toContain('#34d399')
+    expect(html).toContain('var(--owl-color-accent-bright)')
     // No yellow caveat / red risk palette INSIDE the hold block (before the request control).
     const holdBlock = html.slice(html.indexOf('data-sell-status="hold"'))
     const panelEnd = holdBlock.indexOf('Re-run sell decision')
     const holdMarkup = holdBlock.slice(0, panelEnd === -1 ? undefined : panelEnd)
     // worst-case block carries red, but the DECISION framing is emerald (no gold/yellow warning color).
-    expect(holdMarkup).not.toContain('#f0d999')
+    expect(holdMarkup).not.toContain('var(--owl-color-gold-vivid)')
     // No actionable auto-close control.
     expect(html).not.toContain('Close holding')
     expect(html).not.toContain('Confirm sale')

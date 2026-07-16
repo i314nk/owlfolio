@@ -274,11 +274,11 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     const html = render(baseCase(), QUOTE)
     const p2 = html.indexOf('data-testid="pillar-hint-pillar-2"')
     expect(p2).toBeGreaterThan(-1)
-    expect(html.slice(p2, html.indexOf('</span>', p2))).toContain('#4ade80')
+    expect(html.slice(p2, html.indexOf('</span>', p2))).toContain('var(--owl-color-positive)')
     // baseCase is COMPLIANT → pass tone on the front gate too.
     const fg = html.indexOf('data-testid="pillar-hint-front-gate"')
     expect(fg).toBeGreaterThan(-1)
-    expect(html.slice(fg, html.indexOf('</span>', fg))).toContain('#4ade80')
+    expect(html.slice(fg, html.indexOf('</span>', fg))).toContain('var(--owl-color-positive)')
     // A CONDITIONAL front gate renders the caution tone.
     const cond = render({ ...baseCase(), shariah_status: 'CONDITIONAL' } as unknown as AppResearchCase, QUOTE)
     const cfg = cond.indexOf('data-testid="pillar-hint-front-gate"')

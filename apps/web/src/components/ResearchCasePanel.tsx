@@ -509,7 +509,7 @@ function hintTone(hint: string): string {
   const h = hint.toUpperCase()
   if (/FAILS|OUTSIDE|RED_FLAG|RED FLAG|POOR|NON_COMPLIANT|NON-COMPLIANT|NOT UNDERSTOOD|NARROWING/.test(h)) return 'var(--owl-color-risk-bright)'
   if (/CONDITIONAL|ADEQUATE|UNCERTAIN|MODERATE/.test(h)) return 'var(--owl-color-gold-bright)'
-  if (/PASSES|IN COMPETENCE|CLEAN|EXCELLENT|COMPLIANT|WIDE|MONOPOLY/.test(h)) return '#4ade80'
+  if (/PASSES|IN COMPETENCE|CLEAN|EXCELLENT|COMPLIANT|WIDE|MONOPOLY/.test(h)) return 'var(--owl-color-positive)'
   return 'var(--owl-color-muted)'
 }
 
@@ -929,7 +929,7 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
   if (retained !== undefined) {
     children.push(createElement('p', {
       key: 'retained', 'data-testid': 'retained-earnings-test',
-      style: { ...mono, color: retained['computable'] === true ? (retained['passes'] === true ? '#4ade80' : 'var(--owl-color-risk-bright)') : 'var(--owl-color-gold-bright)' },
+      style: { ...mono, color: retained['computable'] === true ? (retained['passes'] === true ? 'var(--owl-color-positive)' : 'var(--owl-color-risk-bright)') : 'var(--owl-color-gold-bright)' },
     }, retained['computable'] === true
       ? `Retained-earnings test (Buffett): ${retained['passes'] === true ? 'PASSES' : 'FAILS'} — ${String(retained['note'] ?? '')}`
       : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
@@ -955,7 +955,7 @@ function createCaseAgainstPanel(researchCase: AppResearchCase) {
       : createElement(
           'div',
           { key: 'inversion-detail', 'data-testid': 'inversion-detail', style: { display: 'grid', gap: '0.3rem' } },
-          inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+          inv.strongest_objection?.claim !== undefined ? createElement('p', { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
             `Strongest objection${inv.strongest_objection.severity !== undefined ? ` (${inv.strongest_objection.severity})` : ''}: ${inv.strongest_objection.claim}`) : null,
           inv.strongest_case_against !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
             `Case against: ${inv.strongest_case_against}`) : null,
@@ -984,7 +984,7 @@ function createReReviewPanel(researchCase: AppResearchCase) {
   const tone = reReview.assessment === 'BROKEN'
     ? 'var(--owl-color-risk-bright)'
     : reReview.assessment === 'INTACT'
-      ? '#4ade80'
+      ? 'var(--owl-color-positive)'
       : 'var(--owl-color-gold-bright)'
   return createElement(
     'details',
@@ -1026,7 +1026,7 @@ function createReReviewPanel(researchCase: AppResearchCase) {
             const labelTone = assessment.tripped === 'yes'
               ? 'var(--owl-color-risk-bright)'
               : assessment.tripped === 'no'
-                ? '#4ade80'
+                ? 'var(--owl-color-positive)'
                 : 'var(--owl-color-gold-bright)'
             return createElement(
               'li',
@@ -1156,7 +1156,7 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
       : createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0.4rem 0 0' } }, circle.competence_reasoning),
     inCompetence || circle.reason === undefined
       ? null
-      : createElement('p', { style: { color: '#fca5a5', fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0' } }, circle.reason),
+      : createElement('p', { style: { color: 'var(--owl-color-risk-soft)', fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0' } }, circle.reason),
     ),
   )
 }
@@ -1186,7 +1186,7 @@ function createForecastsPanel(researchCase: AppResearchCase) {
         forecast.claim ?? 'forecast',
         createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ` — resolves ${forecast.resolves_on ?? 'on next annual report'}`),
         forecast.resolved
-          ? createElement('span', { style: { color: forecast.outcome ? 'var(--owl-color-emerald, #34d399)' : 'var(--owl-color-risk, #f87171)', fontWeight: 700 } }, ` · resolved ${forecast.outcome ? 'TRUE' : 'FALSE'}${forecast.brier_score === undefined ? '' : ` (Brier ${forecast.brier_score.toFixed(2)})`}`)
+          ? createElement('span', { style: { color: forecast.outcome ? 'var(--owl-color-emerald, var(--owl-color-accent-bright))' : 'var(--owl-color-risk, var(--owl-color-risk-bright))', fontWeight: 700 } }, ` · resolved ${forecast.outcome ? 'TRUE' : 'FALSE'}${forecast.brier_score === undefined ? '' : ` (Brier ${forecast.brier_score.toFixed(2)})`}`)
           : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ' · pending'),
       )),
     ),
@@ -1251,7 +1251,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               background: 'rgba(239, 68, 68, 0.13)',
               border: '1px solid rgba(239, 68, 68, 0.4)',
               borderRadius: '999px',
-              color: '#fca5a5',
+              color: 'var(--owl-color-risk-soft)',
               fontSize: 'var(--owl-text-sm)',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
@@ -1279,7 +1279,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Verdict summary'),
       createElement(
         'h2',
-        { style: { color: '#fecaca', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
+        { style: { color: 'var(--owl-color-risk-pale)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
         title,
       ),
       createElement(
@@ -1406,7 +1406,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       ),
       createElement(
         'p',
-        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
+        { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
         'The Shariah gate and the circle-of-competence gate both admitted this company. The expensive lane swarm has not run yet — click "Run deep dive" to start it.',
       ),
       // Quick-screen summary if available
@@ -1416,13 +1416,13 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
         researchCase.moat !== undefined ? createElement(
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
-          createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
+          createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontWeight: 800 } }, '✓'),
           createElement('span', null, `Quick screen result: ${researchCase.screening_result ?? 'deep_dive_candidate'}`),
         ) : null,
         researchCase.shariah_status !== undefined && researchCase.shariah_status !== 'DISABLED' ? createElement(
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
-          createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
+          createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontWeight: 800 } }, '✓'),
           createElement('span', null, `Shariah: ${researchCase.shariah_status}`),
         ) : null,
         createElement(
@@ -1725,9 +1725,9 @@ function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
 
 function resolveVerdictColors(verdict: string): { bg: string; border: string; text: string } {
   const v = verdict.toUpperCase()
-  if (v === 'BUY' || v === 'STRONG_BUY') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(52, 211, 153, 0.4)', text: '#bbf7d0' }
-  if (v === 'WATCH') return { bg: 'rgba(214, 178, 94, 0.15)', border: 'rgba(214, 178, 94, 0.4)', text: '#f0d999' }
-  if (v === 'AVOID' || v === 'SELL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' }
+  if (v === 'BUY' || v === 'STRONG_BUY') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(52, 211, 153, 0.4)', text: 'var(--owl-color-positive-soft)' }
+  if (v === 'WATCH') return { bg: 'rgba(214, 178, 94, 0.15)', border: 'rgba(214, 178, 94, 0.4)', text: 'var(--owl-color-gold-vivid)' }
+  if (v === 'AVOID' || v === 'SELL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.4)', text: 'var(--owl-color-risk-soft)' }
   return { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
@@ -1847,7 +1847,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       ...(researchCase.reason !== undefined && researchCase.reason.length > 0
         ? [createElement(
             'p',
-            { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+            { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
             researchCase.reason,
           )]
         : []),
@@ -1951,7 +1951,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
     createPriceLadder(researchCase, livePrice),
     livePrice !== undefined && buyBelow !== undefined ? createElement(
       'p',
-      { style: { color: inBuyZone ? '#bbf7d0' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+      { style: { color: inBuyZone ? 'var(--owl-color-positive-soft)' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       inBuyZone
         ? `Live price $${livePrice.toFixed(2)} is at or below the computed buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
         : `Live price $${livePrice.toFixed(2)} is above the computed buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
@@ -2069,7 +2069,7 @@ function createSanityFlags(flags: string[]) {
       { style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } },
       ...flags.map((flag, index) => createElement(
         'li',
-        { key: `sanity-${index}`, style: { color: '#f0d999', fontSize: 'var(--owl-text-base)', lineHeight: 1.5 } },
+        { key: `sanity-${index}`, style: { color: 'var(--owl-color-gold-vivid)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5 } },
         createElement('span', { style: { marginRight: '0.35rem' } }, '⚠'),
         flag,
       )),
@@ -2241,7 +2241,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
 
       assumedGrowth !== undefined ? createElement(
         'p',
-        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Assumed growth: '),
         `the model assumes ${pctPts(assumedGrowth)} near-term growth`,
         reasoning.assumed_growth_rationale !== undefined ? ` — ${reasoning.assumed_growth_rationale}` : '',
@@ -2250,14 +2250,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       // provenance label, and the basis note (the named comps + figures) so the arithmetic is auditable.
       valuation.exit_multiple_used !== undefined ? createElement(
         'p',
-        { 'data-testid': 'exit-multiple-basis', style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        { 'data-testid': 'exit-multiple-basis', style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Exit multiple: '),
         `${valuation.exit_multiple_used}× year-10 FCF (${valuation.exit_multiple_source === 'model_grounded' ? 'cited, verified' : valuation.exit_multiple_source === 'model_asserted' ? 'model-asserted, not verified' : valuation.exit_multiple_source === 'model_clamped' ? 'clamped to the strategy band' : 'conservative fallback'})`,
         valuation.exit_multiple_basis_note !== undefined ? ` — ${valuation.exit_multiple_basis_note}` : '',
       ) : null,
       reasoning.discount_rationale !== undefined ? createElement(
         'p',
-        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Discount: '),
         reasoning.discount_rationale,
       ) : null,
@@ -2324,12 +2324,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           padding: '0.6rem 0.9rem',
         },
       },
-      createElement('p', { style: { color: '#f87171', fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' } },
+      createElement('p', { style: { color: 'var(--owl-color-risk-bright)', fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' } },
         `Base-rate burden unmet (${unmetBaseRateFlags.length})`,
       ),
       ...unmetBaseRateFlags.map((f) => createElement('p', {
         key: f.base_rate_id ?? f.claim,
-        style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: '0 0 0.2rem' },
+        style: { color: 'var(--owl-color-risk-soft)', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: '0 0 0.2rem' },
       },
         `${f.claim ?? f.base_rate_id} — ${f.structural_evidence_count ?? 0}/${f.required_structural_evidence ?? 0} structural items. Beats a base rate without structural evidence; treat as narrative until evidenced.`,
       )),
@@ -2364,16 +2364,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           padding: '0.75rem 1rem',
         },
       },
-      fcfBasis !== undefined ? createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
+      fcfBasis !== undefined ? createElement('p', { style: { color: 'var(--owl-color-text-soft)', margin: '0 0 0.4rem' } },
         `FCF = CFO ${fcfBasis.cfo_musd !== undefined ? `$${Math.round(fcfBasis.cfo_musd).toLocaleString('en-US')}M` : '?'} − capex ${fcfBasis.capex_musd !== undefined ? `$${Math.round(fcfBasis.capex_musd).toLocaleString('en-US')}M` : '?'}`
         + `${fcfBasis.fcf_musd !== undefined ? ` = $${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M` : ''}`
         + `${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year}` : ''}${fcfBasis.reporting_currency !== undefined && fcfBasis.fiscal_year !== undefined ? `, ${fcfBasis.reporting_currency})` : fcfBasis.fiscal_year !== undefined ? ')' : ''}`,
       ) : null,
-      fcfBasis?.source_id !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0 0 0.4rem' } },
+      fcfBasis?.source_id !== undefined ? createElement('p', { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-xs)', margin: '0 0 0.4rem' } },
         `T0 — tagged XBRL facts from ${fcfBasis.source_id}`
         + (valuation.share_count_source === 'inline_xbrl_class_a' ? ' · share count recovered from the filing\u2019s inline XBRL (Class A diluted, as-converted)' : ''),
       ) : null,
-      capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : '#9aa4b7', margin: 0 } },
+      capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : 'var(--owl-color-muted-cool)', margin: 0 } },
         capexVsDa.note,
       ) : null,
     ) : null,
@@ -2465,7 +2465,7 @@ function createComplianceRatioBlock(researchCase: AppResearchCase) {
 function createSectorPermissibilityRow(researchCase: AppResearchCase) {
   const sector = researchCase.shariah_sector_status
   if (sector !== 'compliant' && sector !== 'conditional' && sector !== 'non_compliant') return null
-  const EMERALD = 'var(--owl-color-emerald, #34d399)'
+  const EMERALD = 'var(--owl-color-emerald, var(--owl-color-accent-bright))'
   const label = sector === 'compliant'
     ? 'Permissible ✓'
     : sector === 'conditional'
@@ -2476,7 +2476,7 @@ function createSectorPermissibilityRow(researchCase: AppResearchCase) {
     'div',
     {
       'data-testid': 'shariah-sector-permissibility',
-      style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' },
+      style: { alignItems: 'baseline', color: 'var(--owl-color-text-soft)', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' },
     },
     createElement('span', null, 'Business activities (sector, grounded Shariah pass)'),
     createElement('span', { style: { color, fontWeight: 800 } }, label),
@@ -2548,7 +2548,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
       deepScreenCaveat,
     )
   }
-  const EMERALD = 'var(--owl-color-emerald, #34d399)'
+  const EMERALD = 'var(--owl-color-emerald, var(--owl-color-accent-bright))'
   const RISK = 'var(--owl-color-risk)'
 
   const row = (label: string, ratio: number | undefined, thresholdLabel: string, max: number) => {
@@ -2556,7 +2556,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
     const within = ratio < max
     return createElement(
       'div',
-      { key: label, style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' } },
+      { key: label, style: { alignItems: 'baseline', color: 'var(--owl-color-text-soft)', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' } },
       createElement('span', null, label),
       createElement(
         'span',
@@ -2584,7 +2584,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
         ...(sf.impermissible_income_lines ?? []).map((line) =>
           createElement(
             'div',
-            { key: `${line.concept}:${line.label}`, style: { alignItems: 'baseline', color: '#9aa4b7', display: 'flex', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', justifyContent: 'space-between' } },
+            { key: `${line.concept}:${line.label}`, style: { alignItems: 'baseline', color: 'var(--owl-color-muted-cool)', display: 'flex', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', justifyContent: 'space-between' } },
             createElement('span', null, `· ${line.label}`),
             createElement('span', { style: { fontFamily: 'var(--owl-font-mono)' } }, `$${line.amount_musd.toLocaleString('en-US')}M`),
           )),
@@ -2596,14 +2596,14 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
       'data-testid': 'shariah-aaoifi-ledger',
       style: { borderTop: '1px solid rgba(148, 163, 184, 0.14)', display: 'grid', gap: '0.3rem', marginTop: '0.2rem', paddingTop: '0.45rem' },
     },
-    createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'AAOIFI financial ratios (harness-computed)'),
+    createElement('p', { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'AAOIFI financial ratios (harness-computed)'),
     row('Debt / market cap', sf.debt_ratio, '< 30%', 0.3),
     row('Cash + securities / market cap', sf.cash_securities_ratio, '< 30%', 0.3),
     row('Impermissible income / revenue', sf.impermissible_income_pct, '< 5%', 0.05),
     impermissibleLines,
     createElement(
       'div',
-      { style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
+      { style: { alignItems: 'baseline', color: 'var(--owl-color-text-soft)', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
       createElement('span', { style: { fontWeight: 800 } }, `Verdict: ${verdict}`),
       createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
     ),
@@ -2840,7 +2840,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
             style: {
               border: `1px solid ${confidenceClass === 'high' ? 'rgba(52, 211, 153, 0.34)' : 'var(--owl-color-border)'}`,
               borderRadius: '999px',
-              color: confidenceClass === 'high' ? '#bbf7d0' : 'var(--owl-color-muted)',
+              color: confidenceClass === 'high' ? 'var(--owl-color-positive-soft)' : 'var(--owl-color-muted)',
               fontSize: 'var(--owl-text-2xs)',
               padding: '0.12rem 0.45rem',
             },
@@ -2940,11 +2940,11 @@ function createEvidenceAndSourcesPanel(researchCase: AppResearchCase) {
     createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.35rem' } }, 'Evidence and sources'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
+      { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
       'Human-readable source context appears first; raw audit source IDs remain available for ledger traceability.',
     ),
     sourceEvidence.length === 0
-      ? createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'No source evidence has been recorded yet.')
+      ? createElement('p', { style: { color: 'var(--owl-color-helper)', margin: 0 } }, 'No source evidence has been recorded yet.')
       : createElement(
         'div',
         { style: { display: 'grid', gap: '0.85rem' } },
@@ -2960,12 +2960,12 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
     createElement('summary', { style: collapsibleSummaryStyle }, 'Ledger timeline'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.6rem 0 1rem' } },
+      { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-base)', margin: '0.6rem 0 1rem' } },
       'How did this state come to exist?',
     ),
     createElement(
       'ol',
-      { style: { color: '#cbd5e1', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
+      { style: { color: 'var(--owl-color-helper)', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
       ...researchCase.ledger_timeline.map((entry) =>
         createElement(
           'li',
@@ -2974,7 +2974,7 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
           createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
           createElement(
             'p',
-            { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.2rem 0 0' } },
+            { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-base)', margin: '0.2rem 0 0' } },
             `${entry.actor_label} • ${entry.created_at}`,
           ),
         ),
@@ -3003,7 +3003,7 @@ function createEvidenceCard(source: AppSourceEvidence) {
     },
     createElement(
       'summary',
-      { style: { color: '#f7f8ff', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 700 } },
+      { style: { color: 'var(--owl-color-bright)', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 700 } },
       source.title,
     ),
     createElement(
@@ -3012,13 +3012,13 @@ function createEvidenceCard(source: AppSourceEvidence) {
       filingLabel === source.title
         ? null
         : createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } }, filingLabel),
-      createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
+      createElement('p', { style: { color: 'var(--owl-color-helper)', lineHeight: 1.55, margin: 0 } }, source.excerpt),
       source.url === undefined
         ? null
         : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } }, 'Open source URL'),
       source.citation_locator === undefined
         ? null
-        : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
+        : createElement('p', { style: { color: 'var(--owl-color-muted-cool)', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
       createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
     ),
   )
@@ -3075,7 +3075,7 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
     ),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
+      { style: { color: 'var(--owl-color-muted-cool)', margin: '0 0 1rem' } },
       intro,
     ),
     createElement(
@@ -3120,9 +3120,9 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
 
 function riskLevelColor(level: string | undefined): string {
   const l = (level ?? '').toLowerCase()
-  if (l === 'low') return '#bbf7d0'
-  if (l === 'medium') return '#f0d999'
-  if (l === 'high') return '#fca5a5'
+  if (l === 'low') return 'var(--owl-color-positive-soft)'
+  if (l === 'medium') return 'var(--owl-color-gold-vivid)'
+  if (l === 'high') return 'var(--owl-color-risk-soft)'
   return 'var(--owl-color-muted)'
 }
 
@@ -3238,7 +3238,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
           padding: '0.9rem 1rem',
         },
       },
-      createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Impairment bear case'),
+      createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-risk-soft)', margin: 0 } }, 'Impairment bear case'),
       createElement(
         'p',
         { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
@@ -3260,15 +3260,15 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       createPill(
         `Impairment call: ${callLabel}`,
         callLabel === 'permanent_impairment'
-          ? { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+          ? { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: 'var(--owl-color-risk-pale)' }
           : callLabel === 'fixable_temporary'
-            ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
-            : { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f0d999' },
+            ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
+            : { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: 'var(--owl-color-gold-vivid)' },
       ),
       createPill(
         admittable ? 'Advisory: admittable' : 'Advisory: not admittable',
         admittable
-          ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+          ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
           : { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' },
       ),
     ),
@@ -3316,7 +3316,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-gold-bright)', margin: 0 } }, 'Uncited references caveat'),
       createElement(
         'p',
-        { style: { color: '#f0d999', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        { style: { color: 'var(--owl-color-gold-vivid)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
         `The judgment referenced ${uncitedRefs.length} source${uncitedRefs.length === 1 ? '' : 's'} not in the verified case corpus: ${uncitedRefs.join(', ')}. Treat these as unverified.`,
       ),
     ),
@@ -3383,7 +3383,7 @@ function createSellWorstCaseBlock(worst: ResearchCaseSellWorstCaseProjection | u
         padding: '0.9rem 1rem',
       },
     },
-    createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Worst case first'),
+    createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-risk-soft)', margin: 0 } }, 'Worst case first'),
     createElement(
       'p',
       { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
@@ -3477,7 +3477,7 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
           ...cardStyle,
           background: 'rgba(16, 185, 129, 0.08)',
           border: '1px solid rgba(52, 211, 153, 0.4)',
-          borderLeft: '3px solid #34d399',
+          borderLeft: '3px solid var(--owl-color-accent-bright)',
           display: 'grid',
           gap: '0.7rem',
         },
@@ -3486,7 +3486,7 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
       worstCase,
       createElement(
         'p',
-        { 'data-testid': 'sell-hold-correct-posture', style: { color: '#bbf7d0', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
+        { 'data-testid': 'sell-hold-correct-posture', style: { color: 'var(--owl-color-positive-soft)', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
         'Correct posture: hold — the problem is fixable inside the hold window.',
       ),
       createElement(
@@ -3567,9 +3567,9 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
       'data-testid': 'sell-decision',
       'data-sell-status': 'sell_review',
       'aria-label': 'Sell decision',
-      style: { ...cardStyle, borderLeft: '3px solid #fca5a5', display: 'grid', gap: '0.85rem' },
+      style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-risk-soft)', display: 'grid', gap: '0.85rem' },
     },
-    createElement('p', { style: { ...labelStyle, color: '#fca5a5' } }, 'Sell decision · sell review'),
+    createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-risk-soft)' } }, 'Sell decision · sell review'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -3579,7 +3579,7 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
     reasonLabel === undefined ? null : createElement(
       'p',
       { 'data-testid': 'sell-reason-code', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-      createElement('strong', { style: { color: '#fca5a5' } }, 'Reason: '),
+      createElement('strong', { style: { color: 'var(--owl-color-risk-soft)' } }, 'Reason: '),
       reasonLabel,
     ),
     factsRow,
@@ -3599,7 +3599,7 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
       },
       createElement(
         'p',
-        { style: { color: '#fecaca', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
+        { style: { color: 'var(--owl-color-risk-pale)', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
         rec.requires_human_signoff === false
           ? 'You author the close.'
           : 'Requires your sign-off.',
@@ -3655,9 +3655,9 @@ function createPill(label: string, colors: ChipColors) {
 }
 
 function resolveValuationChipColor(status?: string): ChipColors {
-  if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
-  if (status === 'EXPENSIVE') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f0d999' }
-  if (status === 'OVERVALUED') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+  if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
+  if (status === 'EXPENSIVE') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: 'var(--owl-color-gold-vivid)' }
+  if (status === 'OVERVALUED') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: 'var(--owl-color-risk-pale)' }
   return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
@@ -3865,7 +3865,7 @@ function humanizeAuditSourceId(sourceId: string): string {
 function createDetail(label: string, value: string) {
   return createElement(
     'p',
-    { style: { color: '#cbd5e1', margin: '0.55rem 0 0' } },
+    { style: { color: 'var(--owl-color-helper)', margin: '0.55rem 0 0' } },
     createElement('strong', null, `${label}: `),
     value,
   )

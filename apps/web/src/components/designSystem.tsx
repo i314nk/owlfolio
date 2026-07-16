@@ -242,10 +242,10 @@ export type OwlRingGaugeProps = {
 }
 
 const RING_TONE_COLORS: Record<OwlRingGaugeTone, { stroke: string; text: string }> = {
-  gold: { stroke: '#e8c97a', text: '#e8c97a' },
-  emerald: { stroke: '#34d399', text: '#34d399' },
-  risk: { stroke: '#f87171', text: '#f87171' },
-  amber: { stroke: '#f0b429', text: '#f0b429' },
+  gold: { stroke: 'var(--owl-color-gold-bright)', text: 'var(--owl-color-gold-bright)' },
+  emerald: { stroke: 'var(--owl-color-accent-bright)', text: 'var(--owl-color-accent-bright)' },
+  risk: { stroke: 'var(--owl-color-risk-bright)', text: 'var(--owl-color-risk-bright)' },
+  amber: { stroke: 'var(--owl-color-amber)', text: 'var(--owl-color-amber)' },
 }
 
 /**
@@ -295,18 +295,18 @@ export function OwlRingGauge({ value, label, tone = 'gold', size = 80 }: OwlRing
         stroke: trackColor,
         strokeWidth,
       }),
-      // Progress arc
+      // Progress arc. The themed stroke rides a CSS token, and var() only resolves in CSS
+      // properties — so it goes through style, not the SVG presentation attribute.
       createElement('circle', {
         cx,
         cy,
         fill: 'none',
         r,
-        stroke,
         strokeDasharray: circumference,
         strokeDashoffset: dashOffset,
         strokeLinecap: 'round',
         strokeWidth,
-        style: { transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` },
+        style: { stroke, transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` },
       }),
     ),
     // Centre text (absolute overlay)
@@ -381,10 +381,10 @@ export type OwlValuationChipProps = {
 
 const VALUATION_DEFAULTS: Record<OwlValuationKind, { dot: string; text: string }> = {
   undervalued: { dot: '#86efac', text: 'UNDERVALUED' },
-  overvalued: { dot: '#fca5a5', text: 'OVERVALUED' },
+  overvalued: { dot: 'var(--owl-color-risk-soft)', text: 'OVERVALUED' },
   fair: { dot: '#e8c97a', text: 'FAIR VALUE' },
   approved: { dot: '#86efac', text: 'WAHED-APPROVED' },
-  watch: { dot: '#f0b429', text: 'WATCH' },
+  watch: { dot: 'var(--owl-color-amber)', text: 'WATCH' },
 }
 
 /**
@@ -429,11 +429,11 @@ export function OwlGaugeBar({ value, label, height = 8 }: OwlGaugeBarProps) {
   // Marker colour transitions: emerald < 40 %, amber 40–65 %, red > 65 %
   let markerColor: string
   if (norm < 0.4) {
-    markerColor = '#34d399'
+    markerColor = 'var(--owl-color-accent-bright)'
   } else if (norm < 0.65) {
-    markerColor = '#f0b429'
+    markerColor = 'var(--owl-color-amber)'
   } else {
-    markerColor = '#f87171'
+    markerColor = 'var(--owl-color-risk-bright)'
   }
 
   return createElement(
