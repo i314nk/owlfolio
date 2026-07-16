@@ -115,11 +115,18 @@ The core design rule is **"code computes, judgment proposes"**:
 - **Insider Form 4 signal**: deterministic parsing of insider transactions
   (never a model judgment), a computed digest for the management lane, a
   sell-cluster trigger, and a dossier card.
-- **On-demand discovery and price checks**: the /discovery page is the 13F
-  page — tracked value superinvestors' latest portfolios, buys (triaged into
-  research candidates), and sells (held/watched names flagged), every figure
-  stamped "as of report · filed" — plus watchlist/portfolio price checks; both
-  human-fired, never a copy signal.
+- **Superinvestors (13F discovery)**: the idea source at the top of the
+  funnel. The /discovery page tracks seven owner-curated value investors —
+  Warren Buffett (Berkshire), Mohnish Pabrai (dormant filer, labeled), Michael
+  Burry (Scion, intermittent filer, labeled), Li Lu (Himalaya), Seth Klarman
+  (Baupost), Bill Ackman (Pershing Square), and Guy Spier (Aquamarine) — via
+  their quarterly SEC 13F filings: latest portfolios as expandable manager
+  cards, and buys/sells as one action heat-map matrix with your held/watched
+  names flagged. Every figure is stamped "as of report · filed" (the ~45-day
+  lag), the filing gives no reasons, and a signal is an idea to research —
+  never a copy trade or an auto-promotion. See
+  `docs/architecture/superinvestors-13f-discovery.md`. Watchlist/portfolio
+  price checks ride the same human-fired worker.
 - A small read-only CLI (`owlfolio start|status|doctor`) for launch/inspect/
   diagnose; all onboarding and decisions live in the browser.
 - A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
