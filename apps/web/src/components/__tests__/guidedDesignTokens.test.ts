@@ -23,7 +23,14 @@ const FOREIGN_PALETTE_LITERALS = [
   'rgba(148,163,184',
 ]
 
-const TARGET_FILES = ['GuidedSetupPanel.tsx', 'GuidedConnectionSelect.tsx']
+// Paths relative to src/components/. The research-intake pair joined 2026-07-16: it carried the
+// same inherited indigo wizard palette (owner screenshot) and was restyled onto owl-* classes.
+const TARGET_FILES = [
+  'GuidedSetupPanel.tsx',
+  'GuidedConnectionSelect.tsx',
+  '../app/research/new/ResearchIntakeForm.tsx',
+  '../app/research/new/page.tsx',
+]
 
 describe('guided onboarding surfaces use only the Owlfolio design system palette', () => {
   for (const fileName of TARGET_FILES) {
