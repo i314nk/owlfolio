@@ -423,8 +423,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
-            label: 'Discovery',
-            helper: 'Proactively scan the market universe for new candidate stocks.',
+            label: 'Superinvestors (13F discovery)',
+            helper: 'Harvest the tracked superinvestors\u2019 quarterly 13F filings for new candidate ideas.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {

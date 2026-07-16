@@ -645,6 +645,32 @@ describe('worker runtime', () => {
 
 
 
+  it('reconciles a stale enabled flag: a discovery_13f defined disabled flips on when the opt-in appears (dogfood 2026-07-16)', async () => {
+    // The live failure: the sandbox ledger held discovery_13f enabled:false from an early tick
+    // (no opt-in env), and the frozen :v1 idempotency key meant the Run-discovery spawn
+    // (OWLFOLIO_DISCOVERY_13F_ENABLED=1 + --define-defaults) could never flip it — the worker
+    // exited with considered:0 and the harvest silently never ran.
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '')
+    try {
+      await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
+      expect(projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')?.enabled).toBe(false)
+
+      vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '1')
+      await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T08:00:00.000Z' })
+      const flipped = projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')
+      expect(flipped?.enabled).toBe(true)
+
+      // Reconciliation is quiet once the state matches: a third tick appends nothing new.
+      const countBefore = (await store.list()).filter((e) => e.event_type === 'scheduled_task_defined').length
+      await defineDefaultScheduledTasks(store, { now: () => '2026-06-03T08:00:00.000Z' })
+      const countAfter = (await store.list()).filter((e) => e.event_type === 'scheduled_task_defined').length
+      expect(countAfter).toBe(countBefore)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('runs watchlist monitoring as a mock-safe dry-run', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await store.append(ledgerEvent('watchlist_draft_created', 'watchlist_item', 'wl_msft_001', {

@@ -1,33 +1,9 @@
-import type { CSSProperties } from 'react'
 import Link from 'next/link'
 
 import type { OwlfolioMode } from '@owlfolio/shared'
 
 import { getOnboardingState } from '../../../lib/onboarding'
 import { ResearchIntakeForm } from './ResearchIntakeForm'
-
-const panelStyle: CSSProperties = {
-  background: 'var(--owl-color-panel-elevated)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',
-  color: '#f7f8ff',
-  display: 'grid',
-  gap: '1rem',
-  padding: '1.5rem',
-}
-
-const ctaButtonStyle: CSSProperties = {
-  alignItems: 'center',
-  background: '#6366f1',
-  borderRadius: '999px',
-  color: '#ffffff',
-  display: 'inline-flex',
-  fontWeight: 800,
-  justifyContent: 'center',
-  padding: '0.7rem 1.05rem',
-  textDecoration: 'none',
-}
 
 function getResearchBlockMessage(mode: OwlfolioMode, initialized: boolean): string {
   if (mode === 'unconfigured') {
@@ -55,20 +31,22 @@ export default async function ResearchIntakePage() {
           ← Back to command center
         </Link>
       </p>
-      <section aria-labelledby="research-intake-gate" style={panelStyle}>
-        <p style={{ color: '#7c8cff', fontWeight: 800, letterSpacing: '0.08em', margin: 0 }}>OWLFOLIO</p>
-        <h1 id="research-intake-gate" className="owl-page-title" style={{ lineHeight: 1.1, margin: '0.4rem 0 0' }}>
+      <section aria-labelledby="research-intake-gate" className="owl-section-card" style={{ gap: 'var(--owl-space-3)' }}>
+        <p className="owl-section-accent" style={{ margin: 0 }}>
+          Research intake
+        </p>
+        <h1 id="research-intake-gate" className="owl-page-title" style={{ lineHeight: 1.1, margin: 0 }}>
           Research intake unavailable in current mode
         </h1>
-        <p style={{ color: '#cbd5e1', fontSize: '1rem', margin: '0' }}>{getResearchBlockMessage(state.config.mode, state.is_initialized)}</p>
-        <ul style={{ color: '#9aa4b7', margin: '0.25rem 0 1rem', paddingLeft: '1.2rem' }}>
+        <p className="owl-row-helper" style={{ margin: 0 }}>{getResearchBlockMessage(state.config.mode, state.is_initialized)}</p>
+        <ul className="owl-row-helper" style={{ margin: 0, paddingLeft: '1.2rem' }}>
           <li>
             The research intake form requires personal credentials and a writable personal ledger so actions are auditable and replay-safe.
           </li>
           <li>Uninitialized states are intentionally read-only for workflow previews.</li>
         </ul>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <Link className="owl-focusable" href="/settings/providers" style={ctaButtonStyle}>
+          <Link className="owl-button owl-button-primary owl-focusable" href="/settings/providers">
             Open setup and enable personal-local mode
           </Link>
         </div>

@@ -647,21 +647,51 @@ export async function defineDefaultScheduledTasks(
 ): Promise<LedgerEventEnvelope<unknown>[]> {
   const createdAt = now()
   const events: LedgerEventEnvelope<unknown>[] = []
+  const projected = new Map(
+    projectScheduledTasks(await store.list()).map((task) => [task.scheduled_task_id, task]),
+  )
 
   for (const payload of defaultTaskDefinitions(automation, shariah_enabled)) {
-    const event = scheduledTaskEvent(
-      'scheduled_task_defined',
-      payload.scheduled_task_id,
-      payload,
-      createdAt,
-      {
-        event_id: `evt_scheduled_task_defined_${payload.scheduled_task_id}`,
-        actor_type: 'user',
-        actor_id: 'system-defaults',
-        idempotency_key: `scheduled-task-definition:${payload.scheduled_task_id}:v1`,
-      },
-    )
-    events.push(await store.append(event as LedgerEventEnvelope<unknown>))
+    const existing = projected.get(payload.scheduled_task_id)
+    if (existing === undefined) {
+      const event = scheduledTaskEvent(
+        'scheduled_task_defined',
+        payload.scheduled_task_id,
+        payload,
+        createdAt,
+        {
+          event_id: `evt_scheduled_task_defined_${payload.scheduled_task_id}`,
+          actor_type: 'user',
+          actor_id: 'system-defaults',
+          idempotency_key: `scheduled-task-definition:${payload.scheduled_task_id}:v1`,
+        },
+      )
+      events.push(await store.append(event as LedgerEventEnvelope<unknown>))
+      continue
+    }
+
+    // RECONCILE (dogfood 2026-07-16): the settings/env-derived enabled state is the source of
+    // truth, but the first definition's frozen :v1 idempotency key made it sticky forever — a
+    // discovery_13f defined disabled could never be flipped on by the Run-discovery opt-in, and a
+    // toggled-off re-screen never reached the ledger. When the desired enabled state differs from
+    // the projected one, append a redefinition (the projection folds definitions last-wins); once
+    // the states match this appends nothing, so the ledger stays churn-free.
+    if (existing.enabled !== payload.enabled) {
+      const stamp = createdAt.replace(/[^0-9]/g, '').slice(0, 14)
+      const event = scheduledTaskEvent(
+        'scheduled_task_defined',
+        payload.scheduled_task_id,
+        payload,
+        createdAt,
+        {
+          event_id: `evt_scheduled_task_defined_${payload.scheduled_task_id}_${stamp}`,
+          actor_type: 'user',
+          actor_id: 'system-defaults',
+          idempotency_key: `scheduled-task-definition:${payload.scheduled_task_id}:enabled-${payload.enabled}:${stamp}`,
+        },
+      )
+      events.push(await store.append(event as LedgerEventEnvelope<unknown>))
+    }
   }
 
   return events

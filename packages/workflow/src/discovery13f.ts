@@ -105,20 +105,29 @@ export type ClonerManager = {
 }
 
 // CIKs confirmed live against https://data.sec.gov/submissions/CIK{cik}.json (name + 13F-HR present).
-// Concentrated, low-turnover value managers only; >50-position / high-turnover funds are excluded by
-// design (these all run focused books). Any manager whose CIK could not be verified is flagged
-// cik_unverified=true with NO guessed CIK so the operator can resolve it manually.
+// OWNER-CURATED roster (2026-07-16): mostly concentrated, low-turnover value managers, plus two
+// deliberate exceptions tracked for their signal value — Scion (contrarian, high turnover,
+// intermittent filer) and Baupost (larger book, cash-deployment watching). Any manager whose CIK
+// could not be verified is flagged cik_unverified=true with NO guessed CIK so the operator can
+// resolve it manually.
 export const CLONER_LIST: readonly ClonerManager[] = [
-  { manager_name: 'Berkshire Hathaway Inc', cik: '0001067983' },
+  { manager_name: 'Berkshire Hathaway Inc (Warren Buffett)', cik: '0001067983' },
   {
     manager_name: 'Pabrai Investment Funds (Mohnish Pabrai)',
     cik: '0001173334',
     note: 'Confirmed CIK; latest 13F-HR is historical (2012) — Pabrai has since stayed below the 13F reporting threshold. Kept for backfill/clustering; will yield no new quarters until a fresh filing appears.',
   },
+  {
+    manager_name: 'Scion Asset Management (Michael Burry)',
+    cik: '0001649339',
+    note: 'Intermittent filer (has deregistered/claimed exemptions before): latest 13F-HR filed 2025-11-03 covers 2025Q3, so his card can lag the other managers by a quarter or more. High-turnover contrarian book — treat signals as conversation starters, not conviction.',
+  },
   { manager_name: 'Himalaya Capital Management LLC (Li Lu)', cik: '0001709323' },
+  { manager_name: 'Baupost Group LLC (Seth Klarman)', cik: '0001061768' },
+  { manager_name: 'Pershing Square Capital Management (Bill Ackman)', cik: '0001336528' },
   { manager_name: 'Aquamarine Capital (Guy Spier)', cik: '0002104187' },
-  { manager_name: 'Akre Capital Management LLC', cik: '0001112520' },
-  { manager_name: 'Giverny Capital Inc', cik: '0001641864' },
+  // Akre + Giverny removed 2026-07-16 (owner: 'remove them for now') — their persisted quarter
+  // events remain in the ledger as audit history; the page filters display to the live roster.
 ]
 
 // ---------------------------------------------------------------------------
@@ -141,7 +150,20 @@ function tagText(block: string, tag: string): string | undefined {
   // Namespace-agnostic single-tag extraction: matches <tag>…</tag> and <ns:tag>…</ns:tag>.
   const re = new RegExp(`<(?:[\\w.-]+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?${tag}>`, 'i')
   const m = re.exec(block)
-  return m?.[1]?.trim()
+  const text = m?.[1]?.trim()
+  return text === undefined ? undefined : decodeXmlEntities(text)
+}
+
+/** 13F info tables escape issuer names ('S&amp;P GLOBAL INC') — decode so the ledger stores the real name. */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
 }
 
 function tagNumber(block: string, tag: string): number | undefined {
@@ -216,6 +238,10 @@ export type ManagerQuarter = {
   cik: string
   /** Reporting period label, e.g. '2025Q1' (or the filing's period-of-report date). */
   period: string
+  /** The filing's period-of-report date (as-of) — the honesty stamp beside every figure. */
+  report_date?: string
+  /** When the 13F-HR was filed (the ~45-day lag made visible). */
+  filed_date?: string
   holdings: Holding13F[]
   prior_holdings: Holding13F[]
 }
@@ -290,9 +316,13 @@ export async function fetchManager13F(
   const priorHoldings = prior === undefined ? [] : (await fetchInfoTable(cikInt, prior.accession, deps)) ?? []
 
   return {
-    manager_name: subs?.name ?? managerName,
+    // The curated roster name (firm + investor) is the display truth; the SEC filer name is often
+    // a legal shell ('BAUPOST GROUP LLC/MA'). The CIK remains the identity key.
+    manager_name: managerName,
     cik: cik10,
     period: quarterLabel(current.report, current.filed),
+    ...(current.report.length > 0 ? { report_date: current.report } : {}),
+    ...(current.filed.length > 0 ? { filed_date: current.filed } : {}),
     holdings: currentHoldings,
     prior_holdings: priorHoldings,
   }
@@ -365,6 +395,60 @@ export function detectManagerSignals(quarter: ManagerQuarter): ManagerSignal[] {
     }
     if (prior.shares > 0 && (h.shares - prior.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD) {
       out.push({ manager_name: quarter.manager_name, cusip: h.cusip, issuer: h.issuer, signal_type: 'MEANINGFUL_ADD', conviction_pct })
+    }
+  }
+  return out
+}
+
+/** One sell-side change for a manager quarter: an EXIT (position gone) or a MEANINGFUL_TRIM. */
+export type ManagerSell = {
+  manager_name: string
+  cusip: string
+  issuer: string
+  signal_type: 'EXIT' | 'MEANINGFUL_TRIM'
+  prior_shares: number
+  current_shares: number
+  /** The PRIOR position's share of the prior book — how much conviction was unwound. */
+  prior_conviction_pct: number
+}
+
+/**
+ * Per-manager EXIT / MEANINGFUL_TRIM sells for one quarter vs its prior quarter (the sell side of
+ * the same QoQ diff detectManagerSignals runs for buys; the 25% threshold is mirrored). 13F caveat:
+ * a position can also leave a filing via confidential treatment or a swap to a non-13F instrument —
+ * the diff reports what the filings say, nothing more.
+ */
+export function detectManagerSells(quarter: ManagerQuarter): ManagerSell[] {
+  const currentByCusip = aggregateByCusip(quarter.holdings)
+  const priorByCusip = aggregateByCusip(quarter.prior_holdings)
+  const priorTotal = totalValue([...priorByCusip.values()])
+  const out: ManagerSell[] = []
+
+  for (const prior of priorByCusip.values()) {
+    const prior_conviction_pct = priorTotal > 0 ? prior.value / priorTotal : 0
+    const current = currentByCusip.get(prior.cusip)
+    if (current === undefined) {
+      out.push({
+        manager_name: quarter.manager_name,
+        cusip: prior.cusip,
+        issuer: prior.issuer,
+        signal_type: 'EXIT',
+        prior_shares: prior.shares,
+        current_shares: 0,
+        prior_conviction_pct,
+      })
+      continue
+    }
+    if (prior.shares > 0 && (prior.shares - current.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD) {
+      out.push({
+        manager_name: quarter.manager_name,
+        cusip: prior.cusip,
+        issuer: prior.issuer,
+        signal_type: 'MEANINGFUL_TRIM',
+        prior_shares: prior.shares,
+        current_shares: current.shares,
+        prior_conviction_pct,
+      })
     }
   }
   return out
@@ -699,6 +783,91 @@ export async function runDiscovery13f(
   const cusipTickerMap = await resolveCusips(
     signals.filter((s) => !excludedCusips.has(s.cusip)).map((s) => s.cusip.toUpperCase()),
   )
+
+  // ── The 13F page's manager-quarter snapshots (owner-approved 2026-07-16) ──
+  // One idempotent event per manager+period: the top-15 holdings (with QoQ chips), book totals, and
+  // the SELL side (exits + meaningful trims). Powers the manager cards + the sells board without
+  // re-fetching EDGAR, and is what the held/watched exit alert projects from. Bounded by design:
+  // top 15 + the sells list, never the full book.
+  // Ticker resolution for the snapshots: one bounded batch over (top-15 ∪ sells) cusips, with the
+  // issuer-name fallback; unresolved stays absent (flagged by omission, never guessed).
+  const snapshotCusips = [...new Set(quarters.flatMap((quarter) => {
+    const byCusip = aggregateByCusip(quarter.holdings)
+    const top = [...byCusip.values()].sort((a, b) => b.value - a.value).slice(0, 15).map((h) => h.cusip.toUpperCase())
+    return [...top, ...detectManagerSells(quarter).map((sell) => sell.cusip.toUpperCase())]
+  }))]
+  const snapshotTickerMap = await resolveCusips(snapshotCusips)
+  const tickerFor = (cusip: string, issuer: string): string | undefined => {
+    const byCusip = snapshotTickerMap.get(cusip.toUpperCase()) ?? cusipTickerMap.get(cusip.toUpperCase())
+    if (byCusip !== undefined) return byCusip.toUpperCase()
+    const byName = resolveIssuerTicker(issuer, tickers)
+    return byName.resolution === 'matched' ? byName.ticker : undefined
+  }
+  for (const quarter of quarters) {
+    const byCusip = aggregateByCusip(quarter.holdings)
+    const priorByCusip = aggregateByCusip(quarter.prior_holdings)
+    const total = totalValue([...byCusip.values()])
+    const top = [...byCusip.values()].sort((a, b) => b.value - a.value).slice(0, 15).map((h) => {
+      const prior = priorByCusip.get(h.cusip)
+      const change = prior === undefined
+        ? 'NEW'
+        : prior.shares > 0 && (h.shares - prior.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD
+          ? 'ADD'
+          : prior.shares > 0 && (prior.shares - h.shares) / prior.shares > MEANINGFUL_ADD_THRESHOLD
+            ? 'TRIM'
+            : 'UNCHANGED'
+      return {
+        cusip: h.cusip,
+        issuer: h.issuer,
+        ...(tickerFor(h.cusip, h.issuer) === undefined ? {} : { ticker: tickerFor(h.cusip, h.issuer) }),
+        value: h.value,
+        shares: h.shares,
+        pct: total > 0 ? h.value / total : 0,
+        change,
+      }
+    })
+    const sells = detectManagerSells(quarter).map((sell) => ({
+      ...sell,
+      ...(tickerFor(sell.cusip, sell.issuer) === undefined ? {} : { ticker: tickerFor(sell.cusip, sell.issuer) }),
+    }))
+    const buys = detectManagerSignals(quarter).map((signal) => ({
+      cusip: signal.cusip,
+      issuer: signal.issuer,
+      ...(tickerFor(signal.cusip, signal.issuer) === undefined ? {} : { ticker: tickerFor(signal.cusip, signal.issuer) }),
+      signal_type: signal.signal_type,
+      conviction_pct: signal.conviction_pct,
+    }))
+    // v2 (2026-07-16): the payload gained per-manager buys + curated manager names — the key bump
+    // re-emits already-recorded periods once; the projection folds same-period ties last-wins.
+    const quarterKey = `13f-quarter:${quarter.cik}:${quarter.period}:v2`
+    await store.append({
+      event_id: `evt_discovery_13f_quarter_${quarter.cik}_${quarter.period}_v2`,
+      event_type: 'discovery_13f_quarter_recorded',
+      aggregate_type: 'discovery_quarter',
+      aggregate_id: `q13f_${quarter.cik}_${quarter.period}`,
+      correlation_id: `q13f_${quarter.cik}_${quarter.period}`,
+      actor_type: 'worker',
+      actor_id: DISCOVERY_ACTOR_ID,
+      payload: {
+        manager_name: quarter.manager_name,
+        cik: quarter.cik,
+        period: quarter.period,
+        ...(quarter.report_date === undefined ? {} : { report_date: quarter.report_date }),
+        ...(quarter.filed_date === undefined ? {} : { filed_date: quarter.filed_date }),
+        total_value: total,
+        position_count: byCusip.size,
+        top_holdings: top,
+        buys,
+        sells,
+        is_observation: true,
+      },
+      source_ids: [],
+      created_at: now(),
+      schema_version: 1,
+      idempotency_key: quarterKey,
+    })
+  }
+
 
   const existing = projectDiscoveryCandidates(await store.list())
   const existingDedupe = new Set(existing.map((c) => c.dedupe_key))

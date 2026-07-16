@@ -56,6 +56,10 @@ describe('resolveDisplayNamesForTickers (the legacy-case display backfill)', () 
 describe('titleCaseEntityName', () => {
   it('treats & as a word boundary (S&P, not S&p)', () => {
     expect(titleCaseEntityName('S&P GLOBAL INC.')).toBe('S&P Global Inc.')
+    // 13F info-table XML entities reached legacy ledger payloads undecoded (SPGI dogfood,
+    // 2026-07-16) — the display caser decodes them instead of casing 'Amp;p'.
+    expect(titleCaseEntityName('S&amp;P GLOBAL INC')).toBe('S&P Global Inc')
+    expect(titleCaseEntityName('A &#38; B HOLDINGS')).toBe('A & B Holdings')
     expect(titleCaseEntityName('VISA INC.')).toBe('Visa Inc.')
   })
 })

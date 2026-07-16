@@ -29,6 +29,7 @@ export type DomainProjectionContract = {
 
 export const domainEventTypes = [
   'discovery_candidate_discovered',
+  'discovery_13f_quarter_recorded',
   'discovery_candidate_queued_for_quick_screen',
   'discovery_candidate_rejected',
   'discovery_candidate_promoted_to_research_case',
@@ -90,6 +91,29 @@ export const domainEventTypes = [
 export type DomainEventType = (typeof domainEventTypes)[number]
 
 export const domainEventContracts: readonly DomainEventContract[] = [
+  {
+    // The 13F page's manager-quarter snapshot (2026-07-16): one idempotent OBSERVATION per
+    // manager+period from the harvested filing — top holdings with QoQ change chips + the detected
+    // sell side. Everything is "as of report_date, filed filed_date" (the ~45-day lag); never an
+    // instruction or a state advance.
+    event_type: 'discovery_13f_quarter_recorded',
+    aggregate_type: 'discovery_quarter',
+    actor_type: 'worker',
+    projection_owner: 'discovery',
+    payload_fields: [
+      'manager_name',
+      'cik',
+      'period',
+      'report_date',
+      'filed_date',
+      'total_value',
+      'position_count',
+      'top_holdings',
+      'buys',
+      'sells',
+      'is_observation',
+    ],
+  },
   {
     event_type: 'discovery_candidate_discovered',
     aggregate_type: 'discovery_candidate',

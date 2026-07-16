@@ -115,9 +115,11 @@ The core design rule is **"code computes, judgment proposes"**:
 - **Insider Form 4 signal**: deterministic parsing of insider transactions
   (never a model judgment), a computed digest for the management lane, a
   sell-cluster trigger, and a dossier card.
-- **On-demand discovery and price checks**: a 13F harvest + triage into
-  research candidates, and watchlist/portfolio price checks — both
-  human-fired.
+- **On-demand discovery and price checks**: the /discovery page is the 13F
+  page — tracked value superinvestors' latest portfolios, buys (triaged into
+  research candidates), and sells (held/watched names flagged), every figure
+  stamped "as of report · filed" — plus watchlist/portfolio price checks; both
+  human-fired, never a copy signal.
 - A small read-only CLI (`owlfolio start|status|doctor`) for launch/inspect/
   diagnose; all onboarding and decisions live in the browser.
 - A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
