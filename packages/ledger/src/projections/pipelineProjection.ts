@@ -33,7 +33,7 @@ export type PipelineStageKey =
   | 'holding'
   | 'review'
 
-export type PipelineStageHealth = 'ok' | 'warn' | 'err'
+export type PipelineStageHealth = 'ok' | 'warn' | 'err' | 'off'
 
 export type PipelineStageCount = {
   key: PipelineStageKey
