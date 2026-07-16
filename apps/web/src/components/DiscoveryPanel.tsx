@@ -85,10 +85,14 @@ export function buildActionMatrix(quarters: Discovery13fQuarter[]): MatrixRow[] 
     || a.key.localeCompare(b.key))
 }
 
+/** 'Scion Asset Management (Michael Burry)' → 'Michael Burry' — the investor behind the firm. */
+function investorName(managerName: string): string {
+  return /\(([^)]+)\)\s*$/.exec(managerName)?.[1] ?? managerName
+}
+
 /** 'Scion Asset Management (Michael Burry)' → 'MB' — the matrix column initials. */
 export function investorInitials(managerName: string): string {
-  const investor = /\(([^)]+)\)\s*$/.exec(managerName)?.[1] ?? managerName
-  return investor.split(/\s+/).map((w) => w[0]?.toUpperCase() ?? '').join('').slice(0, 2)
+  return investorName(managerName).split(/\s+/).map((w) => w[0]?.toUpperCase() ?? '').join('').slice(0, 2)
 }
 
 /**
@@ -277,6 +281,11 @@ function createActionMatrixSection(
       { className: 'owl-row-helper', style: { margin: 0 } },
       'Every name a tracked manager bought into, added to, trimmed, or exited in their latest filing — one column per investor, names with the most action on top. '
       + 'Green ▲ new/add, red ▼ exit, amber ▼ trim; a deeper color means a bigger share of that manager’s book. The filing gives no reasons — an idea to research, never a copy trade.',
+    ),
+    createElement(
+      'p',
+      { className: 'owl-row-helper', style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.03em', margin: 0 } },
+      `Columns: ${managers.map((m) => `${investorInitials(m.manager_name)} ${investorName(m.manager_name)}`).join(' · ')} — and the ⚑ column is yours: ⚑ you hold the name, ⚐ it is on your watchlist.`,
     ),
     laggards.length > 0
       ? createElement(

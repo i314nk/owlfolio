@@ -104,6 +104,9 @@ describe('the 13F discovery page', () => {
     expect(html).toContain('Berkshire Hathaway (Warren Buffett): NEW position — 6.0% of the book · 13F 2026Q1')
     expect(html).toContain('2 BUYING')
     expect(html).toContain('1 SELLING')
+    // The visible legend spells out every column prefix + the YOURS glyphs (tooltips alone hide).
+    expect(html).toContain('WB Warren Buffett · MP Mohnish Pabrai · MB Michael Burry · LL Li Lu · SK Seth Klarman · BA Bill Ackman · GS Guy Spier')
+    expect(html).toContain('⚑ you hold the name, ⚐ it is on your watchlist')
     // The YOURS column: header marker + the watched glyph with its explanatory tooltip.
     expect(html).toContain('Your names: ⚑ held · ⚐ watched')
     expect(html).toContain('COST is on your watchlist')
