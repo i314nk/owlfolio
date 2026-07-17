@@ -8,6 +8,7 @@ import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { OwlButtonLink, RouteHeader } from './designSystem'
 import { t, type MessageKey } from '../lib/i18n'
+import { recordedThesis } from '../lib/thesisDisplay'
 import type { WorkflowMode } from '../lib/workflow'
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
@@ -43,10 +44,6 @@ export type ResearchLibraryProps = {
 // Internal ledger slugs ("company_cost") are machine ids, never display names — a card without a
 // recorded entity_name shows just the ticker rather than leaking the slug.
 const INTERNAL_COMPANY_ID = /^company[_-]/
-
-// The model stamps a draft placeholder thesis before sources are read; a terminal card must never
-// present it as the recorded thesis.
-const PLACEHOLDER_THESIS = /^\s*(will formulate|to be (?:formulated|determined|written))\b/i
 
 // ── Verdict classification ───────────────────────────────────────────────────
 type VerdictKind = 'buy' | 'watch' | 'avoid' | 'pass' | 'in_progress' | 'failed'
@@ -276,11 +273,12 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
   // Terminal verdict extra info. A blank or placeholder summary falls back honestly instead of
   // rendering the model's pre-source draft as a thesis.
   const rawThesis = isTerminal ? researchCase.thesis_summary : undefined
-  const thesisUnrecorded = rawThesis !== undefined && (rawThesis.trim() === '' || PLACEHOLDER_THESIS.test(rawThesis))
-  const thesisSummary = rawThesis !== undefined && !thesisUnrecorded
-    ? rawThesis.length > 120
-      ? `${rawThesis.slice(0, 120)}…`
-      : rawThesis
+  const recorded = recordedThesis(rawThesis)
+  const thesisUnrecorded = rawThesis !== undefined && recorded === undefined
+  const thesisSummary = recorded !== undefined
+    ? recorded.length > 120
+      ? `${recorded.slice(0, 120)}…`
+      : recorded
     : undefined
 
   const buyPrice = isTerminal && researchCase.valuation?.buy_price_per_share !== undefined
