@@ -93,3 +93,21 @@ describe('the dossier pillar jump nav', () => {
     expect(html).toContain('data-testid="pillar-jump-pillar-1"')
   })
 })
+
+// i18n S2 (2026-07-17): the dossier CHROME follows the locale; the prose stays as recorded.
+describe('the dossier chrome in Arabic', () => {
+  it('pillar titles, the hero kicker, and the jump chips render in Arabic; English is untouched by default', () => {
+    const rc = baseCase({ shariah_status: 'COMPLIANT', shariah_gate: { allowed: true, sector_status: 'compliant' } })
+    const ar = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase: rc, mode: 'personal-local', shariahEnabled: true, locale: 'ar' }))
+    expect(ar).toContain('ملف البحث')
+    expect(ar).toContain('الركيزة ١ — افهم الشركة')
+    expect(ar).toContain('التوليف والقرار')
+    expect(ar).toContain('البوابة الأمامية — الفحص الشرعي')
+    expect(ar).toContain('الحكم: WATCH')
+
+    const en = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase: rc, mode: 'personal-local', shariahEnabled: true }))
+    expect(en).toContain('Research dossier')
+    expect(en).toContain('Pillar 1 — Understand the business')
+    expect(en).not.toContain('الركيزة')
+  })
+})
