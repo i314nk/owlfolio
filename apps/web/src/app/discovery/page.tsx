@@ -6,6 +6,7 @@ import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveLocale } from '@owlfolio/shared'
 import { CLONER_LIST } from '@owlfolio/workflow/discovery13f'
 
 import { DiscoveryPanel } from '../../components/DiscoveryPanel'
@@ -45,6 +46,7 @@ export default async function DiscoveryPage() {
         quarters,
         heldTickers,
         watchedTickers,
+        locale: resolveLocale(state.config.language),
       }),
     )
   } finally {
