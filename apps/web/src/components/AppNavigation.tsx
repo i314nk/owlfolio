@@ -6,42 +6,45 @@ import { usePathname } from 'next/navigation'
 
 import { ActiveModeIndicator } from './ActiveModeIndicator'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
+import { t, type MessageKey } from '../lib/i18n'
 
-type NavItem = { href: string; label: string }
+type NavItem = { href: string; label: MessageKey }
 
-type NavSection = { title: string; items: NavItem[] }
+type NavSection = { title: MessageKey; items: NavItem[] }
 
 const navSections: NavSection[] = [
   {
-    title: 'Workflow',
+    title: 'nav_workflow',
     items: [
-      { href: '/', label: 'Command Center' },
+      { href: '/', label: 'nav_command_center' },
       // The 13F superinvestor page — the idea source at the TOP of the funnel (owner, 2026-07-16:
       // renamed from 'Discovery' and moved into the workflow group; the route stays /discovery).
-      { href: '/discovery', label: 'Superinvestors' },
-      { href: '/research', label: 'Research' },
-      { href: '/watchlist', label: 'Watchlist' },
-      { href: '/portfolio', label: 'Portfolio' },
+      { href: '/discovery', label: 'nav_superinvestors' },
+      { href: '/research', label: 'nav_research' },
+      { href: '/watchlist', label: 'nav_watchlist' },
+      { href: '/portfolio', label: 'nav_portfolio' },
       // B7 (book alignment): the passive index foundation — plan, contributions, drift; no sell control.
-      { href: '/passive', label: 'Passive' },
+      { href: '/passive', label: 'nav_passive' },
     ],
   },
   {
-    title: 'Operations & evidence',
+    title: 'nav_operations',
     items: [
-      { href: '/pipeline', label: 'Pipeline' },
-      { href: '/audit', label: 'Audit' },
+      { href: '/pipeline', label: 'nav_pipeline' },
+      { href: '/audit', label: 'nav_audit' },
     ],
   },
   {
-    title: 'Reference',
+    title: 'nav_reference',
     items: [
-      { href: '/learn', label: 'Learn' },
+      { href: '/learn', label: 'nav_learn' },
       // Single provider surface: keys + connections + trust/certification all live here now.
-      { href: '/settings/providers', label: 'Providers' },
-      { href: '/settings/automation', label: 'Settings' },
-      { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
+      { href: '/settings/providers', label: 'nav_providers' },
+      { href: '/settings/automation', label: 'nav_settings' },
+      { href: '/settings/data-safety', label: 'nav_data_safety' },
     ],
   },
 ]
@@ -86,6 +89,8 @@ export type AppNavigationProps = {
    * model switcher. Resolved server-side by `resolveModelSwitcher`; absent → the plain status indicator.
    */
   modelSwitcher?: ModelSwitcher
+  /** The active UI language (i18n S1). */
+  locale?: OwlLocale
 }
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
@@ -118,7 +123,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus, modelSwitcher }: AppNavigationProps) {
+export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus, modelSwitcher, locale = 'en' }: AppNavigationProps) {
   const pathname = usePathname() ?? '/'
 
   useEffect(() => {
@@ -155,7 +160,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
   return createElement(
     'nav',
     {
-      'aria-label': 'Primary Owner’s Manual navigation',
+      'aria-label': t(locale, 'nav_aria_primary'),
       className: 'owl-nav-shell',
     },
     createElement(
@@ -168,8 +173,8 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
         createElement(
           'span',
           { className: 'owl-brand-copy' },
-          createElement('span', { className: 'owl-brand-title' }, 'Owner’s Manual'),
-          createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
+          createElement('span', { className: 'owl-brand-title' }, t(locale, 'brand_title')),
+          createElement('span', { className: 'owl-brand-kicker' }, t(locale, 'brand_kicker')),
         ),
       ),
       // Persistent, app-wide mode/provider/model indicator. Subsumes the legacy setup card: it is
@@ -183,14 +188,14 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
       createElement(
         'div',
         { className: 'owl-nav-sections' },
-        ...navSections.map((section) => renderNavSection(section.title, section.items, pathname)),
+        ...navSections.map((section) => renderNavSection(locale, section.title, section.items, pathname)),
       ),
       // Legacy fallback only when no status was resolved (e.g. callers not yet wired to S2).
       activeModeStatus === undefined && !isSetupComplete ? createElement(SetupCard) : null,
       createElement(
         'a',
         { className: 'owl-command-trigger owl-focusable', href: SEARCH_TRIGGER_HREF, 'aria-label': 'Audit trail search with keyboard shortcut ⌘K' },
-        createElement('span', null, 'Audit trail search'),
+        createElement('span', null, t(locale, 'audit_search')),
         createElement('span', { className: 'owl-command-key' }, '⌘K'),
       ),
     ),
@@ -198,14 +203,15 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
 }
 
 function renderNavSection(
-  title: string,
+  locale: OwlLocale,
+  title: MessageKey,
   items: NavItem[],
   pathname: string,
 ): ReactNode {
   return createElement(
     'section',
     { className: 'owl-nav-section', key: title },
-    createElement('p', { className: 'owl-nav-section-title' }, title),
+    createElement('p', { className: 'owl-nav-section-title' }, t(locale, title)),
     createElement(
       'ul',
       { className: 'owl-nav-list' },
@@ -221,7 +227,7 @@ function renderNavSection(
               href: item.href,
               ...(isActive ? { 'aria-current': 'page' } : {}),
             },
-            item.label,
+            t(locale, item.label),
           ),
         )
       }),

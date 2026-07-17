@@ -700,7 +700,7 @@ a:focus-visible {
   border: 1px solid var(--owl-color-border);
   /* Gold hue on the left edge of every card by default. Boxes that carry their own semantic rail via an
      inline border-left (e.g. Circle of competence: green when in-competence, red when outside) override this. */
-  border-left: 3px solid var(--owl-color-gold);
+  border-inline-start: 3px solid var(--owl-color-gold);
   border-radius: var(--owl-radius-panel);
   box-shadow: var(--owl-shadow-panel);
   display: grid;
@@ -738,8 +738,8 @@ a:focus-visible {
   font-family: var(--owl-font-mono);
   font-size: var(--owl-text-sm);
   font-weight: 600;
-  margin-left: auto; /* push the headline to the RIGHT of the card header */
-  text-align: right;
+  margin-inline-start: auto; /* push the headline to the RIGHT of the card header */
+  text-align: end;
 }
 
 .owl-route-frame-narrow {
@@ -782,7 +782,7 @@ a:focus-visible {
 
 .owl-nav-shell {
   background: linear-gradient(180deg, rgba(7, 10, 8, 0.94), rgba(6, 9, 7, 0.9));
-  border-right: 1px solid var(--owl-color-border);
+  border-inline-end: 1px solid var(--owl-color-border);
   backdrop-filter: blur(18px);
   height: 100vh;
   overflow-y: auto;
@@ -1730,7 +1730,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 .owl-select {
   appearance: none;
-  padding-right: 2.1rem;
+  padding-inline-end: 2.1rem;
 }
 
 .owl-select-wrap {
@@ -1819,7 +1819,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
   color: var(--owl-color-text);
   font-family: var(--owl-font-mono);
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: end;
 }
 
 .owl-action-form {
@@ -2089,7 +2089,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
   .owl-nav-shell {
     border-bottom: 1px solid var(--owl-color-border);
-    border-right: 0;
+    border-inline-end: 0;
     height: auto;
     position: sticky;
   }
