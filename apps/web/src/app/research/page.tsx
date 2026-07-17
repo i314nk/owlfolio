@@ -1,11 +1,13 @@
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveLocale } from '@owlfolio/shared'
 
 import { ResearchLibrary } from '../../components/ResearchLibrary'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
+import { strategyDisplayName } from '../../lib/strategyDisplay'
 
 export default async function ResearchLandingPage() {
   const state = await getOnboardingState()
@@ -35,8 +37,9 @@ export default async function ResearchLandingPage() {
         </p>
         <ResearchLibrary
           mode={state.config.mode}
-          selectedStrategyLabel={`Selected strategy: ${selectedStrategyId}`}
+          selectedStrategyName={strategyDisplayName(selectedStrategyId)}
           cases={cases}
+          locale={resolveLocale(state.config.language)}
         />
       </main>
     )

@@ -34,7 +34,7 @@ describe('ResearchLibrary — company names on the cards', () => {
         created_at: '2026-07-10T00:00:00.000Z',
       } as never],
       mode: 'personal-local',
-      selectedStrategyLabel: 'Selected strategy: buffett-munger',
+      selectedStrategyName: 'Buffett 4-Pillar',
     }))
     expect(html).toContain('— Visa Inc.')
   })
@@ -54,7 +54,7 @@ describe('ResearchLibrary — company names on the cards', () => {
         created_at: '2026-07-10T00:00:00.000Z',
       } as never],
       mode: 'personal-local',
-      selectedStrategyLabel: 'Selected strategy: buffett-munger',
+      selectedStrategyName: 'Buffett 4-Pillar',
     }))
     expect(html).toContain('Costco Wholesale')
     expect(html).not.toContain('— Costco')
@@ -66,7 +66,7 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [],
       }),
     )
@@ -76,7 +76,9 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('Manual ticker intake')
     expect(html).toContain('href="/research/new"')
     expect(html).toContain('href="/pipeline"')
-    expect(html).toContain('Selected strategy: buffett-munger')
+    // The strategy chip carries the DISPLAY name — the persisted strategy_id must never leak.
+    expect(html).toContain('Selected strategy: Buffett 4-Pillar')
+    expect(html).not.toContain('buffett-munger')
 
     // The vital-signs summary band leads the page on the Fiduciary Briefing standard.
     expect(html).toContain('owl-ledger-line')
@@ -87,14 +89,14 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [],
       }),
     )
 
     expect(html).toContain('No research yet — start with Manual ticker intake.')
     expect(html).not.toContain('Buy candidates')
-    expect(html).not.toContain('In progress')
+    expect(html).not.toContain('Cases still moving')
   })
 
   it('renders a failed case under the Failed runs group with a FAILED chip (not "In progress")', () => {
@@ -103,7 +105,7 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [
           researchCase({
             research_case_id: 'rc_adbe_failed',
@@ -117,14 +119,15 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('Failed runs')
     expect(html).toContain('>FAILED<')
     expect(html).toContain('Run failed')
-    expect(html).not.toContain('In progress')
+    expect(html).not.toContain('>IN PROGRESS<')
+    expect(html).not.toContain('Cases still moving')
   })
 
   it('groups cases by verdict and renders dossier links with verdict chips', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [
           researchCase({
             research_case_id: 'rc_cost_1',
@@ -183,7 +186,7 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [
           researchCase({
             research_case_id: 'rc_nvda_v1',
@@ -214,7 +217,7 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [
           researchCase({
             research_case_id: 'rc_live',
@@ -241,7 +244,7 @@ describe('ResearchLibrary', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {
         mode: 'personal-local',
-        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        selectedStrategyName: 'Buffett 4-Pillar',
         cases: [
           researchCase({
             research_case_id: 'rc_older',
@@ -271,5 +274,129 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('data-testid="older-engine-chip"')
     expect(html).toContain('older engine')
     expect((html.match(/older-engine-chip/g) ?? []).length).toBe(1)
+  })
+
+  it('never renders an internal company_<ticker> slug where the company name belongs', () => {
+    // The COST bug: legacy cases carry company_id slugs like "company_cost" — a machine id, not a
+    // name. When no entity_name is recorded (and the SEC backfill is offline), the card shows just
+    // the ticker instead of leaking the slug.
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_cost_slug',
+            ticker: 'COST',
+            company_id: 'company_cost',
+            stage: 'analysis_drafted',
+            investment_verdict: 'WATCH',
+          }),
+        ],
+      }),
+    )
+    expect(html).toContain('COST')
+    expect(html).not.toContain('company_cost')
+  })
+
+  it('replaces a placeholder or blank thesis summary with an honest fallback', () => {
+    // The GOOG bug: the model stamps "Will formulate after reading source material" before sources
+    // are read; a terminal card must never present that draft placeholder as the recorded thesis.
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_goog_placeholder',
+            ticker: 'GOOG',
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+            thesis_summary: 'Will formulate after reading source material',
+          }),
+          researchCase({
+            research_case_id: 'rc_blank_thesis',
+            ticker: 'BLNK',
+            stage: 'decision_drafted',
+            decision: 'PASS',
+            thesis_summary: '   ',
+          }),
+        ],
+      }),
+    )
+    expect(html).not.toContain('Will formulate')
+    expect((html.match(/No thesis summary recorded/g) ?? []).length).toBe(2)
+  })
+
+  it('keeps a real thesis summary untouched', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_msft_thesis',
+            ticker: 'MSFT',
+            stage: 'decision_drafted',
+            decision: 'BUY',
+            thesis_summary: 'Microsoft is a compounding fortress anchored by enterprise switching costs.',
+          }),
+        ],
+      }),
+    )
+    expect(html).toContain('Microsoft is a compounding fortress')
+    expect(html).not.toContain('No thesis summary recorded')
+  })
+
+  it('labels the in-progress vital-signs stat "In progress", not "Open files"', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        cases: [],
+      }),
+    )
+    expect(html).toContain('owl-ledger-label">In progress')
+    expect(html).not.toContain('owl-ledger-label">Open files')
+  })
+
+  it('renders the page chrome in Arabic when locale is ar (case data stays as recorded)', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        locale: 'ar',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_msft_ar',
+            ticker: 'MSFT',
+            stage: 'decision_drafted',
+            decision: 'BUY',
+          }),
+        ],
+      }),
+    )
+    // Header + stats + group chrome follow the locale…
+    expect(html).toContain('مكتبة البحث')
+    expect(html).toContain('الأرشيف')
+    expect(html).toContain('قيد التنفيذ')
+    expect(html).toContain('مرشحات الشراء')
+    expect(html).not.toContain('Research library')
+    expect(html).not.toContain('Buy candidates')
+    // …while recorded case data does not.
+    expect(html).toContain('MSFT')
+  })
+
+  it('defaults the page chrome to English when no locale is given', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyName: 'Buffett 4-Pillar',
+        cases: [],
+      }),
+    )
+    expect(html).toContain('Research library')
+    expect(html).toContain('The archive')
+    expect(html).not.toContain('مكتبة البحث')
   })
 })
