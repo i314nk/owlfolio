@@ -3,9 +3,21 @@ import { createElement, Fragment, type ReactNode } from 'react'
 import { OwlButtonLink, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter, CommandCenterDiscoverySignal, MonitorAlert } from '../lib/commandCenter'
+import { shortManagerName } from '../lib/entityName'
+
+export type ZoneStripEntry = {
+  ticker: string
+  kind: 'held' | 'watched'
+  /** One human line: entry/return for held, buy-distance for watched. Computed server-side. */
+  line: string
+  href: string
+  tone: 'pass' | 'caution' | 'muted'
+}
 
 export type CommandCenterProps = {
   dashboard: AppCommandCenter
+  /** WHERE MY NAMES STAND (owner, 2026-07-17): the held/watched zone strip. */
+  zoneStrip?: ZoneStripEntry[]
 }
 
 type ActionCard = {
@@ -31,13 +43,14 @@ type ActivitySummary = {
  * terminal. Returns a Fragment so each section is a direct child of the route
  * frame and inherits the app's staggered reveal.
  */
-export function CommandCenter({ dashboard }: CommandCenterProps) {
+export function CommandCenter({ dashboard, zoneStrip = [] }: CommandCenterProps) {
   return createElement(
     Fragment,
     null,
     createMasthead(dashboard),
     createBriefingHero(dashboard),
     createLedgerLine(dashboard),
+    createZoneStrip(zoneStrip),
     createNeedsAttention(dashboard),
     createCommandPanel(dashboard),
     createAgentsDesk(dashboard),
@@ -90,8 +103,16 @@ function createBriefingHero(dashboard: AppCommandCenter) {
  * The single most important thing right now, as a private banker's opening
  * line. The key number/word is emphasised in gold.
  */
+/** Genuine human-decision drafts only — completed worker reports are activity, not decisions. */
+function realDecisions(dashboard: AppCommandCenter) {
+  return dashboard.approval_queue.filter((item) => item.decision_type !== 'worker_proposal')
+}
+function workerReports(dashboard: AppCommandCenter) {
+  return dashboard.approval_queue.filter((item) => item.decision_type === 'worker_proposal')
+}
+
 function buildHeroStatement(dashboard: AppCommandCenter): ReactNode[] {
-  const pending = dashboard.pipeline_counts.pending_user_actions
+  const pending = realDecisions(dashboard).length
   const cases = dashboard.pipeline_counts.research_cases
 
   if (pending > 0) {
@@ -134,19 +155,43 @@ function buildHeroPulse(dashboard: AppCommandCenter): string {
   return `${engine} · ${holdings} · monitoring for buy-zone and thesis changes.`
 }
 
+// ── Your names (the zone strip): one line per held/watched name — the command-center answer to
+//    'where do my names stand right now'. Links land on the owning board. ──
+const ZONE_TONE: Record<ZoneStripEntry['tone'], string> = {
+  pass: 'var(--owl-color-positive)',
+  caution: 'var(--owl-color-gold-bright)',
+  muted: 'var(--owl-color-muted)',
+}
+
+function createZoneStrip(entries: ZoneStripEntry[]) {
+  if (entries.length === 0) return null
+  return createElement(
+    'section',
+    { 'aria-label': 'Your names', className: 'owl-section-card', style: { gap: 'var(--owl-space-1)' } },
+    createElement('p', { className: 'owl-cc-section-accent' }, 'Your names'),
+    ...entries.map((e) => createElement(
+      'p',
+      { key: `${e.kind}-${e.ticker}`, style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: 0 } },
+      createElement('a', { href: e.href, style: { color: 'var(--owl-color-text)', fontWeight: 800, textDecoration: 'none' } }, e.ticker),
+      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, e.kind.toUpperCase()),
+      createElement('span', { style: { color: ZONE_TONE[e.tone], fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)' } }, e.line),
+    )),
+  )
+}
+
 // ── 3. The Ledger Line (vital signs) ──────────────────────────────────────────
 
 function createLedgerLine(dashboard: AppCommandCenter) {
   const counts = dashboard.pipeline_counts
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: '', label: 'Research cases', value: countsText(counts.research_cases) },
+    { figureClass: '', label: 'Recorded cases (all-time)', value: countsText(counts.research_cases) },
     { figureClass: '', label: 'Watchlist drafts', value: countsText(counts.watchlist_drafts) },
     { figureClass: 'owl-cc-ledger-figure-emerald', label: 'Confirmed watchlist', value: countsText(counts.confirmed_watchlist_items) },
     { figureClass: '', label: 'Open holdings', value: countsText(counts.open_holdings) },
     {
-      figureClass: counts.pending_user_actions > 0 ? 'owl-cc-ledger-figure-risk' : 'owl-cc-ledger-figure-emerald',
-      label: 'Pending user actions',
-      value: countsText(counts.pending_user_actions),
+      figureClass: realDecisions(dashboard).length > 0 ? 'owl-cc-ledger-figure-risk' : 'owl-cc-ledger-figure-emerald',
+      label: 'Decisions waiting',
+      value: countsText(realDecisions(dashboard).length),
     },
   ]
 
@@ -239,7 +284,7 @@ function createDiscoverySignalRow(signal: CommandCenterDiscoverySignal) {
   const detail = signal.signal
   const managers = detail.contributing_managers.length === 0
     ? 'managers not recorded'
-    : detail.contributing_managers.join(', ')
+    : detail.contributing_managers.map(shortManagerName).join(', ')
   const conviction = `${(detail.conviction_pct * 100).toFixed(1)}% conviction`
 
   return createElement(
@@ -260,7 +305,7 @@ function createDiscoverySignalRow(signal: CommandCenterDiscoverySignal) {
         'p',
         { className: 'owl-row-helper' },
         createElement('strong', { style: { fontFamily: 'var(--owl-font-mono)' } }, conviction),
-        ` · ${managers}. A 13F signal — your agent flags it; you decide whether to research it.`,
+        ` · ${managers} — a 13F signal; you decide whether to research it.`,
       ),
     ),
     createElement(
@@ -284,6 +329,7 @@ function createCommandPanel(dashboard: AppCommandCenter) {
     createElement('p', { className: 'owl-cc-directive' }, dashboard.next_recommended_action),
     createNextActionQueue(dashboard),
     createApprovalQueue(dashboard),
+    createWorkerActivityLine(dashboard),
     createStatusLine(dashboard),
   )
 }
@@ -317,12 +363,12 @@ function createActionRow(card: ActionCard) {
 }
 
 function createApprovalQueue(dashboard: AppCommandCenter) {
-  if (dashboard.approval_queue.length === 0) {
+  if (realDecisions(dashboard).length === 0) {
     return null
   }
 
-  const groups = groupApprovalQueue(dashboard.approval_queue)
-  const count = dashboard.approval_queue.length
+  const groups = groupApprovalQueue(realDecisions(dashboard))
+  const count = realDecisions(dashboard).length
 
   return createElement(
     'div',
@@ -335,7 +381,7 @@ function createApprovalQueue(dashboard: AppCommandCenter) {
     createElement(
       'p',
       { className: 'owl-body', style: { margin: 0 } },
-      `${count} pending ${count === 1 ? 'proposal' : 'proposals'} grouped by decision type`,
+      `${count} pending ${count === 1 ? 'decision' : 'decisions'} grouped by type`,
     ),
     ...groups.map(([groupLabel, items]) => createElement(
       'div',
@@ -346,6 +392,27 @@ function createApprovalQueue(dashboard: AppCommandCenter) {
         { className: 'owl-row-list' },
         ...items.map((item) => createApprovalRow(item)),
       ),
+    )),
+  )
+}
+
+/**
+ * TRUTH FIX (owner, 2026-07-17): a COMPLETED worker run is activity, not a decision — it renders
+ * as one quiet line per report linking to the audit trail, and never counts as 'awaiting your
+ * authorization'. The raw actor/task identifiers stay on the audit page.
+ */
+function createWorkerActivityLine(dashboard: AppCommandCenter) {
+  const reports = workerReports(dashboard)
+  if (reports.length === 0) return null
+  return createElement(
+    'div',
+    { 'aria-label': 'Recent worker activity', style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: 'var(--owl-space-1)', paddingTop: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-cc-section-accent' }, 'Recent worker activity'),
+    ...reports.slice(0, 3).map((item) => createElement(
+      'p',
+      { key: item.id, className: 'owl-row-helper', style: { margin: 0 } },
+      `${item.after_summary} — `,
+      createElement('a', { href: item.href, style: { color: 'var(--owl-color-gold-bright)' } }, 'audit details'),
     )),
   )
 }
@@ -437,9 +504,11 @@ function createStatusLine(dashboard: AppCommandCenter) {
 function createAgentsDesk(dashboard: AppCommandCenter) {
   const cases = dashboard.pipeline_counts.research_cases
   const hasCases = cases > 0
+  // TRUTH FIX (owner, 2026-07-17): state, not puffery — nothing is 'running' unless a run is live,
+  // and the recorded-case count includes superseded history.
   const stateLine = hasCases
-    ? `Tracking ${cases} ${cases === 1 ? 'case' : 'cases'} through the swarm — front gates and deep-dive lanes running under your value discipline.`
-    : 'No cases yet — point your agent at a ticker and the swarm runs the front gates and deep-dive lanes.'
+    ? `${cases} recorded ${cases === 1 ? 'case' : 'cases'} in the library (including superseded versions). The pipeline page shows live runs.`
+    : 'No cases yet — start one and the engine runs the front gates and the four pillars.'
 
   const links: ReactNode[] = [
     createElement(OwlButtonLink, { href: '/research', key: 'cockpit' }, 'Open research cockpit'),
@@ -456,7 +525,7 @@ function createAgentsDesk(dashboard: AppCommandCenter) {
       'span',
       { className: 'owl-cc-live' },
       createElement('span', { 'aria-hidden': 'true', className: 'owl-cc-live-dot' }),
-      hasCases ? 'Agent on watch' : 'Agent idle',
+      hasCases ? 'Research desk' : 'Desk idle',
     ),
     createElement('p', { className: 'owl-cc-section-accent', style: { marginTop: 'var(--owl-space-1)' } }, 'The agent’s desk'),
     createElement('p', { className: 'owl-body', style: { margin: 0 } }, stateLine),
@@ -534,8 +603,8 @@ function describeTopQueueItem(item: AppCommandCenter['approval_queue'][number]):
 }
 
 function getPrimaryPriorityHeadline(dashboard: AppCommandCenter): string {
-  const pendingActions = dashboard.pipeline_counts.pending_user_actions
-  const topItem = dashboard.approval_queue[0]
+  const pendingActions = realDecisions(dashboard).length
+  const topItem = realDecisions(dashboard)[0]
 
   if (pendingActions > 0) {
     const waiting = `${pendingActions} ${pendingActions === 1 ? 'user decision is' : 'user decisions are'} waiting`
@@ -627,10 +696,15 @@ function isProviderReadinessWarning(providerStatus: string): boolean {
     return false
   }
 
+  // TRUTH FIX (owner, 2026-07-17): 'experimental' is a SUPPORT LEVEL, not unreadiness — a keyed,
+  // live adapter must never render as 'paused for setup'. Readiness warnings are only genuine
+  // not-ready states.
+  if (status.includes('detected and') || status.includes('adapter is live')) {
+    return false
+  }
   return status.includes('not ready')
     || status.includes('not configured')
     || status.includes('unsupported')
-    || status.includes('experimental')
     || status.includes('missing')
 }
 
