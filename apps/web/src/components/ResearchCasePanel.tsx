@@ -1,6 +1,7 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
 import { RunDeepDiveButton } from './RunDeepDiveButton'
 import { createPriceLadderElement } from './PriceLadder'
+import { PillarJumpNav, type PillarJumpEntry, type PillarJumpTone } from './PillarJumpNav'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -422,6 +423,30 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     ? `IV $${p4IvE3.toFixed(2)} · BUY < $${p4BuyE3.toFixed(2)}`
     : valuationHint
 
+  // ── The sticky jump bar (owner-approved 2026-07-17): one chip per pillar with its verdict
+  //    glyph; clicking expands the pillar and scrolls to it. Gated pillars read as fail; the gate
+  //    chip is absent when screening was off for the run or the mode is off.
+  const jumpEntries: PillarJumpEntry[] = [
+    ...(shariahGateDisabledForRun(researchCase) || !shariahEnabled
+      ? []
+      : [{ id: 'front-gate', label: 'GATE', tone: jumpTone(researchCase.shariah_status) }]),
+    { id: 'pillar-1', label: 'P1', tone: jumpTone(p1Hint) },
+    { id: 'pillar-2', label: 'P2', tone: p2Status !== undefined ? 'fail' as const : jumpTone(p2Hint) },
+    { id: 'pillar-3', label: 'P3', tone: p3p4Status !== undefined ? 'fail' as const : jumpTone(p3Hint) },
+    { id: 'pillar-4', label: 'P4', tone: p3p4Status !== undefined ? 'fail' as const : jumpTone(p4Hint) },
+    {
+      id: 'synthesis',
+      label: 'SYN',
+      tone: researchCase.investment_verdict === 'BUY'
+        ? 'pass'
+        : researchCase.investment_verdict === 'WATCH' || researchCase.investment_verdict === 'RESEARCH_MORE'
+          ? 'caution'
+          : researchCase.investment_verdict === 'PASS' || researchCase.investment_verdict === 'SELL'
+            ? 'fail'
+            : 'muted',
+    },
+  ]
+
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
@@ -429,6 +454,7 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     mockWarningBanner,
     // ── Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
+    createElement(PillarJumpNav, { entries: jumpEntries }),
     // ── S6 gate banners: a short-circuited case says WHY pillars 3–4 have no data (and what re-arms
     //    them); an overridden run is PERMANENTLY labeled as user-authorized spend. ──
     researchCase.moat_gate_short_circuited === true
@@ -505,6 +531,16 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
 // POLISH: the collapsed pillar hints carry a tone — pass green, caution amber, fail red — so the
 // closed ladder reads as a verdict strip. Order matters (NON_COMPLIANT before COMPLIANT); figure-only
 // hints (P4's IV · BUY) stay muted.
+/** The jump-nav glyph tone for a pillar hint/status — same vocabulary as hintTone. */
+function jumpTone(hint: string | undefined): PillarJumpTone {
+  if (hint === undefined) return 'muted'
+  const color = hintTone(hint)
+  if (color === 'var(--owl-color-risk-bright)') return 'fail'
+  if (color === 'var(--owl-color-gold-bright)') return 'caution'
+  if (color === 'var(--owl-color-positive)') return 'pass'
+  return 'muted'
+}
+
 function hintTone(hint: string): string {
   const h = hint.toUpperCase()
   if (/FAILS|OUTSIDE|RED_FLAG|RED FLAG|POOR|NON_COMPLIANT|NON-COMPLIANT|NOT UNDERSTOOD|NARROWING/.test(h)) return 'var(--owl-color-risk-bright)'
@@ -540,6 +576,7 @@ function createPillarHeader(id: string, title: string, status: string | undefine
     'div',
     {
       'data-testid': `pillar-header-${id}`,
+      id: `pillar-anchor-${id}`,
       style: { alignItems: 'center', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.3rem' },
     },
     ...pillarTitleRow(id, title, status, hint),
@@ -570,7 +607,7 @@ function createPillarSection(
   }
   return createElement(
     'details',
-    { 'data-testid': `pillar-header-${id}`, className: 'owl-collapsible-card' },
+    { 'data-testid': `pillar-header-${id}`, id: `pillar-anchor-${id}`, className: 'owl-collapsible-card', suppressHydrationWarning: true },
     createElement(
       'summary',
       { className: 'owl-collapsible-card-summary', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },

@@ -64,3 +64,32 @@ describe('the dossier Shariah gate section under the screening toggle', () => {
     }
   })
 })
+
+// The sticky pillar jump bar (owner-approved 2026-07-17): chips with verdict glyphs; the gate chip
+// follows the same visibility rules as the gate section; anchors exist for the click-to-expand jump.
+describe('the dossier pillar jump nav', () => {
+  it('renders one chip per pillar with anchors on the sections; the gate chip respects the screening mode', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: baseCase({ shariah_status: 'COMPLIANT', shariah_gate: { allowed: true, sector_status: 'compliant' } }),
+      mode: 'personal-local',
+      shariahEnabled: true,
+    }))
+    expect(html).toContain('data-testid="pillar-jump-nav"')
+    for (const id of ['front-gate', 'pillar-1', 'pillar-2', 'pillar-3', 'pillar-4', 'synthesis']) {
+      expect(html).toContain(`data-testid="pillar-jump-${id}"`)
+      expect(html).toContain(`id="pillar-anchor-${id}"`)
+    }
+    // WATCH verdict → the SYN chip carries the caution glyph.
+    expect(html).toContain('⚠')
+  })
+
+  it('drops the GATE chip when the mode is off — mirroring the hidden gate section', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: baseCase({ shariah_status: 'COMPLIANT', shariah_gate: { allowed: true, sector_status: 'compliant' } }),
+      mode: 'personal-local',
+      shariahEnabled: false,
+    }))
+    expect(html).not.toContain('data-testid="pillar-jump-front-gate"')
+    expect(html).toContain('data-testid="pillar-jump-pillar-1"')
+  })
+})
