@@ -121,6 +121,8 @@ export type RunScheduledTasksOptions = WorkerClock & {
   reReview?: {
     fetchFundamentals?: CheckForNewFilingsDeps['fetchFundamentals']
     ground?: DraftThesisReReviewDeps['ground']
+    /** Test seam: offline 8-K exhibit discovery (the default live-fetches sec.gov). */
+    discoverExhibits?: DraftThesisReReviewDeps['discoverExhibits']
   }
   /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
   shariahRatioSource?: ShariahRatioSource
@@ -1635,7 +1637,10 @@ async function runReReviewCheckTask(
       causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
       source_ledger_path: sourceLedgerPath,
       check,
-    }, reReviewDeps.ground === undefined ? {} : { ground: reReviewDeps.ground })
+    }, {
+      ...(reReviewDeps.ground === undefined ? {} : { ground: reReviewDeps.ground }),
+      ...(reReviewDeps.discoverExhibits === undefined ? {} : { discoverExhibits: reReviewDeps.discoverExhibits }),
+    })
     reReviewEventIds.push(recorded.event_id)
     observations.push(`${ticker}: thesis re-review ${recorded.assessment} vs ${recorded.new_filings.length} new filing(s) — an observation, the decision is unchanged`)
 
