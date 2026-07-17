@@ -18,3 +18,8 @@ function decodeXmlEntities(text: string): string {
     .replace(/&quot;/gi, '"')
     .replace(/&apos;/gi, "'")
 }
+
+/** 'HIMALAYA CAPITAL MANAGEMENT LLC (LI LU)' → 'Himalaya Capital Management (Li Lu)' — display only. */
+export function shortManagerName(name: string): string {
+  return titleCaseEntityName(name.replace(/,?\s+(LLC|LP|L\.P\.|INC\.?|LTD\.?)\s*(?=\(|$)/i, ' ').replace(/\s{2,}/g, ' ').trim())
+}

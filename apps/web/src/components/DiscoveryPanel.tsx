@@ -10,7 +10,7 @@ import type {
 } from '@owlfolio/ledger/projections/discovery13fProjection'
 import { CLONER_LIST } from '@owlfolio/workflow/discovery13f'
 
-import { titleCaseEntityName } from '../lib/entityName'
+import { shortManagerName, titleCaseEntityName } from '../lib/entityName'
 import { DiscoveryCandidateActions } from './DiscoveryCandidateActions'
 import { RunDiscoveryButton } from './RunDiscoveryButton'
 
@@ -485,10 +485,6 @@ function createUnfiledManagerNotes(quarters: Discovery13fQuarter[]): ReactNode[]
     ))
 }
 
-/** 'HIMALAYA CAPITAL MANAGEMENT LLC (LI LU)' → 'Himalaya Capital Management (Li Lu)' — display only. */
-function shortManagerName(name: string): string {
-  return titleCaseEntityName(name.replace(/,?\s+(LLC|LP|L\.P\.|INC\.?|LTD\.?)\s*(?=\(|$)/i, ' ').replace(/\s{2,}/g, ' ').trim())
-}
 
 function createCandidateCard(candidate: DiscoveryCandidateProjection) {
   const signal = extractDiscoverySignal(candidate.discovery_metadata)

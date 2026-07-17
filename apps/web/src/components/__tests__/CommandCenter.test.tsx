@@ -178,8 +178,10 @@ describe('CommandCenter', () => {
     expect(html).toContain('Fiduciary briefing')
     // Hero statement leads with the pending count emphasized in gold.
     expect(html).toContain('class="owl-cc-hero-statement"')
-    expect(html).toContain('await your authorization.')
-    expect(html).toContain('2 decisions')
+    // TRUTH PASS (2026-07-17): the hero counts only GENUINE decision drafts in the approval queue;
+    // this fixture's pending_user_actions came from worker reports, which are activity, not decisions.
+    expect(html).not.toContain('await your authorization.')
+    expect(html).toContain('Decisions waiting')
     expect(html).toContain('Research engine active')
     // The ledger line of vital signs.
     expect(html).toContain('class="owl-cc-ledger-line"')
@@ -221,13 +223,17 @@ describe('CommandCenter', () => {
 
       expect(html).toContain('Personal local mode initialized')
       expect(html).toContain('Provider: OpenRouter experimental')
-      expect(html).toContain('Finish local assistant setup')
-      expect(html).toContain('Research cases')
+      // TRUTH PASS: a keyed, live adapter is READY — 'experimental' is a support level, not a
+      // setup problem; the false 'finish setup' CTA is gone.
+      expect(html).not.toContain('Finish local assistant setup')
+      expect(html).toContain('Research engine active')
+      expect(html).toContain('Recorded cases (all-time)')
       expect(html).toContain('0')
       expect(html).toContain('Open the selected-strategy research cockpit')
       expect(html).toContain('href="/research"')
       expect(html).toContain('Open research cockpit')
-      expect(html).toContain('href="/settings/providers"')
+      // The providers-settings CTA only renders for a GENUINELY not-ready provider now.
+      expect(html).not.toContain('Finish local assistant setup')
       expect(html).toContain('Operating ledger is empty')
       expect(html).toContain('No research, watchlist, or holding activity has been recorded yet.')
     } finally {
@@ -498,10 +504,12 @@ describe('CommandCenter', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
     expect(html).toContain('Approval queue')
-    expect(html).toContain('3 pending proposals grouped by decision type')
+    // TRUTH PASS: the queue counts DECISIONS; the completed worker report demotes to activity.
+    expect(html).toContain('2 pending decisions grouped by type')
     expect(html).toContain('Watchlist confirmations')
     expect(html).toContain('Holding review decisions')
-    expect(html).toContain('Worker proposals')
+    expect(html).not.toContain('Worker proposals')
+    expect(html).toContain('Recent worker activity')
     expect(html).toContain('Actor')
     expect(html).toContain('provider:mock-provider')
     expect(html).toContain('Provider report')
@@ -512,7 +520,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Accounting impact')
     expect(html).toContain('href="/audit?event_id=evt_watchlist_msft#evt_watchlist_msft"')
     expect(html).toContain('src_msft_10k_2025')
-    expect(html).toContain('provider_run_watchlist_001')
+    // The worker report's provider-run chips live on the audit page now (the activity line links there).
     expect(html).toContain('Legacy unconfirmed draft — re-admit from research')
     expect(html).toContain('Apply provider draft')
     expect(html).toContain('Reject provider draft')
