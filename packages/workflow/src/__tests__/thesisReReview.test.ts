@@ -89,6 +89,13 @@ function check(over: Partial<NewFilingsCheck>): NewFilingsCheck {
   }
 }
 
+/**
+ * FLAKE FIX (2026-07-17, 3 sightings): without this injection the production default performs a
+ * LIVE sec.gov exhibit-discovery fetch (the stub provider is not 'mock-provider') — fast standalone,
+ * intermittently slow/failing under full-suite parallel load. Unit tests stay offline.
+ */
+const noExhibits = async () => []
+
 /** Ground stub: verifies every proposed source with hash = sha(url). */
 const verifyAllGround = (async (sources: { source_id: string; title: string; url: string; excerpt: string }[]) => ({
   captured: sources.map((s) => ({
@@ -180,7 +187,7 @@ describe('draftThesisReReview', () => {
       causation_id: 'evt_decision',
       source_ledger_path: sourceLedgerPath,
       check: check({}),
-    }, { ground: verifyAllGround })
+    }, { ground: verifyAllGround, discoverExhibits: noExhibits })
 
     expect(recorded.assessment).toBe('INTACT')
     expect(recorded.trigger_assessments).toHaveLength(2)
@@ -210,7 +217,7 @@ describe('draftThesisReReview', () => {
     const recorded = await draftThesisReReview(store, provider as never, {
       research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
       source_ledger_path: sourceLedgerPath, check: check({}),
-    }, { ground: verifyAllGround })
+    }, { ground: verifyAllGround, discoverExhibits: noExhibits })
 
     expect(recorded.assessment).toBe('UNVERIFIED')
     expect(recorded.re_review_ungrounded).toBe(true)
@@ -237,7 +244,7 @@ describe('draftThesisReReview', () => {
     const recorded = await draftThesisReReview(store, provider as never, {
       research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
       source_ledger_path: sourceLedgerPath, check: check({}),
-    }, { ground: verifyAllGround })
+    }, { ground: verifyAllGround, discoverExhibits: noExhibits })
 
     expect(recorded.assessment).toBe('INTACT')
     expect(recorded.re_review_ungrounded).toBeUndefined()
@@ -263,7 +270,7 @@ describe('draftThesisReReview', () => {
     const recorded = await draftThesisReReview(store, provider as never, {
       research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
       source_ledger_path: sourceLedgerPath, check: check({}),
-    }, { ground: verifyAllGround })
+    }, { ground: verifyAllGround, discoverExhibits: noExhibits })
 
     expect(recorded.assessment).toBe('INCONCLUSIVE')
     expect(recorded.re_review_ungrounded).toBeUndefined() // citations verified fine — this is not a verification failure
@@ -283,7 +290,7 @@ describe('draftThesisReReview', () => {
     const recorded = await draftThesisReReview(store, provider as never, {
       research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
       source_ledger_path: sourceLedgerPath, check: check({ new_filings: many }),
-    }, { ground: verifyAllGround })
+    }, { ground: verifyAllGround, discoverExhibits: noExhibits })
 
     expect(recorded.new_filings).toHaveLength(MAX_RE_REVIEW_FILINGS)
     expect(recorded.skipped_filings).toHaveLength(2)
@@ -384,9 +391,9 @@ describe('draftThesisReReview', () => {
     const provider = reReviewProvider(intactPayload)
     const base = { research_case_id: CASE_ID, model_id: 'm', causation_id: 'e', source_ledger_path: sourceLedgerPath }
 
-    await expect(draftThesisReReview(store, provider as never, { ...base, check: check({ new_filings: [] }) }, { ground: verifyAllGround })).rejects.toThrow(/no new filings/i)
-    await expect(draftThesisReReview(store, provider as never, { ...base, check: check({ no_prior_corpus: true }) }, { ground: verifyAllGround })).rejects.toThrow(/prior corpus/i)
-    await expect(draftThesisReReview(store, provider as never, { ...base, research_case_id: 'rc_unknown', check: check({ research_case_id: 'rc_unknown' }) }, { ground: verifyAllGround })).rejects.toThrow(/thesis/i)
+    await expect(draftThesisReReview(store, provider as never, { ...base, check: check({ new_filings: [] }) }, { ground: verifyAllGround, discoverExhibits: noExhibits })).rejects.toThrow(/no new filings/i)
+    await expect(draftThesisReReview(store, provider as never, { ...base, check: check({ no_prior_corpus: true }) }, { ground: verifyAllGround, discoverExhibits: noExhibits })).rejects.toThrow(/prior corpus/i)
+    await expect(draftThesisReReview(store, provider as never, { ...base, research_case_id: 'rc_unknown', check: check({ research_case_id: 'rc_unknown' }) }, { ground: verifyAllGround, discoverExhibits: noExhibits })).rejects.toThrow(/thesis/i)
     expect(provider.structured).not.toHaveBeenCalled()
   })
 })

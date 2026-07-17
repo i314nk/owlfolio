@@ -150,7 +150,7 @@ describe('re_review_check task', () => {
     const result = await runScheduledTasks(store, runOptions({
       provider,
       source_ledger_path: sourceLedgerPath,
-      reReview: { ground, fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
+      reReview: { ground, discoverExhibits: async () => [], fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
     }))
     expect(result).toMatchObject({ completed: 1, failed: 0 })
 
@@ -172,7 +172,7 @@ describe('re_review_check task', () => {
     const result = await runScheduledTasks(store, runOptions({
       provider,
       source_ledger_path: sourceLedgerPath,
-      reReview: { ground, fetchFundamentals: async () => fundamentalsWith([{ form: '10-Q', filed: '2026-06-03', url: NEW_10Q }]) },
+      reReview: { ground, discoverExhibits: async () => [], fetchFundamentals: async () => fundamentalsWith([{ form: '10-Q', filed: '2026-06-03', url: NEW_10Q }]) },
     }))
     expect(result).toMatchObject({ completed: 1, failed: 0 })
     expect(provider.structured).not.toHaveBeenCalled()
@@ -190,7 +190,7 @@ describe('re_review_check task', () => {
       provider: reReviewProvider('BROKEN'),
       source_ledger_path: sourceLedgerPath,
       automation: { research_engine_enabled: true },
-      reReview: { ground, fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
+      reReview: { ground, discoverExhibits: async () => [], fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
     }))
     expect(result).toMatchObject({ completed: 1, failed: 0 })
 
@@ -215,7 +215,7 @@ describe('re_review_check task', () => {
       provider: reReviewProvider('BROKEN'),
       source_ledger_path: sourceLedgerPath,
       automation: { research_engine_enabled: true },
-      reReview: { ground, fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
+      reReview: { ground, discoverExhibits: async () => [], fetchFundamentals: async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]) },
     }))
     const events = await store.list()
     expect(events.filter((e) => e.event_type === 'research_case_re_review_recorded')).toHaveLength(1)
@@ -232,7 +232,7 @@ describe('re_review_check task', () => {
     const fetchFundamentals = vi.fn(async () => fundamentalsWith([{ form: '8-K', filed: '2026-06-20', url: NEW_8K }]))
     const provider = reReviewProvider('INTACT')
     const result = await runScheduledTasks(store, runOptions({
-      provider, source_ledger_path: sourceLedgerPath, reReview: { ground, fetchFundamentals },
+      provider, source_ledger_path: sourceLedgerPath, reReview: { ground, discoverExhibits: async () => [], fetchFundamentals },
     }))
     expect(result).toMatchObject({ completed: 1, failed: 0 })
     expect(fetchFundamentals).not.toHaveBeenCalled()
