@@ -27,6 +27,30 @@
   /* Risk / negative / overvalued / impaired */
   --owl-color-risk: #ef4444;
   --owl-color-risk-bright: #f87171;
+  --owl-color-risk-soft: #fca5a5;
+  --owl-color-risk-pale: #fecaca;
+  /* Positive figures / zone chips / matrix buys (brighter than the accent pair) */
+  --owl-color-positive: #4ade80;
+  --owl-color-positive-soft: #bbf7d0;
+  /* Body-text brights + cool helper greys (PALETTES 2026-07-16: tokenized from component literals) */
+  --owl-color-text-soft: #dbe3ef;
+  --owl-color-bright: #f8fafc;
+  --owl-color-helper: #cbd5e1;
+  --owl-color-muted-cool: #9aa4b7;
+  /* RGB triplets for alpha-composed chips (rgba(var(--owl-rgb-*), a)) */
+  --owl-rgb-positive: 74, 222, 128;
+  --owl-rgb-risk: 248, 113, 113;
+  --owl-rgb-amber: 251, 191, 36;
+  /* The ACCENT family triplets + deep gradient stop — every alpha-composed accent green in the
+     base rules rides these, so a palette that swaps the accent swaps ALL of it (owner, 2026-07-17:
+     'all the emerald becomes sapphire'). */
+  --owl-rgb-accent: 22, 163, 74;
+  --owl-rgb-accent-bright: 52, 211, 153;
+  --owl-rgb-shariah: 34, 197, 94;
+  --owl-color-accent-deep: #0f766e;
+  /* The girih lattice hue (owner, 2026-07-17): gold is the brand thread across the color
+     palettes; Mono neutralizes it. One token per theme — the pattern itself is a mask. */
+  --owl-color-lattice: #d6b25e;
   --owl-color-finance-blue: #0f766e;
   --owl-color-shariah: #22c55e;
   /* Kept for backward compat; aliases gold */
@@ -270,7 +294,7 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 14% 0%, rgba(22, 163, 74, 0.14), transparent 26rem),
+    radial-gradient(circle at 14% 0%, rgba(var(--owl-rgb-accent), 0.14), transparent 26rem),
     radial-gradient(circle at 86% 10%, rgba(214, 178, 94, 0.18), transparent 28rem),
     radial-gradient(circle at 50% 85%, rgba(214, 178, 94, 0.07), transparent 32rem),
     linear-gradient(135deg, var(--owl-color-canvas) 0%, #07100a 52%, #030604 100%);
@@ -292,9 +316,194 @@ body::before {
   z-index: 0;
   pointer-events: none;
   opacity: 0.11;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='90' viewBox='0 0 52 90'%3E%3Cdefs%3E%3Cpath id='h' d='M0 -30 25.98 -15 25.98 15 0 30 -25.98 15 -25.98 -15Z'/%3E%3Cpath id='s' d='M24 0 12 6.93 12 20.78 0 13.86 -12 20.78 -12 6.93 -24 0 -12 -6.93 -12 -20.78 0 -13.86 12 -20.78 12 -6.93Z'/%3E%3C/defs%3E%3Cg fill='none' stroke='%23d6b25e' stroke-width='0.9'%3E%3Cuse href='%23h' x='0' y='0'/%3E%3Cuse href='%23s' x='0' y='0'/%3E%3Cuse href='%23h' x='52' y='0'/%3E%3Cuse href='%23s' x='52' y='0'/%3E%3Cuse href='%23h' x='0' y='90'/%3E%3Cuse href='%23s' x='0' y='90'/%3E%3Cuse href='%23h' x='52' y='90'/%3E%3Cuse href='%23s' x='52' y='90'/%3E%3Cuse href='%23h' x='26' y='45'/%3E%3Cuse href='%23s' x='26' y='45'/%3E%3C/g%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 66px 114px;
+  background: var(--owl-color-lattice);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='90' viewBox='0 0 52 90'%3E%3Cdefs%3E%3Cpath id='h' d='M0 -30 25.98 -15 25.98 15 0 30 -25.98 15 -25.98 -15Z'/%3E%3Cpath id='s' d='M24 0 12 6.93 12 20.78 0 13.86 -12 20.78 -12 6.93 -24 0 -12 -6.93 -12 -20.78 0 -13.86 12 -20.78 12 -6.93Z'/%3E%3C/defs%3E%3Cg fill='none' stroke='white' stroke-width='0.9'%3E%3Cuse href='%23h' x='0' y='0'/%3E%3Cuse href='%23s' x='0' y='0'/%3E%3Cuse href='%23h' x='52' y='0'/%3E%3Cuse href='%23s' x='52' y='0'/%3E%3Cuse href='%23h' x='0' y='90'/%3E%3Cuse href='%23s' x='0' y='90'/%3E%3Cuse href='%23h' x='52' y='90'/%3E%3Cuse href='%23s' x='52' y='90'/%3E%3Cuse href='%23h' x='26' y='45'/%3E%3Cuse href='%23s' x='26' y='45'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='90' viewBox='0 0 52 90'%3E%3Cdefs%3E%3Cpath id='h' d='M0 -30 25.98 -15 25.98 15 0 30 -25.98 15 -25.98 -15Z'/%3E%3Cpath id='s' d='M24 0 12 6.93 12 20.78 0 13.86 -12 20.78 -12 6.93 -24 0 -12 -6.93 -12 -20.78 0 -13.86 12 -20.78 12 -6.93Z'/%3E%3C/defs%3E%3Cg fill='none' stroke='white' stroke-width='0.9'%3E%3Cuse href='%23h' x='0' y='0'/%3E%3Cuse href='%23s' x='0' y='0'/%3E%3Cuse href='%23h' x='52' y='0'/%3E%3Cuse href='%23s' x='52' y='0'/%3E%3Cuse href='%23h' x='0' y='90'/%3E%3Cuse href='%23s' x='0' y='90'/%3E%3Cuse href='%23h' x='52' y='90'/%3E%3Cuse href='%23s' x='52' y='90'/%3E%3Cuse href='%23h' x='26' y='45'/%3E%3Cuse href='%23s' x='26' y='45'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+  -webkit-mask-size: 66px 114px;
+  mask-size: 66px 114px;
+}
+
+/* ---------------------------------------------------------------------------
+   PALETTES (owner, 2026-07-16): data-owl-theme on <html> swaps the token set.
+   Emerald is :root (no block). Gold + the arabesque stay the brand constant;
+   the semantic colors (positive/risk/amber/shariah) keep their meaning in
+   every theme. Sand is the light theme — color-scheme flips with it.
+--------------------------------------------------------------------------- */
+
+[data-owl-theme='sapphire'] {
+  --owl-color-canvas: #030711;
+  --owl-color-canvas-soft: #060b16;
+  --owl-color-shell: #0a1220;
+  --owl-color-panel: rgba(15, 21, 34, 0.78);
+  --owl-color-panel-elevated: rgba(22, 30, 46, 0.8);
+  --owl-color-panel-deep: rgba(6, 10, 18, 0.85);
+  --owl-color-border: rgba(173, 190, 214, 0.12);
+  --owl-color-border-strong: rgba(96, 165, 250, 0.35);
+  --owl-color-muted: #a5b1c2;
+  --owl-color-quiet: #6b7889;
+  /* The FULL accent family follows the theme (owner, 2026-07-17: 'all the emerald becomes
+     sapphire') — buttons, toggles, focus rings, zone chips, compliant pills, the orb glow. */
+  --owl-color-accent: #2563eb;
+  --owl-color-accent-bright: #60a5fa;
+  --owl-color-accent-deep: #1d4ed8;
+  --owl-color-positive: #60a5fa;
+  --owl-color-positive-soft: #bfdbfe;
+  --owl-color-shariah: #60a5fa;
+  --owl-rgb-accent: 37, 99, 235;
+  --owl-rgb-accent-bright: 96, 165, 250;
+  --owl-rgb-shariah: 96, 165, 250;
+  --owl-rgb-positive: 96, 165, 250;
+  --owl-color-status-certified: rgba(59, 130, 246, 0.14);
+  --owl-color-status-certified-border: rgba(147, 197, 253, 0.34);
+  --owl-color-status-compliance: rgba(14, 165, 233, 0.12);
+  --owl-color-status-compliance-border: rgba(125, 211, 252, 0.28);
+  --owl-color-finance-blue: #0e7490;
+  --owl-color-source-bg: rgba(7, 11, 19, 0.9);
+  --owl-color-source-border: rgba(96, 165, 250, 0.25);
+}
+
+[data-owl-theme='graphite'] {
+  --owl-color-canvas: #060606;
+  --owl-color-canvas-soft: #0a0a0b;
+  --owl-color-shell: #101012;
+  --owl-color-panel: rgba(22, 22, 24, 0.78);
+  --owl-color-panel-elevated: rgba(30, 30, 33, 0.8);
+  --owl-color-panel-deep: rgba(10, 10, 11, 0.85);
+  --owl-color-border: rgba(200, 200, 205, 0.11);
+  --owl-color-border-strong: rgba(214, 178, 94, 0.4);
+  --owl-color-muted: #a8a8ad;
+  --owl-color-quiet: #737378;
+  /* Graphite is monochrome + gold: the accent family goes gold, no emerald anywhere. */
+  --owl-color-accent: #a98b3f;
+  --owl-color-accent-bright: #d6b25e;
+  --owl-color-accent-deep: #7c6224;
+  --owl-color-positive: #d6b25e;
+  --owl-color-positive-soft: #f3dfb1;
+  --owl-color-shariah: #d6b25e;
+  --owl-rgb-accent: 169, 139, 63;
+  --owl-rgb-accent-bright: 214, 178, 94;
+  --owl-rgb-shariah: 214, 178, 94;
+  --owl-rgb-positive: 214, 178, 94;
+  --owl-color-status-certified: rgba(214, 178, 94, 0.12);
+  --owl-color-status-certified-border: rgba(243, 223, 177, 0.3);
+  --owl-color-status-compliance: rgba(214, 178, 94, 0.1);
+  --owl-color-status-compliance-border: rgba(243, 223, 177, 0.26);
+  --owl-color-source-bg: rgba(12, 12, 13, 0.9);
+  --owl-color-source-border: rgba(214, 178, 94, 0.24);
+}
+
+[data-owl-theme='mono'] {
+  /* Bloomberg-terminal feel (owner, 2026-07-17): true black, sharp white, silver accents. Gold
+     goes silver and the girih lattice re-strokes grey. The safety colors stay: risk red and
+     caution amber must remain legible in every theme (fail-visible over aesthetics). */
+  --owl-color-canvas: #000000;
+  --owl-color-canvas-soft: #050505;
+  --owl-color-shell: #0a0a0a;
+  --owl-color-panel: rgba(16, 16, 16, 0.85);
+  --owl-color-panel-elevated: rgba(24, 24, 24, 0.86);
+  --owl-color-panel-deep: rgba(6, 6, 6, 0.9);
+  --owl-color-border: rgba(255, 255, 255, 0.13);
+  --owl-color-border-strong: rgba(255, 255, 255, 0.35);
+  --owl-color-text: #f5f5f5;
+  --owl-color-muted: #a3a3a3;
+  --owl-color-quiet: #6e6e6e;
+  --owl-color-gold: #d4d4d4;
+  --owl-color-gold-bright: #e5e5e5;
+  --owl-color-gold-vivid: #fafafa;
+  --owl-color-sand: #e5e5e5;
+  --owl-color-fiduciary: #d4d4d4;
+  --owl-color-warning: #d4d4d4;
+  --owl-color-accent: #404040;
+  --owl-color-accent-bright: #a3a3a3;
+  --owl-color-accent-deep: #262626;
+  --owl-color-positive: #e5e5e5;
+  --owl-color-positive-soft: #d4d4d4;
+  --owl-color-shariah: #e5e5e5;
+  --owl-rgb-accent: 120, 120, 120;
+  --owl-rgb-accent-bright: 200, 200, 200;
+  --owl-rgb-shariah: 220, 220, 220;
+  --owl-rgb-positive: 229, 229, 229;
+  --owl-color-status-certified: rgba(255, 255, 255, 0.1);
+  --owl-color-status-certified-border: rgba(255, 255, 255, 0.32);
+  --owl-color-status-compliance: rgba(255, 255, 255, 0.08);
+  --owl-color-status-compliance-border: rgba(255, 255, 255, 0.26);
+  --owl-color-finance-blue: #525252;
+  --owl-color-source-bg: rgba(8, 8, 8, 0.92);
+  --owl-color-source-border: rgba(255, 255, 255, 0.2);
+  --owl-color-lattice: #a3a3a3;
+}
+
+[data-owl-theme='violet'] {
+  --owl-color-canvas: #08040f;
+  --owl-color-canvas-soft: #0d0716;
+  --owl-color-shell: #130a20;
+  --owl-color-panel: rgba(26, 16, 42, 0.78);
+  --owl-color-panel-elevated: rgba(34, 22, 54, 0.8);
+  --owl-color-panel-deep: rgba(12, 7, 20, 0.85);
+  --owl-color-border: rgba(196, 181, 253, 0.12);
+  --owl-color-border-strong: rgba(167, 139, 250, 0.35);
+  --owl-color-muted: #b0a6c4;
+  --owl-color-quiet: #7a7090;
+  --owl-color-accent: #7c3aed;
+  --owl-color-accent-bright: #a78bfa;
+  --owl-color-accent-deep: #6d28d9;
+  --owl-color-positive: #a78bfa;
+  --owl-color-positive-soft: #ddd6fe;
+  --owl-color-shariah: #a78bfa;
+  --owl-rgb-accent: 124, 58, 237;
+  --owl-rgb-accent-bright: 167, 139, 250;
+  --owl-rgb-shariah: 167, 139, 250;
+  --owl-rgb-positive: 167, 139, 250;
+  --owl-color-status-certified: rgba(139, 92, 246, 0.14);
+  --owl-color-status-certified-border: rgba(196, 181, 253, 0.34);
+  --owl-color-status-compliance: rgba(147, 51, 234, 0.12);
+  --owl-color-status-compliance-border: rgba(216, 180, 254, 0.28);
+  --owl-color-finance-blue: #6d28d9;
+  --owl-color-source-bg: rgba(10, 6, 17, 0.9);
+  --owl-color-source-border: rgba(167, 139, 250, 0.25);
+}
+
+[data-owl-theme='cyberpunk'] {
+  /* Cyberpunk (owner, 2026-07-17): neon light-pink + light-cyan on a blue-black night canvas.
+     The pink takes the gold role (headers, key figures, the lattice); the cyan takes the accent
+     family (buttons, zones, compliant pills, focus). Risk red and caution amber stay. */
+  --owl-color-canvas: #070213;
+  --owl-color-canvas-soft: #0b0418;
+  --owl-color-shell: #100722;
+  --owl-color-panel: rgba(22, 12, 40, 0.78);
+  --owl-color-panel-elevated: rgba(30, 17, 52, 0.8);
+  --owl-color-panel-deep: rgba(10, 5, 22, 0.85);
+  --owl-color-border: rgba(103, 232, 249, 0.14);
+  --owl-color-border-strong: rgba(244, 114, 182, 0.4);
+  --owl-color-text: #f5f3ff;
+  --owl-color-muted: #a8a4c8;
+  --owl-color-quiet: #6f6b92;
+  --owl-color-gold: #f472b6;
+  --owl-color-gold-bright: #f9a8d4;
+  --owl-color-gold-vivid: #fbcfe8;
+  --owl-color-sand: #fbcfe8;
+  --owl-color-fiduciary: #f472b6;
+  --owl-color-warning: #f472b6;
+  --owl-color-lattice: #f472b6;
+  --owl-color-accent: #0891b2;
+  --owl-color-accent-bright: #67e8f9;
+  --owl-color-accent-deep: #155e75;
+  --owl-color-positive: #67e8f9;
+  --owl-color-positive-soft: #a5f3fc;
+  --owl-color-shariah: #67e8f9;
+  --owl-rgb-accent: 8, 145, 178;
+  --owl-rgb-accent-bright: 103, 232, 249;
+  --owl-rgb-shariah: 103, 232, 249;
+  --owl-rgb-positive: 103, 232, 249;
+  --owl-color-status-certified: rgba(34, 211, 238, 0.13);
+  --owl-color-status-certified-border: rgba(165, 243, 252, 0.34);
+  --owl-color-status-compliance: rgba(34, 211, 238, 0.1);
+  --owl-color-status-compliance-border: rgba(165, 243, 252, 0.28);
+  --owl-color-finance-blue: #0891b2;
+  --owl-color-source-bg: rgba(9, 4, 20, 0.9);
+  --owl-color-source-border: rgba(103, 232, 249, 0.25);
 }
 
 a {
@@ -309,7 +518,7 @@ textarea:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--owl-color-accent-bright);
   outline-offset: 3px;
-  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.18);
+  box-shadow: 0 0 0 6px rgba(var(--owl-rgb-accent-bright), 0.18);
 }
 
 .owl-app-shell {
@@ -322,7 +531,7 @@ a:focus-visible {
 }
 
 .owl-app-shell::before {
-  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.36), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--owl-rgb-accent-bright), 0.36), transparent);
   content: "";
   height: 1px;
   left: 0;
@@ -601,7 +810,7 @@ a:focus-visible {
 .owl-brand-orb {
   background: linear-gradient(135deg, var(--owl-color-accent-bright), var(--owl-color-fiduciary));
   border-radius: 0.6rem;
-  box-shadow: 0 0 26px rgba(22, 163, 74, 0.32);
+  box-shadow: 0 0 26px rgba(var(--owl-rgb-accent), 0.32);
   color: #fff;
   display: inline-grid;
   font-weight: 700;
@@ -678,19 +887,19 @@ a:focus-visible {
 
 .owl-nav-link:hover,
 .owl-nav-link-active {
-  background: rgba(22, 163, 74, 0.13);
+  background: rgba(var(--owl-rgb-accent), 0.13);
   border-color: var(--owl-color-border-strong);
   color: var(--owl-color-text);
 }
 
 .owl-nav-link-active {
-  box-shadow: inset 3px 0 0 var(--owl-color-accent-bright), inset 0 0 0 1px rgba(52, 211, 153, 0.14);
+  box-shadow: inset 3px 0 0 var(--owl-color-accent-bright), inset 0 0 0 1px rgba(var(--owl-rgb-accent-bright), 0.14);
 }
 
 .owl-setup-card {
   align-self: end;
   background:
-    radial-gradient(circle at top left, rgba(52, 211, 153, 0.18), transparent 14rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent-bright), 0.18), transparent 14rem),
     rgba(214, 178, 94, 0.08);
   border: 1px solid rgba(214, 178, 94, 0.28);
   border-radius: var(--owl-radius-card);
@@ -725,8 +934,8 @@ a:focus-visible {
 
 .owl-setup-card-action {
   align-items: center;
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
-  border: 1px solid rgba(52, 211, 153, 0.46);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.46);
   border-radius: 999px;
   color: #fff;
   display: inline-flex;
@@ -766,8 +975,8 @@ a:focus-visible {
 }
 
 .owl-active-mode-ready {
-  background: rgba(52, 211, 153, 0.08);
-  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(var(--owl-rgb-accent-bright), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.34);
 }
 
 .owl-active-mode-demo {
@@ -1023,9 +1232,9 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-command-launchpad,
 .owl-command-trust-panel {
   background:
-    radial-gradient(circle at top left, rgba(22, 163, 74, 0.16), transparent 22rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent), 0.16), transparent 22rem),
     linear-gradient(180deg, rgba(243, 223, 177, 0.065), rgba(243, 223, 177, 0.028));
-  border: 1px solid rgba(52, 211, 153, 0.2);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.2);
   border-radius: var(--owl-radius-panel);
   box-shadow: var(--owl-shadow-panel);
   color: var(--owl-color-text);
@@ -1094,8 +1303,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-launchpad-link:hover {
-  background: rgba(22, 163, 74, 0.1);
-  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(var(--owl-rgb-accent), 0.1);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.3);
   transform: translateY(-1px);
 }
 
@@ -1132,8 +1341,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-trust-item {
-  background: rgba(34, 197, 94, 0.07);
-  border: 1px solid rgba(134, 239, 172, 0.17);
+  background: rgba(var(--owl-rgb-shariah), 0.07);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.17);
   border-radius: 0.85rem;
   display: grid;
   gap: 0.24rem;
@@ -1141,7 +1350,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-trust-title {
-  color: #bbf7d0;
+  color: var(--owl-color-positive-soft);
   font-size: 0.95rem;
   margin: 0;
 }
@@ -1249,7 +1458,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 .owl-empty-state {
   background:
-    radial-gradient(circle at top left, rgba(22, 163, 74, 0.1), transparent 18rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent), 0.1), transparent 18rem),
     var(--owl-color-panel);
   border: 1px dashed rgba(148, 163, 184, 0.24);
   border-radius: var(--owl-radius-panel);
@@ -1321,8 +1530,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-button-primary {
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
-  border: 1px solid rgba(52, 211, 153, 0.46);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.46);
   color: #fff;
 }
 
@@ -1375,7 +1584,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-status-certified {
   background: var(--owl-color-status-certified);
   border: 1px solid var(--owl-color-status-certified-border);
-  color: #bbf7d0;
+  color: var(--owl-color-positive-soft);
 }
 
 .owl-status-experimental {
@@ -1424,7 +1633,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-metric-card:hover {
-  border-color: rgba(52, 211, 153, 0.26);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.26);
 }
 
 .owl-metric-label {
@@ -1576,8 +1785,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-workflow-panel-user {
-  background: rgba(22, 163, 74, 0.08);
-  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(var(--owl-rgb-accent), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.22);
 }
 
 .owl-financial-table {
@@ -1622,8 +1831,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-action-form-confirm {
-  background: rgba(22, 163, 74, 0.08);
-  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(var(--owl-rgb-accent), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.22);
 }
 
 .owl-form-button {
@@ -1637,7 +1846,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-form-button-primary {
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
 }
 
 /* ── OwlRingGauge ──────────────────────────────────────────────────────────── */
@@ -1763,9 +1972,9 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 .owl-valuation-chip-undervalued,
 .owl-valuation-chip-approved {
-  background: rgba(22, 163, 74, 0.16);
-  border: 1px solid rgba(52, 211, 153, 0.36);
-  color: #86efac;
+  background: rgba(var(--owl-rgb-accent), 0.16);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.36);
+  color: var(--owl-color-positive-soft);
 }
 
 .owl-valuation-chip-overvalued {
@@ -1808,7 +2017,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-gauge-bar-track {
-  background: linear-gradient(90deg, #34d399 0%, #f0b429 55%, #ef4444 100%);
+  background: linear-gradient(90deg, var(--owl-color-accent-bright) 0%, #f0b429 55%, #ef4444 100%);
   border-radius: 999px;
   height: 100%;
   width: 100%;
@@ -2223,7 +2432,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 /* The agent's desk — a "live" steward presence. */
 .owl-cc-desk {
-  background: linear-gradient(135deg, rgba(52, 211, 153, 0.05), var(--owl-color-panel-elevated));
+  background: linear-gradient(135deg, rgba(var(--owl-rgb-accent-bright), 0.05), var(--owl-color-panel-elevated));
 }
 
 .owl-cc-live {
@@ -2241,7 +2450,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-cc-live-dot {
   background: var(--owl-color-accent-bright);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+  box-shadow: 0 0 0 3px rgba(var(--owl-rgb-accent-bright), 0.18);
   height: 7px;
   width: 7px;
 }
@@ -2316,8 +2525,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 @keyframes owl-cc-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16); }
-  50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.05); }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(var(--owl-rgb-accent-bright), 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--owl-rgb-accent-bright), 0.05); }
 }
 
 /* ── Learn page tabs (accessible WAI-ARIA tablist) ──────────────────────────── */

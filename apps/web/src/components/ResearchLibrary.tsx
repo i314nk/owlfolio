@@ -37,11 +37,11 @@ type VerdictKind = 'buy' | 'watch' | 'avoid' | 'pass' | 'in_progress' | 'failed'
 type VerdictChip = { label: string; bg: string; border: string; color: string }
 
 const VERDICT_CHIP: Record<VerdictKind, VerdictChip> = {
-  buy: { label: 'BUY', bg: 'rgba(34,197,94,0.13)', border: 'rgba(34,197,94,0.4)', color: '#bbf7d0' },
+  buy: { label: 'BUY', bg: 'rgba(var(--owl-rgb-shariah), 0.13)', border: 'rgba(var(--owl-rgb-shariah), 0.4)', color: 'var(--owl-color-positive-soft)' },
   watch: { label: 'WATCH', bg: 'rgba(240,180,41,0.12)', border: 'rgba(240,180,41,0.34)', color: '#f6d990' },
-  avoid: { label: 'AVOID', bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5' },
-  pass: { label: 'PASS', bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.3)', color: '#cbd5e1' },
-  in_progress: { label: 'IN PROGRESS', bg: 'rgba(214,178,94,0.12)', border: 'rgba(214,178,94,0.34)', color: '#f0d999' },
+  avoid: { label: 'AVOID', bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: 'var(--owl-color-risk-soft)' },
+  pass: { label: 'PASS', bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.3)', color: 'var(--owl-color-helper)' },
+  in_progress: { label: 'IN PROGRESS', bg: 'rgba(214,178,94,0.12)', border: 'rgba(214,178,94,0.34)', color: 'var(--owl-color-gold-vivid)' },
   failed: { label: 'FAILED', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.35)', color: '#fda4af' },
 }
 

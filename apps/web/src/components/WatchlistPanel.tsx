@@ -231,9 +231,9 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
   // badge. Expanding shows the small decision card: verdict summary + the valuation ladder + the
   // "open the full analysis" action. Specifics live in the dossier, not here.
   const zoneChip = band === 'LOAD_UP'
-    ? createElement('span', { key: 'zone', style: { color: '#4ade80', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'LOAD-UP ZONE')
+    ? createElement('span', { key: 'zone', style: { color: 'var(--owl-color-positive)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'LOAD-UP ZONE')
     : band === 'BUY_ZONE'
-      ? createElement('span', { key: 'zone', style: { color: '#4ade80', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'BUY ZONE')
+      ? createElement('span', { key: 'zone', style: { color: 'var(--owl-color-positive)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } }, 'BUY ZONE')
       : dist !== undefined
         ? createElement('span', { key: 'zone', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, `${dist.toFixed(0)}% ABOVE THE ZONE`)
         : null
@@ -277,7 +277,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       'div',
       { className: 'owl-workflow-card', style: { display: 'grid', gap: '0.75rem', marginTop: '0.5rem' } },
       createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
-      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.latest_analysis_thesis ?? item.thesis_summary)),
+      createElement('p', { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(item.latest_analysis_thesis ?? item.thesis_summary)),
       createPriceLadderElement({
         ...(v?.intrinsic_value_per_share === undefined ? {} : { iv: v.intrinsic_value_per_share }),
         ...(v?.load_up_below === undefined ? {} : { load: v.load_up_below }),
@@ -297,7 +297,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
         : null,
       // Staleness is decision-relevant on a waiting board — surface it only when it bites.
       v?.is_stale === true
-        ? createElement('p', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, 'STALE — last run >12 months ago; re-run before acting on these thresholds.')
+        ? createElement('p', { style: { color: 'var(--owl-color-risk-bright, var(--owl-color-risk-soft))', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } }, 'STALE — last run >12 months ago; re-run before acting on these thresholds.')
         : null,
       createElement(
         'div',
@@ -321,7 +321,7 @@ function createRemoveForm(item: AppWatchlistItem) {
   return createElement(
     'details',
     { style: { borderTop: '1px solid rgba(148, 163, 184, 0.16)', marginTop: '0.4rem', paddingTop: '0.6rem' } },
-    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Remove from watchlist'),
+    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, var(--owl-color-risk-soft))', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Remove from watchlist'),
     createElement(
       'form',
       { action: `/api/watchlist/${item.watchlist_item_id}/remove`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },
@@ -335,7 +335,7 @@ function createRemoveForm(item: AppWatchlistItem) {
           name: 'reason',
           defaultValue: '',
           placeholder: 'Why this name leaves the board (recorded in the ledger)',
-          style: { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' },
+          style: { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: 'var(--owl-color-bright)', padding: '0.55rem 0.7rem' },
         }),
       ),
       createElement('button', { type: 'submit', className: 'owl-form-button', style: { background: '#b91c1c', border: 0, borderRadius: '0.75rem', color: '#ffffff', cursor: 'pointer', fontWeight: 800, justifySelf: 'start', padding: '0.6rem 0.9rem' } }, 'Remove from watchlist'),
@@ -449,7 +449,7 @@ function createLotInput(
         background: 'var(--owl-color-panel-elevated)',
         border: '1px solid rgba(148, 163, 184, 0.24)',
         borderRadius: '0.75rem',
-        color: '#f7f8ff',
+        color: 'var(--owl-color-bright)',
         padding: '0.55rem 0.7rem',
       },
     }),

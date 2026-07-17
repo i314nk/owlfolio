@@ -254,7 +254,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
       // price ladder against the frozen zones, then the route to the full analysis. Provenance,
       // gate evidence, and audit IDs live in the dossier.
       createElement('p', { className: 'owl-section-accent', style: { margin: 0 } }, 'Verdict summary'),
-      createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
+      createElement('p', { style: { color: 'var(--owl-color-text-soft)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, clampThesis(holding.latestAnalysisThesis ?? holding.thesis_summary)),
       // CONDITIONAL explained where it bites: the held name's dividend-purification obligation.
       // SCREENING OFF hides the purification surface (owner-locked, 2026-07-15).
       shariahEnabled ? createShariahConditionLine(holding) : null,
@@ -263,7 +263,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts
         ? null
         : createElement(
             'p',
-            { style: { color: priceMove >= 0 ? '#4ade80' : 'var(--owl-color-risk-bright, #fca5a5)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-md)', fontWeight: 800, margin: 0 } },
+            { style: { color: priceMove >= 0 ? 'var(--owl-color-positive)' : 'var(--owl-color-risk-bright, var(--owl-color-risk-soft))', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-md)', fontWeight: 800, margin: 0 } },
             `Current return: ${priceMove >= 0 ? '+' : ''}${priceMove.toFixed(1)}%`,
             createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 400 } }, `  · entry ${formatMoney(holding.cost_basis_per_share, holding.currency)} → now ${formatMoney(holding.latest_price_per_share, holding.currency)}`),
           ),
@@ -347,7 +347,7 @@ function createShariahConditionLine(holding: PortfolioHolding) {
 }
 
 function createCloseForm(holding: PortfolioHolding, shariahEnabled = true) {
-  const inputStyle = { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: '#f7f8ff', padding: '0.55rem 0.7rem' }
+  const inputStyle = { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: '0.75rem', color: 'var(--owl-color-bright)', padding: '0.55rem 0.7rem' }
   const labelStyle = { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', fontWeight: 700, gap: '0.25rem' }
   const REASONS: { value: string; label: string }[] = [
     { value: 'valuation_inverted', label: 'Valuation inverted (price far above value)' },
@@ -360,7 +360,7 @@ function createCloseForm(holding: PortfolioHolding, shariahEnabled = true) {
   return createElement(
     'details',
     { style: { borderTop: '1px solid rgba(148, 163, 184, 0.16)', marginTop: '0.4rem', paddingTop: '0.6rem' } },
-    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, #fca5a5)', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Close holding (record the exit)'),
+    createElement('summary', { style: { color: 'var(--owl-color-risk-bright, var(--owl-color-risk-soft))', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Close holding (record the exit)'),
     createElement(
       'form',
       { action: `/api/portfolio/${holding.holding_id}/close`, method: 'post', className: 'owl-action-form', style: { display: 'grid', gap: '0.6rem', marginTop: '0.6rem' } },

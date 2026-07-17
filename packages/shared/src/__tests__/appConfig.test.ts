@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type AutomationCadenceReanalysis,
+  OWL_THEMES,
+  resolveTheme,
   type AutomationSettings,
   type CircleOfCompetenceConfig,
   DEFAULT_CIRCLE_OF_COMPETENCE,
@@ -501,5 +503,18 @@ describe('userSetRequiredReturn', () => {
     expect(userSetRequiredReturn({ required_return: 0.12, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.12)
     // A stamped-but-invalid rate still fails closed to the default VALUE — but it stays user-attributed.
     expect(userSetRequiredReturn({ required_return: 9, required_return_set_at: '2026-07-11T00:00:00.000Z' })).toBe(0.15)
+  })
+})
+
+describe('resolveTheme (palettes 2026-07-16)', () => {
+  it('defaults to emerald: absent appearance, unknown ids, and legacy configs all resolve emerald', () => {
+    expect(resolveTheme(undefined)).toBe('emerald')
+    expect(resolveTheme({ theme: 'neon' as never })).toBe('emerald')
+  })
+
+  it('every registered theme resolves to itself', () => {
+    for (const t of OWL_THEMES) {
+      expect(resolveTheme({ theme: t.id })).toBe(t.id)
+    }
   })
 })

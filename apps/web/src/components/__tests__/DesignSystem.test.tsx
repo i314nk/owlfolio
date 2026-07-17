@@ -237,10 +237,10 @@ describe('phase 3 design system primitives', () => {
 
     // Tones are reflected in stroke colour
     const htmlRisk = renderToStaticMarkup(createElement(OwlRingGauge, { value: 0.2, tone: 'risk' }))
-    expect(htmlRisk).toContain('#f87171')
+    expect(htmlRisk).toContain('var(--owl-color-risk-bright)')
 
     const htmlAmber = renderToStaticMarkup(createElement(OwlRingGauge, { value: 0.6, tone: 'amber' }))
-    expect(htmlAmber).toContain('#f0b429')
+    expect(htmlAmber).toContain('var(--owl-color-amber)')
   })
 
   it('renders OwlKpiStat with label, gold value, and optional delta', () => {
@@ -306,11 +306,11 @@ describe('phase 3 design system primitives', () => {
     expect(html).toContain('owl-gauge-bar-track')
     expect(html).toContain('owl-gauge-bar-marker')
     // Low value → emerald marker
-    expect(html).toContain('#34d399')
+    expect(html).toContain('var(--owl-color-accent-bright)')
 
     // High value → red marker
     const htmlHigh = renderToStaticMarkup(createElement(OwlGaugeBar, { value: 0.8 }))
-    expect(htmlHigh).toContain('#f87171')
+    expect(htmlHigh).toContain('var(--owl-color-risk-bright)')
     expect(htmlHigh).toContain('80%')
   })
 

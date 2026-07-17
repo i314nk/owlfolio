@@ -113,6 +113,24 @@ export const DEFAULT_CIRCLE_GATE_MIN_BREAKERS = 2
 export const CIRCLE_GATE_EVIDENCE_FLOOR_MIN = 1
 export const CIRCLE_GATE_EVIDENCE_FLOOR_MAX = 5
 
+/** The selectable UI palettes: token-override themes keyed by data-owl-theme on <html>. */
+export const OWL_THEMES = [
+  { id: 'emerald', label: 'Emerald (default)' },
+  { id: 'sapphire', label: 'Sapphire' },
+  { id: 'graphite', label: 'Graphite' },
+  { id: 'mono', label: 'Mono (terminal)' },
+  { id: 'violet', label: 'Violet' },
+  { id: 'cyberpunk', label: 'Cyberpunk' },
+] as const
+export type OwlThemeId = typeof OWL_THEMES[number]['id']
+
+export type AppearanceSettings = { theme: OwlThemeId }
+
+export const resolveTheme = (appearance?: AppearanceSettings): OwlThemeId => {
+  const candidate = appearance?.theme
+  return OWL_THEMES.some((t) => t.id === candidate) ? candidate as OwlThemeId : 'emerald'
+}
+
 export type AutomationSettings = {
   research_engine_enabled: boolean
   discovery: {
@@ -219,6 +237,8 @@ export type AppConfig = {
   provider: ProviderSelection
   strategy_id: StrategyId
   shariah: ShariahDefaults
+  /** UI appearance (PALETTES 2026-07-16): absent = the emerald default. */
+  appearance?: AppearanceSettings
   savings?: SavingsSleeveConfig
   /** Phase 4 (book alignment): valuation knobs (required_return). Absent → defaults (15%). */
   valuation?: Partial<ValuationConfig>

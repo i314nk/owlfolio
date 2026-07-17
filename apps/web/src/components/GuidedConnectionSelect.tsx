@@ -58,7 +58,7 @@ const connectionCardBaseStyle: CSSProperties = {
 
 const selectedConnectionCardStyle: CSSProperties = {
   ...connectionCardBaseStyle,
-  background: 'rgba(22, 163, 74, 0.10)',
+  background: 'rgba(var(--owl-rgb-accent), 0.10)',
   border: '1px solid var(--owl-color-border-strong)',
 }
 
@@ -531,7 +531,7 @@ export function ModelCapabilityProbe({ initial }: { initial: CapabilityNoteView 
     }
   }
 
-  const tone = note.state === 'capable' ? '#4ade80' : note.state === 'failed' ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)'
+  const tone = note.state === 'capable' ? 'var(--owl-color-positive)' : note.state === 'failed' ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)'
   const label = note.state === 'capable'
     ? `✓ Model verified capable — ${note.summary ?? ''}`
     : note.state === 'failed'

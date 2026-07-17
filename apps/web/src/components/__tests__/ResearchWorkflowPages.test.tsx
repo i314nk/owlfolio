@@ -293,7 +293,7 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('name="currency"')
     expect(personalConfirmedHtml).toContain('name="opened_at"')
     expect(personalConfirmedHtml).toContain('background:var(--owl-color-panel-elevated)')
-    expect(personalConfirmedHtml).toContain('color:#f7f8ff')
+    expect(personalConfirmedHtml).toContain('color:var(--owl-color-bright)')
     expect(personalDraftHtml).not.toContain('Record initial holding')
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
     // ONE HOME PER NAME (2026-07-14): a held name leaves the watchlist BOARD entirely — no row,

@@ -110,7 +110,7 @@ export function AdmitRecommendationRequest({ researchCaseId, hasRecommendation =
       'p',
       {
         role: 'alert',
-        style: { color: '#fca5a5', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 },
+        style: { color: 'var(--owl-color-risk-soft)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 },
       },
       createElement('strong', null, 'Not computed: '),
       error,
