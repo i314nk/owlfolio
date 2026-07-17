@@ -120,7 +120,7 @@ export const CLONER_LIST: readonly ClonerManager[] = [
   {
     manager_name: 'Scion Asset Management (Michael Burry)',
     cik: '0001649339',
-    note: 'Intermittent filer (has deregistered/claimed exemptions before): latest 13F-HR filed 2025-11-03 covers 2025Q3, so his card can lag the other managers by a quarter or more. High-turnover contrarian book — treat signals as conversation starters, not conviction.',
+    note: 'Intermittent filer (has deregistered/claimed exemptions before) — his card can lag the other managers by a quarter or more; the as-of stamp on the card is the truth. High-turnover contrarian book — treat signals as conversation starters, not conviction.',
   },
   { manager_name: 'Himalaya Capital Management LLC (Li Lu)', cik: '0001709323' },
   { manager_name: 'Baupost Group LLC (Seth Klarman)', cik: '0001061768' },

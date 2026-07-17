@@ -10,7 +10,10 @@ import type {
 } from '@owlfolio/ledger/projections/discovery13fProjection'
 import { CLONER_LIST } from '@owlfolio/workflow/discovery13f'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import { shortManagerName, titleCaseEntityName } from '../lib/entityName'
+import { t, type MessageKey } from '../lib/i18n'
 import { DiscoveryCandidateActions } from './DiscoveryCandidateActions'
 import { RunDiscoveryButton } from './RunDiscoveryButton'
 
@@ -29,7 +32,13 @@ export type DiscoveryPanelProps = {
   heldTickers: string[]
   /** Tickers currently WATCHED — flagged, routed to the watchlist instead of triage. */
   watchedTickers: string[]
+  /** i18n: the page chrome language (issuer/manager data stays as filed). */
+  locale?: OwlLocale
 }
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const mono2xs = { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } as const
 
@@ -103,7 +112,8 @@ export function investorInitials(managerName: string): string {
  * performance numbers, no auto-promotion, no prices. Server component (createElement, no JSX);
  * triage actions stay in the client component.
  */
-export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, watchedTickers }: DiscoveryPanelProps) {
+export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, watchedTickers, locale = 'en' }: DiscoveryPanelProps) {
+  panelLocale = locale
   const discovered = candidates.filter((c) => c.status === 'discovered')
   const queued = candidates.filter((c) => c.status === 'queued_for_quick_screen')
   const resolved = candidates.filter((c) => c.status === 'rejected' || c.status === 'promoted_to_research_case')
@@ -127,9 +137,9 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
     createElement(
       'section',
       { 'aria-label': 'Manager portfolios', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `Manager portfolios · ${quarters.length}`),
+      createElement('p', { className: 'owl-section-accent' }, `${dt('si_portfolios')} · ${quarters.length}`),
       quarters.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No manager quarters harvested yet. Run the harvest to snapshot the tracked portfolios.')
+        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_portfolios'))
         : createElement('div', { className: 'owl-row-list' }, ...quarters.map((q) => createManagerCard(q))),
       ...createUnfiledManagerNotes(quarters),
     ),
@@ -137,9 +147,9 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
     createElement(
       'section',
       { 'aria-label': 'Screening queue', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `Screening · ${queued.length}`),
+      createElement('p', { className: 'owl-section-accent' }, `${dt('si_screening')} · ${queued.length}`),
       queued.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No candidates in screening.')
+        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_screening'))
         : createElement(
             'div',
             { className: 'owl-row-list' },
@@ -155,7 +165,7 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
         createElement(
           'summary',
           { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
-          `Resolved · ${resolved.length}`,
+          `${dt('si_resolved')} · ${resolved.length}`,
         ),
         resolved.length === 0
           ? createElement('p', { className: 'owl-row-helper', style: { margin: '0.5rem 0 0' } }, 'No resolved candidates.')
@@ -173,17 +183,16 @@ function createSummaryHeader(runStatusLine: string) {
   return createElement(
     'section',
     { 'aria-label': 'What the superinvestors page is', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Superinvestors — 13F discovery'),
+    createElement('p', { className: 'owl-section-accent' }, dt('si_title')),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0, maxWidth: '52rem' } },
-      'A small set of concentrated, low-turnover value superinvestors file their US stock holdings with the SEC every quarter (form 13F). '
-      + 'This page monitors those portfolios and surfaces their latest buys and sells as research IDEAS — every candidate still goes through your own gate, analysis, and decision.',
+      dt('si_what'),
     ),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0, maxWidth: '52rem' } },
-      'Know the limits: filings arrive up to 45 days after the quarter ends, cover long US equities only (no cost basis, no shorts, no international, no timing inside the quarter), and give no reasons. Nothing here is a buy or sell instruction.',
+      dt('si_limits'),
     ),
     createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, runStatusLine),
     createElement(RunDiscoveryButton),
@@ -275,12 +284,11 @@ function createActionMatrixSection(
   return createElement(
     'section',
     { 'aria-label': 'Manager actions', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, `Manager actions · ${matrix.length} names`),
+    createElement('p', { className: 'owl-section-accent' }, `${dt('si_actions')} · ${matrix.length}`),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0 } },
-      'Every name a tracked manager bought into, added to, trimmed, or exited in their latest filing — one column per investor, names with the most action on top. '
-      + 'Green ▲ new/add, red ▼ exit, amber ▼ trim; a deeper color means a bigger share of that manager’s book. The filing gives no reasons — an idea to research, never a copy trade.',
+      dt('si_actions_help'),
     ),
     createElement(
       'p',
@@ -295,7 +303,7 @@ function createActionMatrixSection(
         )
       : null,
     matrix.length === 0
-      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No manager actions harvested yet. Run the harvest to check the latest filings.')
+      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_actions'))
       : createElement(
           'div',
           // Bounded viewport + sticky header: the column initials stay pinned while the rows scroll,
