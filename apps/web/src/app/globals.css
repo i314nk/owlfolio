@@ -465,6 +465,47 @@ body::before {
   --owl-color-source-border: rgba(167, 139, 250, 0.25);
 }
 
+[data-owl-theme='cyberpunk'] {
+  /* Cyberpunk (owner, 2026-07-17): neon light-pink + light-cyan on a blue-black night canvas.
+     The pink takes the gold role (headers, key figures, the lattice); the cyan takes the accent
+     family (buttons, zones, compliant pills, focus). Risk red and caution amber stay. */
+  --owl-color-canvas: #070213;
+  --owl-color-canvas-soft: #0b0418;
+  --owl-color-shell: #100722;
+  --owl-color-panel: rgba(22, 12, 40, 0.78);
+  --owl-color-panel-elevated: rgba(30, 17, 52, 0.8);
+  --owl-color-panel-deep: rgba(10, 5, 22, 0.85);
+  --owl-color-border: rgba(103, 232, 249, 0.14);
+  --owl-color-border-strong: rgba(244, 114, 182, 0.4);
+  --owl-color-text: #f5f3ff;
+  --owl-color-muted: #a8a4c8;
+  --owl-color-quiet: #6f6b92;
+  --owl-color-gold: #f472b6;
+  --owl-color-gold-bright: #f9a8d4;
+  --owl-color-gold-vivid: #fbcfe8;
+  --owl-color-sand: #fbcfe8;
+  --owl-color-fiduciary: #f472b6;
+  --owl-color-warning: #f472b6;
+  --owl-color-lattice: #f472b6;
+  --owl-color-accent: #0891b2;
+  --owl-color-accent-bright: #67e8f9;
+  --owl-color-accent-deep: #155e75;
+  --owl-color-positive: #67e8f9;
+  --owl-color-positive-soft: #a5f3fc;
+  --owl-color-shariah: #67e8f9;
+  --owl-rgb-accent: 8, 145, 178;
+  --owl-rgb-accent-bright: 103, 232, 249;
+  --owl-rgb-shariah: 103, 232, 249;
+  --owl-rgb-positive: 103, 232, 249;
+  --owl-color-status-certified: rgba(34, 211, 238, 0.13);
+  --owl-color-status-certified-border: rgba(165, 243, 252, 0.34);
+  --owl-color-status-compliance: rgba(34, 211, 238, 0.1);
+  --owl-color-status-compliance-border: rgba(165, 243, 252, 0.28);
+  --owl-color-finance-blue: #0891b2;
+  --owl-color-source-bg: rgba(9, 4, 20, 0.9);
+  --owl-color-source-border: rgba(103, 232, 249, 0.25);
+}
+
 a {
   color: inherit;
 }

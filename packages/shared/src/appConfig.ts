@@ -120,6 +120,7 @@ export const OWL_THEMES = [
   { id: 'graphite', label: 'Graphite' },
   { id: 'mono', label: 'Mono (terminal)' },
   { id: 'violet', label: 'Violet' },
+  { id: 'cyberpunk', label: 'Cyberpunk' },
 ] as const
 export type OwlThemeId = typeof OWL_THEMES[number]['id']
 
