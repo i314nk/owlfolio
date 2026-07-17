@@ -192,8 +192,8 @@ const ACTOR_BADGE_STYLES: Record<ActorCategory, CSSProperties> = {
   },
   provider: {
     ...ACTOR_BADGE_BASE,
-    background: 'rgba(52, 211, 153, 0.10)',
-    border: '1px solid rgba(52, 211, 153, 0.30)',
+    background: 'rgba(var(--owl-rgb-accent-bright), 0.10)',
+    border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.30)',
     color: 'var(--owl-color-accent-bright)',
   },
   worker: {

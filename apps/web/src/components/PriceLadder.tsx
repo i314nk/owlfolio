@@ -31,8 +31,8 @@ export function createPriceLadderElement(args: { iv?: number; load?: number; buy
     createElement(
       'div',
       { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '999px', height: '0.85rem', overflow: 'visible', position: 'relative' as const } },
-      seg(0, load, 'rgba(34, 197, 94, 0.55)', 'seg-load'),
-      seg(load, buy, 'rgba(34, 197, 94, 0.28)', 'seg-buy'),
+      seg(0, load, 'rgba(var(--owl-rgb-shariah), 0.55)', 'seg-load'),
+      seg(load, buy, 'rgba(var(--owl-rgb-shariah), 0.28)', 'seg-buy'),
       seg(buy, iv, 'rgba(214, 178, 94, 0.25)', 'seg-fair'),
       // The live-price marker (only when a price snapshot/quote exists).
       livePrice === undefined ? null : createElement('div', {

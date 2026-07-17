@@ -41,6 +41,13 @@
   --owl-rgb-positive: 74, 222, 128;
   --owl-rgb-risk: 248, 113, 113;
   --owl-rgb-amber: 251, 191, 36;
+  /* The ACCENT family triplets + deep gradient stop — every alpha-composed accent green in the
+     base rules rides these, so a palette that swaps the accent swaps ALL of it (owner, 2026-07-17:
+     'all the emerald becomes sapphire'). */
+  --owl-rgb-accent: 22, 163, 74;
+  --owl-rgb-accent-bright: 52, 211, 153;
+  --owl-rgb-shariah: 34, 197, 94;
+  --owl-color-accent-deep: #0f766e;
   --owl-color-finance-blue: #0f766e;
   --owl-color-shariah: #22c55e;
   /* Kept for backward compat; aliases gold */
@@ -284,7 +291,7 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 14% 0%, rgba(22, 163, 74, 0.14), transparent 26rem),
+    radial-gradient(circle at 14% 0%, rgba(var(--owl-rgb-accent), 0.14), transparent 26rem),
     radial-gradient(circle at 86% 10%, rgba(214, 178, 94, 0.18), transparent 28rem),
     radial-gradient(circle at 50% 85%, rgba(214, 178, 94, 0.07), transparent 32rem),
     linear-gradient(135deg, var(--owl-color-canvas) 0%, #07100a 52%, #030604 100%);
@@ -329,8 +336,22 @@ body::before {
   --owl-color-border-strong: rgba(96, 165, 250, 0.35);
   --owl-color-muted: #a5b1c2;
   --owl-color-quiet: #6b7889;
+  /* The FULL accent family follows the theme (owner, 2026-07-17: 'all the emerald becomes
+     sapphire') — buttons, toggles, focus rings, zone chips, compliant pills, the orb glow. */
   --owl-color-accent: #2563eb;
   --owl-color-accent-bright: #60a5fa;
+  --owl-color-accent-deep: #1d4ed8;
+  --owl-color-positive: #60a5fa;
+  --owl-color-positive-soft: #bfdbfe;
+  --owl-color-shariah: #60a5fa;
+  --owl-rgb-accent: 37, 99, 235;
+  --owl-rgb-accent-bright: 96, 165, 250;
+  --owl-rgb-shariah: 96, 165, 250;
+  --owl-rgb-positive: 96, 165, 250;
+  --owl-color-status-certified: rgba(59, 130, 246, 0.14);
+  --owl-color-status-certified-border: rgba(147, 197, 253, 0.34);
+  --owl-color-status-compliance: rgba(14, 165, 233, 0.12);
+  --owl-color-status-compliance-border: rgba(125, 211, 252, 0.28);
   --owl-color-finance-blue: #0e7490;
   --owl-color-source-bg: rgba(7, 11, 19, 0.9);
   --owl-color-source-border: rgba(96, 165, 250, 0.25);
@@ -347,6 +368,21 @@ body::before {
   --owl-color-border-strong: rgba(214, 178, 94, 0.4);
   --owl-color-muted: #a8a8ad;
   --owl-color-quiet: #737378;
+  /* Graphite is monochrome + gold: the accent family goes gold, no emerald anywhere. */
+  --owl-color-accent: #a98b3f;
+  --owl-color-accent-bright: #d6b25e;
+  --owl-color-accent-deep: #7c6224;
+  --owl-color-positive: #d6b25e;
+  --owl-color-positive-soft: #f3dfb1;
+  --owl-color-shariah: #d6b25e;
+  --owl-rgb-accent: 169, 139, 63;
+  --owl-rgb-accent-bright: 214, 178, 94;
+  --owl-rgb-shariah: 214, 178, 94;
+  --owl-rgb-positive: 214, 178, 94;
+  --owl-color-status-certified: rgba(214, 178, 94, 0.12);
+  --owl-color-status-certified-border: rgba(243, 223, 177, 0.3);
+  --owl-color-status-compliance: rgba(214, 178, 94, 0.1);
+  --owl-color-status-compliance-border: rgba(243, 223, 177, 0.26);
   --owl-color-source-bg: rgba(12, 12, 13, 0.9);
   --owl-color-source-border: rgba(214, 178, 94, 0.24);
 }
@@ -386,6 +422,11 @@ body::before {
   --owl-rgb-positive: 21, 128, 61;
   --owl-rgb-risk: 220, 38, 38;
   --owl-rgb-amber: 180, 83, 9;
+  --owl-color-accent-deep: #14532d;
+  --owl-color-shariah: #15803d;
+  --owl-rgb-accent: 21, 128, 61;
+  --owl-rgb-accent-bright: 22, 163, 74;
+  --owl-rgb-shariah: 21, 128, 61;
   --owl-color-source-bg: rgba(250, 246, 236, 0.92);
   --owl-color-source-border: rgba(21, 128, 61, 0.28);
 }
@@ -402,7 +443,7 @@ textarea:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--owl-color-accent-bright);
   outline-offset: 3px;
-  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.18);
+  box-shadow: 0 0 0 6px rgba(var(--owl-rgb-accent-bright), 0.18);
 }
 
 .owl-app-shell {
@@ -415,7 +456,7 @@ a:focus-visible {
 }
 
 .owl-app-shell::before {
-  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.36), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--owl-rgb-accent-bright), 0.36), transparent);
   content: "";
   height: 1px;
   left: 0;
@@ -694,7 +735,7 @@ a:focus-visible {
 .owl-brand-orb {
   background: linear-gradient(135deg, var(--owl-color-accent-bright), var(--owl-color-fiduciary));
   border-radius: 0.6rem;
-  box-shadow: 0 0 26px rgba(22, 163, 74, 0.32);
+  box-shadow: 0 0 26px rgba(var(--owl-rgb-accent), 0.32);
   color: #fff;
   display: inline-grid;
   font-weight: 700;
@@ -771,19 +812,19 @@ a:focus-visible {
 
 .owl-nav-link:hover,
 .owl-nav-link-active {
-  background: rgba(22, 163, 74, 0.13);
+  background: rgba(var(--owl-rgb-accent), 0.13);
   border-color: var(--owl-color-border-strong);
   color: var(--owl-color-text);
 }
 
 .owl-nav-link-active {
-  box-shadow: inset 3px 0 0 var(--owl-color-accent-bright), inset 0 0 0 1px rgba(52, 211, 153, 0.14);
+  box-shadow: inset 3px 0 0 var(--owl-color-accent-bright), inset 0 0 0 1px rgba(var(--owl-rgb-accent-bright), 0.14);
 }
 
 .owl-setup-card {
   align-self: end;
   background:
-    radial-gradient(circle at top left, rgba(52, 211, 153, 0.18), transparent 14rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent-bright), 0.18), transparent 14rem),
     rgba(214, 178, 94, 0.08);
   border: 1px solid rgba(214, 178, 94, 0.28);
   border-radius: var(--owl-radius-card);
@@ -818,8 +859,8 @@ a:focus-visible {
 
 .owl-setup-card-action {
   align-items: center;
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
-  border: 1px solid rgba(52, 211, 153, 0.46);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.46);
   border-radius: 999px;
   color: #fff;
   display: inline-flex;
@@ -859,8 +900,8 @@ a:focus-visible {
 }
 
 .owl-active-mode-ready {
-  background: rgba(52, 211, 153, 0.08);
-  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(var(--owl-rgb-accent-bright), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.34);
 }
 
 .owl-active-mode-demo {
@@ -1116,9 +1157,9 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-command-launchpad,
 .owl-command-trust-panel {
   background:
-    radial-gradient(circle at top left, rgba(22, 163, 74, 0.16), transparent 22rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent), 0.16), transparent 22rem),
     linear-gradient(180deg, rgba(243, 223, 177, 0.065), rgba(243, 223, 177, 0.028));
-  border: 1px solid rgba(52, 211, 153, 0.2);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.2);
   border-radius: var(--owl-radius-panel);
   box-shadow: var(--owl-shadow-panel);
   color: var(--owl-color-text);
@@ -1187,8 +1228,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-launchpad-link:hover {
-  background: rgba(22, 163, 74, 0.1);
-  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(var(--owl-rgb-accent), 0.1);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.3);
   transform: translateY(-1px);
 }
 
@@ -1225,8 +1266,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-trust-item {
-  background: rgba(34, 197, 94, 0.07);
-  border: 1px solid rgba(134, 239, 172, 0.17);
+  background: rgba(var(--owl-rgb-shariah), 0.07);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.17);
   border-radius: 0.85rem;
   display: grid;
   gap: 0.24rem;
@@ -1234,7 +1275,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-command-trust-title {
-  color: #bbf7d0;
+  color: var(--owl-color-positive-soft);
   font-size: 0.95rem;
   margin: 0;
 }
@@ -1342,7 +1383,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 .owl-empty-state {
   background:
-    radial-gradient(circle at top left, rgba(22, 163, 74, 0.1), transparent 18rem),
+    radial-gradient(circle at top left, rgba(var(--owl-rgb-accent), 0.1), transparent 18rem),
     var(--owl-color-panel);
   border: 1px dashed rgba(148, 163, 184, 0.24);
   border-radius: var(--owl-radius-panel);
@@ -1414,8 +1455,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-button-primary {
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
-  border: 1px solid rgba(52, 211, 153, 0.46);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.46);
   color: #fff;
 }
 
@@ -1468,7 +1509,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-status-certified {
   background: var(--owl-color-status-certified);
   border: 1px solid var(--owl-color-status-certified-border);
-  color: #bbf7d0;
+  color: var(--owl-color-positive-soft);
 }
 
 .owl-status-experimental {
@@ -1517,7 +1558,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-metric-card:hover {
-  border-color: rgba(52, 211, 153, 0.26);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.26);
 }
 
 .owl-metric-label {
@@ -1669,8 +1710,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-workflow-panel-user {
-  background: rgba(22, 163, 74, 0.08);
-  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(var(--owl-rgb-accent), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.22);
 }
 
 .owl-financial-table {
@@ -1715,8 +1756,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-action-form-confirm {
-  background: rgba(22, 163, 74, 0.08);
-  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(var(--owl-rgb-accent), 0.08);
+  border-color: rgba(var(--owl-rgb-accent-bright), 0.22);
 }
 
 .owl-form-button {
@@ -1730,7 +1771,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-form-button-primary {
-  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
+  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep));
 }
 
 /* ── OwlRingGauge ──────────────────────────────────────────────────────────── */
@@ -1856,9 +1897,9 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 .owl-valuation-chip-undervalued,
 .owl-valuation-chip-approved {
-  background: rgba(22, 163, 74, 0.16);
-  border: 1px solid rgba(52, 211, 153, 0.36);
-  color: #86efac;
+  background: rgba(var(--owl-rgb-accent), 0.16);
+  border: 1px solid rgba(var(--owl-rgb-accent-bright), 0.36);
+  color: var(--owl-color-positive-soft);
 }
 
 .owl-valuation-chip-overvalued {
@@ -1901,7 +1942,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 .owl-gauge-bar-track {
-  background: linear-gradient(90deg, #34d399 0%, #f0b429 55%, #ef4444 100%);
+  background: linear-gradient(90deg, var(--owl-color-accent-bright) 0%, #f0b429 55%, #ef4444 100%);
   border-radius: 999px;
   height: 100%;
   width: 100%;
@@ -2316,7 +2357,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 
 /* The agent's desk — a "live" steward presence. */
 .owl-cc-desk {
-  background: linear-gradient(135deg, rgba(52, 211, 153, 0.05), var(--owl-color-panel-elevated));
+  background: linear-gradient(135deg, rgba(var(--owl-rgb-accent-bright), 0.05), var(--owl-color-panel-elevated));
 }
 
 .owl-cc-live {
@@ -2334,7 +2375,7 @@ a.owl-active-mode-attention .owl-active-mode-label {
 .owl-cc-live-dot {
   background: var(--owl-color-accent-bright);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+  box-shadow: 0 0 0 3px rgba(var(--owl-rgb-accent-bright), 0.18);
   height: 7px;
   width: 7px;
 }
@@ -2409,8 +2450,8 @@ a.owl-active-mode-attention .owl-active-mode-label {
 }
 
 @keyframes owl-cc-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16); }
-  50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.05); }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(var(--owl-rgb-accent-bright), 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--owl-rgb-accent-bright), 0.05); }
 }
 
 /* ── Learn page tabs (accessible WAI-ARIA tablist) ──────────────────────────── */

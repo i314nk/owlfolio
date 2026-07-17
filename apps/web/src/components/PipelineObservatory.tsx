@@ -69,7 +69,7 @@ const LANE_DOT_COLOR: Record<PipelineLaneStatus, string> = {
 const RUN_CHIP: Record<PipelineRunStatus, { bg: string; border: string; color: string; label: string }> = {
   running: { bg: 'rgba(240,180,41,0.12)', border: 'rgba(240,180,41,0.34)', color: '#f6d990', label: 'running' },
   awaiting_approval: { bg: 'rgba(214,178,94,0.12)', border: 'rgba(214,178,94,0.34)', color: 'var(--owl-color-gold-vivid)', label: 'awaiting deep-dive approval' },
-  done: { bg: 'rgba(34,197,94,0.13)', border: 'var(--owl-color-border-strong)', color: 'var(--owl-color-positive-soft)', label: 'done' },
+  done: { bg: 'rgba(var(--owl-rgb-shariah), 0.13)', border: 'var(--owl-color-border-strong)', color: 'var(--owl-color-positive-soft)', label: 'done' },
   rejected: { bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: 'var(--owl-color-risk-soft)', label: 'rejected' },
   failed: { bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: 'var(--owl-color-risk-soft)', label: 'failed' },
 }

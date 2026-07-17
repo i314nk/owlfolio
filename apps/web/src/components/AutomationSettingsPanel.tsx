@@ -85,7 +85,7 @@ const controlValueAreaStyle: CSSProperties = {
 const selectStyle: CSSProperties = {
   appearance: 'none',
   background: 'rgba(5, 7, 5, 0.82)',
-  border: '1px solid rgba(52, 211, 153, 0.28)',
+  border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.28)',
   borderRadius: '0.6rem',
   color: 'var(--owl-color-text)',
   fontSize: 'var(--owl-text-base)',
@@ -96,7 +96,7 @@ const selectStyle: CSSProperties = {
 
 const numberInputStyle: CSSProperties = {
   background: 'rgba(5, 7, 5, 0.82)',
-  border: '1px solid rgba(52, 211, 153, 0.28)',
+  border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.28)',
   borderRadius: '0.6rem',
   color: 'var(--owl-color-text)',
   fontSize: 'var(--owl-text-base)',
@@ -121,8 +121,8 @@ const toggleTrackBaseStyle: CSSProperties = {
 
 const toggleTrackOnStyle: CSSProperties = {
   ...toggleTrackBaseStyle,
-  background: 'rgba(22, 163, 74, 0.55)',
-  border: '2px solid rgba(52, 211, 153, 0.6)',
+  background: 'rgba(var(--owl-rgb-accent), 0.55)',
+  border: '2px solid rgba(var(--owl-rgb-accent-bright), 0.6)',
 }
 
 const toggleThumbBaseStyle: CSSProperties = {
@@ -149,8 +149,8 @@ const controlGridStyle: CSSProperties = {
 
 const masterToggleRowStyle: CSSProperties = {
   alignItems: 'center',
-  background: 'linear-gradient(135deg, rgba(22, 163, 74, 0.12), rgba(52, 211, 153, 0.06))',
-  border: '1px solid rgba(52, 211, 153, 0.25)',
+  background: 'linear-gradient(135deg, rgba(var(--owl-rgb-accent), 0.12), rgba(var(--owl-rgb-accent-bright), 0.06))',
+  border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.25)',
   borderRadius: '1rem',
   display: 'grid',
   gap: '0.55rem',
@@ -184,8 +184,8 @@ const saveBarStyle: CSSProperties = {
 }
 
 const saveButtonStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, var(--owl-color-accent), #0f766e)',
-  border: '1px solid rgba(52, 211, 153, 0.46)',
+  background: 'linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-accent-deep))',
+  border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.46)',
   borderRadius: '999px',
   color: '#fff',
   cursor: 'pointer',

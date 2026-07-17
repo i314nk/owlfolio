@@ -386,10 +386,10 @@ export type OwlValuationChipProps = {
 }
 
 const VALUATION_DEFAULTS: Record<OwlValuationKind, { dot: string; text: string }> = {
-  undervalued: { dot: '#86efac', text: 'UNDERVALUED' },
+  undervalued: { dot: 'var(--owl-color-positive-soft)', text: 'UNDERVALUED' },
   overvalued: { dot: 'var(--owl-color-risk-soft)', text: 'OVERVALUED' },
   fair: { dot: '#e8c97a', text: 'FAIR VALUE' },
-  approved: { dot: '#86efac', text: 'WAHED-APPROVED' },
+  approved: { dot: 'var(--owl-color-positive-soft)', text: 'WAHED-APPROVED' },
   watch: { dot: 'var(--owl-color-amber)', text: 'WATCH' },
 }
 

@@ -1725,7 +1725,7 @@ function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
 
 function resolveVerdictColors(verdict: string): { bg: string; border: string; text: string } {
   const v = verdict.toUpperCase()
-  if (v === 'BUY' || v === 'STRONG_BUY') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(52, 211, 153, 0.4)', text: 'var(--owl-color-positive-soft)' }
+  if (v === 'BUY' || v === 'STRONG_BUY') return { bg: 'rgba(var(--owl-rgb-shariah), 0.14)', border: 'rgba(var(--owl-rgb-accent-bright), 0.4)', text: 'var(--owl-color-positive-soft)' }
   if (v === 'WATCH') return { bg: 'rgba(214, 178, 94, 0.15)', border: 'rgba(214, 178, 94, 0.4)', text: 'var(--owl-color-gold-vivid)' }
   if (v === 'AVOID' || v === 'SELL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.4)', text: 'var(--owl-color-risk-soft)' }
   return { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
@@ -2838,7 +2838,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
           'span',
           {
             style: {
-              border: `1px solid ${confidenceClass === 'high' ? 'rgba(52, 211, 153, 0.34)' : 'var(--owl-color-border)'}`,
+              border: `1px solid ${confidenceClass === 'high' ? 'rgba(var(--owl-rgb-accent-bright), 0.34)' : 'var(--owl-color-border)'}`,
               borderRadius: '999px',
               color: confidenceClass === 'high' ? 'var(--owl-color-positive-soft)' : 'var(--owl-color-muted)',
               fontSize: 'var(--owl-text-2xs)',
@@ -3262,13 +3262,13 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
         callLabel === 'permanent_impairment'
           ? { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: 'var(--owl-color-risk-pale)' }
           : callLabel === 'fixable_temporary'
-            ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
+            ? { bg: 'rgba(var(--owl-rgb-shariah), 0.14)', border: 'rgba(var(--owl-rgb-accent-bright), 0.38)', text: 'var(--owl-color-positive-soft)' }
             : { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: 'var(--owl-color-gold-vivid)' },
       ),
       createPill(
         admittable ? 'Advisory: admittable' : 'Advisory: not admittable',
         admittable
-          ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
+          ? { bg: 'rgba(var(--owl-rgb-shariah), 0.14)', border: 'rgba(var(--owl-rgb-accent-bright), 0.38)', text: 'var(--owl-color-positive-soft)' }
           : { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' },
       ),
     ),
@@ -3476,7 +3476,7 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
         style: {
           ...cardStyle,
           background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(52, 211, 153, 0.4)',
+          border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.4)',
           borderLeft: '3px solid var(--owl-color-accent-bright)',
           display: 'grid',
           gap: '0.7rem',
@@ -3655,7 +3655,7 @@ function createPill(label: string, colors: ChipColors) {
 }
 
 function resolveValuationChipColor(status?: string): ChipColors {
-  if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: 'var(--owl-color-positive-soft)' }
+  if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(var(--owl-rgb-shariah), 0.14)', border: 'rgba(var(--owl-rgb-accent-bright), 0.38)', text: 'var(--owl-color-positive-soft)' }
   if (status === 'EXPENSIVE') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: 'var(--owl-color-gold-vivid)' }
   if (status === 'OVERVALUED') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: 'var(--owl-color-risk-pale)' }
   return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }

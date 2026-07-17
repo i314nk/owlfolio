@@ -58,7 +58,7 @@ const connectionCardBaseStyle: CSSProperties = {
 
 const selectedConnectionCardStyle: CSSProperties = {
   ...connectionCardBaseStyle,
-  background: 'rgba(22, 163, 74, 0.10)',
+  background: 'rgba(var(--owl-rgb-accent), 0.10)',
   border: '1px solid var(--owl-color-border-strong)',
 }
 

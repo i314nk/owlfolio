@@ -16,7 +16,7 @@ const trackBase: CSSProperties = {
   transition: 'background 120ms ease',
   width: '2.6rem',
 }
-const trackOn: CSSProperties = { ...trackBase, background: 'rgba(52, 211, 153, 0.55)', border: '1px solid rgba(52, 211, 153, 0.6)' }
+const trackOn: CSSProperties = { ...trackBase, background: 'rgba(var(--owl-rgb-accent-bright), 0.55)', border: '1px solid rgba(var(--owl-rgb-accent-bright), 0.6)' }
 const thumbBase: CSSProperties = { background: 'var(--owl-color-bright)', borderRadius: '999px', display: 'block', height: '1.05rem', transition: 'transform 120ms ease', width: '1.05rem' }
 const thumbOn: CSSProperties = { ...thumbBase, transform: 'translateX(1.15rem)' }
 

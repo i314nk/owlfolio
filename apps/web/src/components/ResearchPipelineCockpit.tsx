@@ -23,9 +23,9 @@ const SIGNAL_LABEL: Record<DiscoverySignal['signal_type'], string> = {
 }
 
 const signalBadgeStyle = {
-  border: '1px solid rgba(22, 163, 74, 0.45)',
+  border: '1px solid rgba(var(--owl-rgb-accent), 0.45)',
   borderRadius: '999px',
-  color: '#86efac',
+  color: 'var(--owl-color-positive-soft)',
   display: 'inline-flex',
   fontFamily: 'var(--owl-font-mono)',
   fontSize: 'var(--owl-text-xs)',
@@ -59,7 +59,7 @@ const shellStyle = {
 }
 
 const heroStyle = {
-  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
+  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(var(--owl-rgb-accent), 0.06) 100%)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.35rem',
   boxShadow: '0 22px 55px rgba(0, 0, 0, 0.2)',
