@@ -206,6 +206,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           {...(state.config.savings !== undefined ? { savings: state.config.savings } : {})}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
           shariahEnabled={state.config.shariah.enabled}
+          locale={resolveLocale(state.config.language)}
         />
       </main>
     )
