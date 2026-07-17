@@ -7,7 +7,10 @@ import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { ResearchCaseActions } from './ResearchCaseActions'
 import { StartResearchButton } from './StartResearchButton'
+import { resolveLocale } from '@owlfolio/shared'
+
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
+import { englishContentNote } from '../../../lib/i18n'
 import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
@@ -191,6 +194,11 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             Archived — hidden from the active research library and pipeline. Still in the ledger.
           </p>
         ) : null}
+        {englishContentNote(resolveLocale(state.config.language)) === undefined ? null : (
+          <p data-testid="english-content-note" dir="rtl" className="owl-row-helper" style={{ border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '0 0 var(--owl-space-3)', padding: '0.6rem 0.8rem' }}>
+            {englishContentNote(resolveLocale(state.config.language))}
+          </p>
+        )}
         <ResearchCasePanel
           researchCase={researchCase}
           mode={state.config.mode}

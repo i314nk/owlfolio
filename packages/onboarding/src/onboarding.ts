@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
-import { resolveTheme, mergeAutomationSettings, mergePassiveSleeveConfig, mergeSavingsSleeveConfig, mergeValuationConfig } from '@owlfolio/shared'
+import { resolveLocale, resolveTheme, mergeAutomationSettings, mergePassiveSleeveConfig, mergeSavingsSleeveConfig, mergeValuationConfig } from '@owlfolio/shared'
 
 import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
@@ -161,6 +161,14 @@ export async function updateAppearanceSettings(partial: { theme?: string }, opti
   const current = await loadAppConfig(options)
   const theme = resolveTheme(partial.theme === undefined ? current.appearance : { theme: partial.theme as never })
   const next: AppConfig = { ...current, appearance: { theme } }
+  await saveAppConfig(next, options)
+  return next
+}
+
+export async function updateLanguageSettings(partial: { language?: string }, options: OnboardingOptions = {}): Promise<AppConfig> {
+  const current = await loadAppConfig(options)
+  const language = resolveLocale(partial.language ?? current.language)
+  const next: AppConfig = { ...current, language }
   await saveAppConfig(next, options)
   return next
 }

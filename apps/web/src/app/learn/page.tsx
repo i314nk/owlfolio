@@ -1,9 +1,14 @@
+import { resolveLocale } from '@owlfolio/shared'
+
 import { OwlButtonLink, RouteHeader } from '../../components/designSystem'
+import { englishContentNote } from '../../lib/i18n'
+import { getOnboardingState } from '../../lib/onboarding'
 import { LearnTabs } from '../../components/LearnTabs'
 
 const linkRowStyle = { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.3rem' } as const
 
-export default function LearnPage() {
+export default async function LearnPage() {
+  const note = englishContentNote(resolveLocale((await getOnboardingState()).config.language))
   return (
     <main className="owl-route-frame">
       <p className="owl-route-back-row">
@@ -17,6 +22,11 @@ export default function LearnPage() {
         description="Owner’s Manual is a local-first investment research harness: grounded specialist agents propose evidence, deterministic code computes the numbers, and you author every decision. These tabs document the specs behind that harness — its strategy, its swarm, and the discipline that keeps it honest. This is an alpha; where something is experimental or setup-only, it says so."
       />
       <hr className="owl-rule" />
+      {note === undefined ? null : (
+        <p data-testid="english-content-note" dir="rtl" className="owl-row-helper" style={{ border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: 0, padding: '0.6rem 0.8rem' }}>
+          {note}
+        </p>
+      )}
 
       <LearnTabs />
 
