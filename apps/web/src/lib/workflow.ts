@@ -4,12 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
-import {
-  extractDiscoverySignal,
-  projectDiscoveryCandidates,
-  type DiscoveryCandidateProjection,
-  type DiscoverySignal,
-} from '@owlfolio/ledger/projections/discoveryCandidateProjection'
+import { projectDiscoveryCandidates } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import { projectMonitorAlerts, type MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { findLatestResearchCaseForTicker, projectResearchCases, projectResearchCaseVersionsForTicker } from '@owlfolio/ledger/projections/researchCaseProjection'
@@ -290,31 +285,7 @@ export function enrichWatchlistItemsWithVerdict(
 
 export type AppHolding = HoldingProjection
 
-export type AppResearchPipelineItem = {
-  id: string
-  label: string
-  status: string
-  next_action: string
-  href?: string
-  meta?: string
-  summary?: string
-  /** 13F discovery signal detail (CLUSTER_BUY/NEW/ADD, managers, conviction%, ticker resolution). */
-  signal?: DiscoverySignal
-}
-
 export type { MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
-
-export type AppResearchPipelineSection = {
-  key: string
-  title: string
-  empty_message: string
-  items: AppResearchPipelineItem[]
-}
-
-export type AppResearchPipeline = {
-  selectedStrategyLabel: string
-  sections: AppResearchPipelineSection[]
-}
 
 export type OpenPersonalHoldingInput = {
   shares?: FormDataEntryValue | number | string | null
@@ -1001,99 +972,6 @@ export async function getAppWatchlistItemsFromStore(
   _mode: WorkflowMode,
 ): Promise<AppWatchlistItem[]> {
   return buildPersonalWatchlistItems(await store.list())
-}
-
-export async function getAppResearchPipelineFromStore(
-  store: EventStore,
-  _mode: WorkflowMode,
-  selectedStrategyId: string,
-): Promise<AppResearchPipeline> {
-  const events = await store.list()
-  const researchCases = projectResearchCases(events)
-  const watchlistItems = buildPersonalWatchlistItems(events)
-  const discoveryCandidates = projectDiscoveryCandidates(events)
-  const selectedResearchCases = researchCases.filter((researchCase) => belongsToStrategy(researchCase, selectedStrategyId))
-  const selectedWatchlistItems = watchlistItems.filter((item) => item.strategy_id === undefined || item.strategy_id === selectedStrategyId)
-  const selectedDiscoveryCandidates = discoveryCandidates.filter((candidate) => candidate.strategy_id === selectedStrategyId)
-
-  return {
-    selectedStrategyLabel: `Selected strategy: ${selectedStrategyId}`,
-    sections: [
-      {
-        key: 'discovered',
-        title: 'Discovered',
-        empty_message: 'No new discovery candidates for the selected strategy.',
-        items: selectedDiscoveryCandidates
-          .filter((candidate) => candidate.status === 'discovered')
-          .map(candidateToPipelineItem),
-      },
-      {
-        // The board key stays 'quick-screen' for UI/e2e stability; it now renders the FRONT GATES
-        // column (Shariah gate + circle gate, plus legacy quick-screened cases).
-        key: 'quick-screen',
-        title: 'Front Gates',
-        empty_message: 'No companies are waiting in or exiting the front gates.',
-        items: [
-          ...selectedDiscoveryCandidates
-            .filter((candidate) => candidate.status === 'queued_for_quick_screen')
-            .map(candidateToPipelineItem),
-          ...selectedResearchCases
-            .filter((researchCase) => researchCase.stage === 'shariah_gate_judged' || researchCase.stage === 'quick_screened' || researchCase.stage === 'awaiting_deep_dive_approval')
-            .map(researchCaseToPipelineItem),
-        ],
-      },
-      {
-        key: 'deep-dive-queue',
-        title: 'Deep Dive Queue',
-        empty_message: 'No candidates are queued for deep dive.',
-        items: selectedResearchCases
-          .filter((researchCase) => researchCase.stage === 'queued_for_deep_dive')
-          .map(researchCaseToPipelineItem),
-      },
-      {
-        key: 'in-deep-dive',
-        title: 'In Deep Dive',
-        empty_message: 'No research cases are currently in deep dive.',
-        items: selectedResearchCases
-          .filter((researchCase) => ['deep_dive_started', 'specialist_finding_recorded', 'deep_dive_in_progress'].includes(researchCase.stage))
-          .map(researchCaseToPipelineItem),
-      },
-      {
-        key: 'synthesis-decision-pending',
-        title: 'Synthesis / Decision Pending',
-        empty_message: 'No research cases are awaiting synthesis or a decision gate.',
-        items: selectedResearchCases
-          .filter((researchCase) => [
-            'analysis_drafted',
-            'deep_dive_synthesis_drafted',
-            'deep_dive_completed',
-            'deep_dive_complete',
-            'decision_pending',
-            'decision_drafted',
-          ].includes(researchCase.stage))
-          .map(researchCaseToPipelineItem),
-      },
-      {
-        key: 'watchlist',
-        title: 'Watchlist',
-        empty_message: 'No selected-strategy watchlist items yet.',
-        items: selectedWatchlistItems.map(watchlistItemToPipelineItem),
-      },
-      {
-        key: 'rejected-passed',
-        title: 'Rejected / Passed',
-        empty_message: 'No rejected or passed candidates are recorded yet.',
-        items: [
-          ...selectedResearchCases
-            .filter((researchCase) => researchCase.stage === 'rejected' || researchCase.stage === 'pass')
-            .map(researchCaseToPipelineItem),
-          ...selectedDiscoveryCandidates
-            .filter((candidate) => candidate.status === 'rejected' || candidate.status === 'duplicate' || candidate.status === 'promoted_to_research_case')
-            .map(candidateToPipelineItem),
-        ],
-      },
-    ].map((section) => ({ ...section, items: sortPipelineItems(section.items) })),
-  }
 }
 
 export async function getAppHoldingsFromStore(
@@ -2132,135 +2010,6 @@ function parseCurrency(value: FormDataEntryValue | string | null | undefined, la
   return parsed
 }
 
-function belongsToStrategy(
-  item: Pick<ResearchCaseProjection, 'strategy_id'>,
-  selectedStrategyId: string,
-): boolean {
-  return item.strategy_id === undefined || item.strategy_id === selectedStrategyId
-}
-
-function candidateToPipelineItem(candidate: DiscoveryCandidateProjection): AppResearchPipelineItem {
-  const signal = extractDiscoverySignal(candidate.discovery_metadata)
-  return {
-    id: candidate.candidate_id,
-    label: `${candidate.ticker} — ${candidate.company_name}`,
-    status: candidate.status,
-    next_action: nextActionForDiscoveryCandidate(candidate),
-    ...(candidate.research_case_id === undefined ? {} : { href: `/research/${candidate.research_case_id}` }),
-    meta: `${candidate.market} • ${candidate.strategy_id}@${candidate.strategy_version}`,
-    ...(signal === undefined ? {} : { signal }),
-  }
-}
-
-function researchCaseToPipelineItem(researchCase: ResearchCaseProjection): AppResearchPipelineItem {
-  const label = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
-  const summary = researchCaseSummarySnippet(researchCase)
-
-  return {
-    id: researchCase.research_case_id,
-    label,
-    status: researchCase.screening_result ?? researchCase.decision ?? researchCase.stage,
-    next_action: researchCase.next_required_action ?? nextActionForResearchCase(researchCase),
-    href: `/research/${researchCase.research_case_id}`,
-    meta: `${strategyLabelFor(researchCase)} • Updated ${researchCase.updated_at}`,
-    ...(summary === undefined ? {} : { summary }),
-  }
-}
-
-function watchlistItemToPipelineItem(item: AppWatchlistItem): AppResearchPipelineItem {
-  const label = item.ticker ?? item.company_id ?? item.watchlist_item_id
-  const status = item.user_approved ? 'confirmed_watchlist' : 'watchlist_draft'
-
-  return {
-    id: item.watchlist_item_id,
-    label,
-    status,
-    next_action: item.holding_id !== undefined
-      ? 'Review in portfolio'
-      : item.user_approved
-        ? 'Monitor and open a holding only after user decision'
-        // Phase 8 S6: legacy-only — the standalone confirm-draft affordance was removed in S4. An
-        // unconfirmed draft can only come from a legacy partial ledger; do not promise the deleted action.
-        : 'Legacy unconfirmed draft — re-admit from research',
-    href: item.holding_id !== undefined ? `/portfolio#${item.holding_id}` : '/watchlist',
-    meta: `${item.strategy_id ?? 'strategy pending'} • Updated ${item.updated_at}`,
-  }
-}
-
-function nextActionForDiscoveryCandidate(candidate: DiscoveryCandidateProjection): string {
-  switch (candidate.status) {
-    case 'discovered':
-      return 'Queue for research'
-    case 'queued_for_quick_screen':
-      return 'Run the selected-strategy research (front gates first)'
-    case 'duplicate':
-      return `Review duplicate target ${candidate.duplicate_target_id ?? 'record'}`
-    case 'promoted_to_research_case':
-      return 'Continue from the promoted research case'
-    case 'rejected':
-      return 'No action required'
-  }
-}
-
-function nextActionForResearchCase(researchCase: ResearchCaseProjection): string {
-  switch (researchCase.stage) {
-    case 'discovered':
-      return 'Run the selected-strategy research (front gates first)'
-    case 'shariah_gate_judged':
-      return 'Shariah gate judged; research in progress'
-    case 'quick_screened': // legacy (pre-restructure) cases
-      return researchCase.screening_result === 'deep_dive_candidate'
-        ? 'Send to deep dive queue'
-        : 'Review quick screen outcome'
-    case 'awaiting_deep_dive_approval':
-      return 'Review the gate outcomes and click "Run deep dive" to start the swarm'
-    case 'queued_for_deep_dive':
-      return 'Start deep dive'
-    case 'circle_competence_judged':
-      return 'Circle-of-competence judged; deep dive in progress'
-    case 'deep_dive_started':
-    case 'specialist_finding_recorded':
-    case 'deep_dive_in_progress':
-      return 'Record specialist findings and draft synthesis'
-    case 'valuation_judgment_drafted':
-      return 'Valuation judgment drafted; synthesis in progress'
-    case 'deep_dive_synthesis_drafted':
-    case 'deep_dive_completed':
-    case 'deep_dive_complete':
-      return 'Draft strategy decision'
-    case 'analysis_drafted':
-      return 'Draft auditable decision'
-    case 'decision_pending':
-    case 'decision_drafted':
-      return 'Review decision and confirm the next user-authored transition'
-    case 'watchlist_draft':
-      // Phase 8 S6: legacy-only stage — S4 promotes straight to a confirmed watchlist (atomic admit +
-      // confirm), so the confirm-draft action no longer exists; surface the legacy state instead.
-      return 'Legacy unconfirmed draft — re-admit from research'
-    case 'watchlist':
-      return 'Monitor watchlist thesis'
-    case 'holding':
-      return 'Review holding in portfolio'
-    case 'failed':
-      return 'Run failed mid-flight — open the case for the error and re-run'
-    case 'rejected':
-    case 'pass':
-      return 'No action required'
-  }
-}
-
-function strategyLabelFor(item: Pick<ResearchCaseProjection, 'strategy_id' | 'strategy_version'>): string {
-  if (item.strategy_id === undefined) {
-    return 'strategy pending'
-  }
-
-  return item.strategy_version === undefined ? item.strategy_id : `${item.strategy_id}@${item.strategy_version}`
-}
-
-function sortPipelineItems(items: AppResearchPipelineItem[]): AppResearchPipelineItem[] {
-  return [...items].sort((left, right) => left.label.localeCompare(right.label))
-}
-
 /**
  * Remove a name from the watchlist (the human-authored prune — watchlist_item_pruned). The item
  * leaves every active view; the raw events remain the audit record. A held name cannot be pruned —
@@ -2423,30 +2172,6 @@ function buildReAnalysisDiff(
   }
   if (prior === undefined) return undefined
   return computeReAnalysisDiff(reAnalysisSnapshot(prior), reAnalysisSnapshot(researchCase))
-}
-
-function researchCaseSummarySnippet(researchCase: ResearchCaseProjection): string | undefined {
-  const source = [
-    researchCase.thesis_summary,
-    researchCase.evidence_summary,
-    researchCase.reason,
-    researchCase.next_required_action,
-  ].find((value) => value !== undefined && value.trim().length > 0)
-
-  if (source === undefined) {
-    return undefined
-  }
-
-  return truncateSentence(source, 180)
-}
-
-function truncateSentence(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= maxLength) {
-    return normalized
-  }
-
-  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
 }
 
 async function loadSourceEvidenceForResearchCase(

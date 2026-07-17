@@ -1,6 +1,9 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import { RouteHeader } from './designSystem'
+import { t, type MessageKey } from '../lib/i18n'
 import type {
   PipelineDrillDown,
   PipelineFailedRun,
@@ -21,7 +24,14 @@ export type PipelineObservatoryProps = {
   mode: WorkflowMode
   /** SCREENING TOGGLE (owner, 2026-07-16): false renders the Shariah-gate stage as OFF. */
   shariahEnabled?: boolean
+  /** i18n: the page chrome language (projection data stays as recorded). */
+  locale?: OwlLocale
 }
+
+// i18n: render-scoped locale — set once per page render; all helpers run inside the same
+// synchronous server render pass.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 // ── Scoped style vocabulary ───────────────────────────────────────────────────
 // The page leans on the shared editorial classes (owl-route-header, owl-rule,
@@ -164,14 +174,14 @@ function sectionHead(accent: string, title: string, note?: string, titleColor?: 
 
 function LedgerLine({ summary }: { summary: PipelineProjection['summary'] }): ReactNode {
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: 'owl-ledger-figure', label: 'Active runs', value: String(summary.active_runs) },
-    { figureClass: 'owl-ledger-figure', label: 'Awaiting approval', value: String(summary.awaiting_approval) },
+    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_active'), value: String(summary.active_runs) },
+    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_awaiting'), value: String(summary.awaiting_approval) },
     {
       figureClass: `owl-ledger-figure ${summary.failed_recent > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald'}`,
-      label: 'Failed (recent)',
+      label: dt('pp_stat_failed'),
       value: String(summary.failed_recent),
     },
-    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: 'Grounded sources', value: String(summary.grounded_sources) },
+    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: dt('pp_stat_sources'), value: String(summary.grounded_sources) },
   ]
 
   return createElement(
@@ -323,7 +333,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
     return createElement(
       'div',
       { className: 'owl-row', style: { color: 'var(--owl-color-muted)', gridTemplateColumns: '1fr' } },
-      'No research runs yet — enqueue a research run to populate the swarm pipeline.',
+      dt('pp_runs_empty'),
     )
   }
 
@@ -388,7 +398,7 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
   return createElement(
     'section',
     { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
-    sectionHead('Faults', 'Failed runs', 'failure is the latest state — no forward progress since', 'var(--owl-color-risk-bright)'),
+    sectionHead(dt('pp_failed_accent'), dt('pp_failed_title'), dt('pp_failed_note'), 'var(--owl-color-risk-bright)'),
     createElement(
       'div',
       { style: { overflowX: 'auto' } },
@@ -569,7 +579,8 @@ function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): Reac
 
 // ── The page ──────────────────────────────────────────────────────────────────
 
-export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true }: PipelineObservatoryProps): ReactNode {
+export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true, locale = 'en' }: PipelineObservatoryProps): ReactNode {
+  panelLocale = locale
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
 
   const snapshotTime = snapshot_at !== undefined
@@ -580,9 +591,9 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     'section',
     { 'aria-label': 'Pipeline observatory', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: 'Observability',
-      title: 'Strategy pipeline observatory',
-      description: 'Watch your research swarm at work — live. A projection-driven view of every case moving through the workflow, drawn straight from the audit ledger.',
+      kicker: dt('pp_kicker'),
+      title: dt('pp_title'),
+      description: dt('pp_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
 
@@ -596,7 +607,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
+      sectionHead(dt('pp_flow_accent'), dt('pp_flow_title'), dt('pp_flow_note')),
       // SCREENING OFF: the gate stage reads OFF (gray dot) — the funnel never implies a screen that
       // is not running. The count stays (historical + DISABLED pass-throughs still move through it).
       createElement(StageFlowMap, {
@@ -630,7 +641,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Verdict states', 'How the harness labels a case', 'distinct states an operator will see'),
+      sectionHead(dt('pp_verdict_accent'), dt('pp_verdict_title'), dt('pp_verdict_note')),
       createElement(VerdictStateLegend),
     ),
 
@@ -638,7 +649,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Live execution', 'Active & recent runs', 'select a run to drill into the swarm'),
+      sectionHead(dt('pp_runs_accent'), dt('pp_runs_title'), dt('pp_runs_note')),
       createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
     ),
 
@@ -652,7 +663,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
         ? createElement(
             'p',
             { style: sectionNoteStyle },
-            'Select a run above to inspect its specialist swarm.',
+            dt('pp_select_run'),
           )
         : null,
   )

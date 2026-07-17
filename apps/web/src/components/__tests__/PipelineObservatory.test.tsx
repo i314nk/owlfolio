@@ -105,4 +105,34 @@ describe('PipelineObservatory', () => {
     const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: empty, mode: 'personal-local' }))
     expect(html).toContain('No research runs yet')
   })
+
+  it('renders the page chrome in Arabic when locale is ar (run data stays as recorded)', () => {
+    const html = renderToStaticMarkup(
+      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'personal-local', locale: 'ar' }),
+    )
+    // Header, stats, and section chrome follow the locale…
+    expect(html).toContain('مرصد خط الاستراتيجية')
+    expect(html).toContain('تشغيلات نشطة')
+    expect(html).toContain('تدفق الخط')
+    expect(html).not.toContain('Strategy pipeline observatory')
+    expect(html).not.toContain('Active runs')
+    // …while projection data (tickers, stage labels) does not.
+    expect(html).toContain('MSFT')
+    expect(html).toContain('Deep dive · 5 lanes')
+  })
+
+  it('renders the Arabic empty-runs message and defaults to English without a locale', () => {
+    const empty: PipelineProjection = {
+      stage_counts: pipeline.stage_counts.map((s) => ({ ...s, count: 0, health: 'ok' })),
+      summary: { active_runs: 0, awaiting_approval: 0, failed_recent: 0, grounded_sources: 0 },
+      runs: [],
+    }
+    const arHtml = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: empty, mode: 'personal-local', locale: 'ar' }))
+    expect(arHtml).toContain('لا تشغيلات بحث بعد')
+    expect(arHtml).not.toContain('No research runs yet')
+
+    const enHtml = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: empty, mode: 'personal-local' }))
+    expect(enHtml).toContain('Strategy pipeline observatory')
+    expect(enHtml).toContain('No research runs yet')
+  })
 })
