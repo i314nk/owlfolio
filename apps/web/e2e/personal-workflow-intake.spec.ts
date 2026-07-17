@@ -148,7 +148,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.locator('article').filter({ hasText: 'Watchlist drafts' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('0', { exact: true })).toBeVisible()
-  await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
+  await expect(page.locator('article').filter({ hasText: 'Decisions waiting' }).getByText('0', { exact: true })).toBeVisible()
 
   await page.goto('/watchlist')
   // SCALE-DOWN S5: share counts are retired — the entry price is the one manual field. The open-holding
@@ -190,7 +190,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Check in held names against new filings (quarterly cadence)').first()).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('1', { exact: true })).toBeVisible()
-  await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
+  await expect(page.locator('article').filter({ hasText: 'Decisions waiting' }).getByText('0', { exact: true })).toBeVisible()
 
   // SCALE-DOWN S2/S3: the accounting + purification pages are retired; /passive is informative.
   await page.goto('/passive')
