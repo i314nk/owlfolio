@@ -634,7 +634,7 @@ describe('research and watchlist workflow pages', () => {
     expect(personalHtml).not.toMatch(/<button[^>]*\bdisabled\b[^>]*>Promote to watchlist/)
   })
 
-  it('renders an empty personal-local portfolio state with workflow guidance and provenance', () => {
+  it('renders an empty personal-local portfolio state with honest workflow guidance', () => {
     const html = renderToStaticMarkup(createElement(PortfolioPanel, {
       holdings: [],
       mode: 'personal-local',
@@ -642,14 +642,61 @@ describe('research and watchlist workflow pages', () => {
 
     expect(html).toContain('Portfolio')
     expect(html).toContain('No holdings are open yet')
-    expect(html).toContain('Follow the audit path: research decision → watchlist confirmation → holding lot entry.')
+    expect(html).toContain('Follow the audit path: research decision → watchlist confirmation → open holding (your entry price is the anchor).')
     expect(html).toContain('href="/watchlist"')
     expect(html).toContain('Go to watchlist')
-    expect(html).toContain('Record first lot after confirming a watchlist item')
-    expect(html).toContain('No portfolio events recorded')
-    expect(html).toContain('Provider sync not connected')
-    expect(html).toContain('Last updated: none')
-    expect(html).toContain('Empty holdings table')
+    expect(html).toContain('Open a holding after confirming a watchlist item')
+    // SCALE-DOWN truth: no lot/money-layer vocabulary, no fabricated system-status lines — broker
+    // sync does not exist, and the empty page needs no "Last updated" provenance.
+    expect(html).not.toContain('holding lot entry')
+    expect(html).not.toContain('Record first lot')
+    expect(html).not.toContain('Provider sync')
+    expect(html).not.toContain('No portfolio events recorded')
+    expect(html).not.toContain('Last updated')
+    expect(html).not.toContain('Empty holdings table')
+    expect(html).not.toContain('Portfolio cockpit')
+  })
+
+  it('replaces a model-placeholder thesis on a holding card with the honest fallback', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        holding_id: 'holding_goog_001',
+        research_case_id: 'rc_goog_001',
+        ticker: 'GOOG',
+        thesis_summary: 'Will formulate after reading source material',
+        cost_basis_per_share: 150,
+        currency: 'USD',
+        opened_at: '2026-06-01',
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).not.toContain('Will formulate')
+    expect(html).toContain('No thesis recorded')
+  })
+
+  it('renders the portfolio page chrome in Arabic when locale is ar (row data stays as recorded)', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      locale: 'ar',
+      holdings: [{
+        holding_id: 'holding_msft_ar',
+        research_case_id: 'rc_msft_ar',
+        ticker: 'MSFT',
+        thesis_summary: 'Compounding fortress.',
+        cost_basis_per_share: 812.4,
+        currency: 'USD',
+        opened_at: '2026-05-31',
+      } as never],
+      mode: 'personal-local',
+    }))
+    expect(html).toContain('المحفظة')
+    expect(html).toContain('أطروحة مملوكة واحدة')
+    expect(html).not.toContain('held thesis')
+    expect(html).toContain('MSFT')
+    expect(html).toContain('$812.40')
+
+    const emptyHtml = renderToStaticMarkup(createElement(PortfolioPanel, { locale: 'ar', holdings: [], mode: 'personal-local' }))
+    expect(emptyHtml).toContain('لا مراكز مفتوحة بعد')
+    expect(emptyHtml).not.toContain('No holdings are open yet')
   })
 
   it('renders a minimal portfolio view from projected holding lots', () => {

@@ -1,5 +1,6 @@
 import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveLocale } from '@owlfolio/shared'
 
 import { PortfolioPanel, type PortfolioHolding } from '../../components/PortfolioPanel'
 import { RefreshPricesButton } from '../../components/RefreshPricesButton'
@@ -11,6 +12,7 @@ import { projectLatestPriceSnapshots } from '@owlfolio/ledger/projections/priceS
 
 import { getAppHoldingsFromStore, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
 import { resolveDisplayNamesForTickers } from '../../lib/displayNames'
+import { recordedThesis } from '../../lib/thesisDisplay'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -33,6 +35,7 @@ export default async function PortfolioPage() {
         mode={state.config.mode}
         alerts={alerts}
         shariahEnabled={state.config.shariah.enabled}
+        locale={resolveLocale(state.config.language)}
       />
     </main>
   )
@@ -102,8 +105,9 @@ async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode):
         enriched.displayResearchCaseId = valuationCase.research_case_id
         if (valuationCase.investment_verdict !== undefined) enriched.latestAnalysisVerdict = valuationCase.investment_verdict
         enriched.latestAnalysisAt = valuationCase.updated_at
-        // Mirror the dossier's verdict-summary chain (thesis → evidence → reason).
-        const displayThesis = [valuationCase.thesis_summary, valuationCase.evidence_summary, valuationCase.reason]
+        // Mirror the dossier's verdict-summary chain (thesis → evidence → reason). A placeholder
+        // thesis ("Will formulate…") is treated as absent so the evidence/reason get their chance.
+        const displayThesis = [recordedThesis(valuationCase.thesis_summary), valuationCase.evidence_summary, valuationCase.reason]
           .find((text) => typeof text === 'string' && text.trim().length > 0)
         if (displayThesis !== undefined) enriched.latestAnalysisThesis = displayThesis
       }

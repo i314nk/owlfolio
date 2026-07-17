@@ -1,13 +1,20 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
+import { t, type MessageKey } from '../lib/i18n'
+import { recordedThesis } from '../lib/thesisDisplay'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { titleCaseEntityName } from '../lib/entityName'
 import { StatusBadge } from './StatusBadge'
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const HOLDING_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
   urgent: 'danger',
@@ -54,16 +61,10 @@ export type PortfolioPanelProps = {
   mode?: WorkflowMode
   /** Open agent observations + drafts per holding (tranche / concentration / Shariah grace / sell-review). */
   alerts?: MonitorAlert[]
+  /** i18n: the page chrome language (row data stays as recorded). */
+  locale?: OwlLocale
 }
 
-
-const decisionPanelStyle = {
-  border: '1px solid rgba(148, 163, 184, 0.16)',
-  borderRadius: '0.85rem',
-  display: 'grid',
-  gap: '0.75rem',
-  padding: '1rem',
-}
 
 /**
  * The Portfolio — where the user's capital stands. Leads with the vital signs
@@ -78,14 +79,15 @@ const decisionPanelStyle = {
 // (ticker, YOUR entry price as the anchor, the dossier link, check-ins, sell advisories). The money
 // layer (cost basis, values, weights, returns, capital, manual valuations) is removed; the entry
 // price survives as the one manual field so sell advisories and pullback reviews have their anchor.
-export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [], shariahEnabled = true }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [], shariahEnabled = true, locale = 'en' }: PortfolioPanelProps) {
+  panelLocale = locale
   return createElement(
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: 'Held theses',
-      title: 'Portfolio',
-      description: `${holdings.length} held ${holdings.length === 1 ? 'thesis' : 'theses'} — tracked against new filings (check-ins) and the computed zones. Owner’s Manual records your entry price as the anchor; it keeps no books.`,
+      kicker: dt('pl_kicker'),
+      title: dt('pl_title'),
+      description: holdings.length === 1 ? dt('pl_desc_one') : dt('pl_desc_many').replace('{count}', String(holdings.length)),
     }),
     createElement('hr', { className: 'owl-rule' }),
     ...(holdings.length === 0
@@ -172,31 +174,25 @@ function alertKindTag(alert: MonitorAlert): ReactNode[] {
 
 
 
+// SCALE-DOWN truth pass (2026-07-17): the legacy "Empty holdings table" block is gone — it carried
+// money-layer/lot vocabulary and a "Provider sync not connected" status line for a sync that does
+// not exist (broker sync is out of scope, owner-locked).
 function createPortfolioEmptyState() {
   return createElement(
     'section',
     { key: 'portfolio-empty-state', 'aria-label': 'Empty portfolio', className: 'owl-section-card owl-workflow-card' },
-    createElement('p', { className: 'owl-section-accent' }, 'Portfolio cockpit'),
-    createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, 'No holdings are open yet'),
+    createElement('p', { className: 'owl-section-accent' }, dt('pl_kicker')),
+    createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, dt('pl_empty_title')),
     createElement(
       'p',
       { className: 'owl-body', style: { margin: '0.3rem 0 0' } },
-      'Follow the audit path: research decision → watchlist confirmation → holding lot entry.',
+      dt('pl_empty_body'),
     ),
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '1rem' } },
-      createElement(OwlButtonLink, { href: '/watchlist', variant: 'primary' }, 'Go to watchlist'),
-      createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 800 } }, 'Record first lot after confirming a watchlist item'),
-    ),
-    createElement(
-      'section',
-      { 'aria-label': 'Empty holdings table', style: { ...decisionPanelStyle, background: 'var(--owl-color-panel)', marginTop: '1rem' } },
-      createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Empty holdings table'),
-      createDetail('Portfolio state', 'No portfolio events recorded'),
-      createDetail('Provider sync', 'Provider sync not connected'),
-      createDetail('Last updated', 'none'),
-      createElement('p', { className: 'owl-body', style: { margin: '0.25rem 0 0' } }, 'Last updated: none'),
+      createElement(OwlButtonLink, { href: '/watchlist', variant: 'primary' }, dt('pl_go_watchlist')),
+      createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 800 } }, dt('pl_empty_hint')),
     ),
   )
 }
@@ -496,9 +492,11 @@ function buyBelowReferenceLine(holding: PortfolioHolding, buyBelow: number): str
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
-  if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
-  if (thesis.length <= 420) return thesis
-  return `${thesis.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
+  // Blank or model-placeholder summaries ("Will formulate…") read as unrecorded, same as the library.
+  const recorded = recordedThesis(thesis)
+  if (recorded === undefined) return 'No thesis recorded'
+  if (recorded.length <= 420) return recorded
+  return `${recorded.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
 }
 
 function formatMoney(value: number, currency: string): string {
