@@ -387,48 +387,79 @@ body::before {
   --owl-color-source-border: rgba(214, 178, 94, 0.24);
 }
 
-[data-owl-theme='sand'] {
-  color-scheme: light;
-  --owl-color-canvas: #f3ecdc;
-  --owl-color-canvas-soft: #efe6d2;
-  --owl-color-shell: #e9dfc8;
-  --owl-color-panel: rgba(255, 252, 244, 0.85);
-  --owl-color-panel-elevated: rgba(255, 255, 250, 0.92);
-  --owl-color-panel-deep: rgba(240, 233, 216, 0.9);
-  --owl-color-border: rgba(90, 80, 50, 0.16);
-  --owl-color-border-strong: rgba(21, 128, 61, 0.4);
-  --owl-color-text: #241f14;
-  --owl-color-muted: #5b5647;
-  --owl-color-quiet: #8a8371;
-  --owl-color-accent: #15803d;
-  --owl-color-accent-bright: #16a34a;
-  --owl-color-gold: #9a7b2d;
-  --owl-color-gold-bright: #8a6a1f;
-  --owl-color-gold-vivid: #6b5620;
-  --owl-color-sand: #6b5620;
-  --owl-color-fiduciary: #9a7b2d;
-  --owl-color-warning: #9a7b2d;
-  --owl-color-amber: #b45309;
-  --owl-color-risk: #dc2626;
-  --owl-color-risk-bright: #b91c1c;
-  --owl-color-risk-soft: #991b1b;
-  --owl-color-risk-pale: #7f1d1d;
-  --owl-color-positive: #15803d;
-  --owl-color-positive-soft: #166534;
-  --owl-color-text-soft: #2b2a26;
-  --owl-color-bright: #1f2937;
-  --owl-color-helper: #4b5563;
-  --owl-color-muted-cool: #6b7280;
-  --owl-rgb-positive: 21, 128, 61;
-  --owl-rgb-risk: 220, 38, 38;
-  --owl-rgb-amber: 180, 83, 9;
-  --owl-color-accent-deep: #14532d;
-  --owl-color-shariah: #15803d;
-  --owl-rgb-accent: 21, 128, 61;
-  --owl-rgb-accent-bright: 22, 163, 74;
-  --owl-rgb-shariah: 21, 128, 61;
-  --owl-color-source-bg: rgba(250, 246, 236, 0.92);
-  --owl-color-source-border: rgba(21, 128, 61, 0.28);
+[data-owl-theme='mono'] {
+  /* Bloomberg-terminal feel (owner, 2026-07-17): true black, sharp white, silver accents. Gold
+     goes silver and the girih lattice re-strokes grey. The safety colors stay: risk red and
+     caution amber must remain legible in every theme (fail-visible over aesthetics). */
+  --owl-color-canvas: #000000;
+  --owl-color-canvas-soft: #050505;
+  --owl-color-shell: #0a0a0a;
+  --owl-color-panel: rgba(16, 16, 16, 0.85);
+  --owl-color-panel-elevated: rgba(24, 24, 24, 0.86);
+  --owl-color-panel-deep: rgba(6, 6, 6, 0.9);
+  --owl-color-border: rgba(255, 255, 255, 0.13);
+  --owl-color-border-strong: rgba(255, 255, 255, 0.35);
+  --owl-color-text: #f5f5f5;
+  --owl-color-muted: #a3a3a3;
+  --owl-color-quiet: #6e6e6e;
+  --owl-color-gold: #d4d4d4;
+  --owl-color-gold-bright: #e5e5e5;
+  --owl-color-gold-vivid: #fafafa;
+  --owl-color-sand: #e5e5e5;
+  --owl-color-fiduciary: #d4d4d4;
+  --owl-color-warning: #d4d4d4;
+  --owl-color-accent: #404040;
+  --owl-color-accent-bright: #a3a3a3;
+  --owl-color-accent-deep: #262626;
+  --owl-color-positive: #e5e5e5;
+  --owl-color-positive-soft: #d4d4d4;
+  --owl-color-shariah: #e5e5e5;
+  --owl-rgb-accent: 120, 120, 120;
+  --owl-rgb-accent-bright: 200, 200, 200;
+  --owl-rgb-shariah: 220, 220, 220;
+  --owl-rgb-positive: 229, 229, 229;
+  --owl-color-status-certified: rgba(255, 255, 255, 0.1);
+  --owl-color-status-certified-border: rgba(255, 255, 255, 0.32);
+  --owl-color-status-compliance: rgba(255, 255, 255, 0.08);
+  --owl-color-status-compliance-border: rgba(255, 255, 255, 0.26);
+  --owl-color-finance-blue: #525252;
+  --owl-color-source-bg: rgba(8, 8, 8, 0.92);
+  --owl-color-source-border: rgba(255, 255, 255, 0.2);
+}
+
+/* Mono re-strokes the girih lattice grey — a gold pattern would be the one colored thing left. */
+[data-owl-theme='mono'] body::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='90' viewBox='0 0 52 90'%3E%3Cdefs%3E%3Cpath id='h' d='M0 -30 25.98 -15 25.98 15 0 30 -25.98 15 -25.98 -15Z'/%3E%3Cpath id='s' d='M24 0 12 6.93 12 20.78 0 13.86 -12 20.78 -12 6.93 -24 0 -12 -6.93 -12 -20.78 0 -13.86 12 -20.78 12 -6.93Z'/%3E%3C/defs%3E%3Cg fill='none' stroke='%23a3a3a3' stroke-width='0.9'%3E%3Cuse href='%23h' x='0' y='0'/%3E%3Cuse href='%23s' x='0' y='0'/%3E%3Cuse href='%23h' x='52' y='0'/%3E%3Cuse href='%23s' x='52' y='0'/%3E%3Cuse href='%23h' x='0' y='90'/%3E%3Cuse href='%23s' x='0' y='90'/%3E%3Cuse href='%23h' x='52' y='90'/%3E%3Cuse href='%23s' x='52' y='90'/%3E%3Cuse href='%23h' x='26' y='45'/%3E%3Cuse href='%23s' x='26' y='45'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+[data-owl-theme='violet'] {
+  --owl-color-canvas: #08040f;
+  --owl-color-canvas-soft: #0d0716;
+  --owl-color-shell: #130a20;
+  --owl-color-panel: rgba(26, 16, 42, 0.78);
+  --owl-color-panel-elevated: rgba(34, 22, 54, 0.8);
+  --owl-color-panel-deep: rgba(12, 7, 20, 0.85);
+  --owl-color-border: rgba(196, 181, 253, 0.12);
+  --owl-color-border-strong: rgba(167, 139, 250, 0.35);
+  --owl-color-muted: #b0a6c4;
+  --owl-color-quiet: #7a7090;
+  --owl-color-accent: #7c3aed;
+  --owl-color-accent-bright: #a78bfa;
+  --owl-color-accent-deep: #6d28d9;
+  --owl-color-positive: #a78bfa;
+  --owl-color-positive-soft: #ddd6fe;
+  --owl-color-shariah: #a78bfa;
+  --owl-rgb-accent: 124, 58, 237;
+  --owl-rgb-accent-bright: 167, 139, 250;
+  --owl-rgb-shariah: 167, 139, 250;
+  --owl-rgb-positive: 167, 139, 250;
+  --owl-color-status-certified: rgba(139, 92, 246, 0.14);
+  --owl-color-status-certified-border: rgba(196, 181, 253, 0.34);
+  --owl-color-status-compliance: rgba(147, 51, 234, 0.12);
+  --owl-color-status-compliance-border: rgba(216, 180, 254, 0.28);
+  --owl-color-finance-blue: #6d28d9;
+  --owl-color-source-bg: rgba(10, 6, 17, 0.9);
+  --owl-color-source-border: rgba(167, 139, 250, 0.25);
 }
 
 a {

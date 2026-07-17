@@ -118,7 +118,8 @@ export const OWL_THEMES = [
   { id: 'emerald', label: 'Emerald (default)' },
   { id: 'sapphire', label: 'Sapphire' },
   { id: 'graphite', label: 'Graphite' },
-  { id: 'sand', label: 'Sand (light)' },
+  { id: 'mono', label: 'Mono (terminal)' },
+  { id: 'violet', label: 'Violet' },
 ] as const
 export type OwlThemeId = typeof OWL_THEMES[number]['id']
 
