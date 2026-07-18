@@ -6,7 +6,7 @@ import { getOnboardingState } from '../../lib/onboarding'
 
 export const metadata = {
   title: 'Strategy · Owner’s Manual',
-  description: 'The default Buffett 4-Pillar quality-value strategy: pipeline, specialist swarm, moat gate, reverse-DCF valuation (market-implied vs judged sustainable growth), hard gates, and position sizing.',
+  description: 'The default Buffett 4-Pillar quality-value strategy: pipeline, specialist swarm, moat gate, deterministic FCF valuation with a comps-anchored exit multiple, hard gates, and the two-zone discipline.',
 }
 
 export default async function StrategyPage() {

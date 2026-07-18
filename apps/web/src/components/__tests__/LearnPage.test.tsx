@@ -22,4 +22,40 @@ describe('LearnPage source', () => {
     expect(tabsSource).not.toMatch(/[Rr]ule \d/)
     expect(pageSource).not.toMatch(/the book\b/)
   })
+
+  it('the Strategy & Valuation tab NAMES the strategy and enumerates its four pillars', () => {
+    expect(tabsSource).toContain('Buffett 4-Pillar')
+    expect(tabsSource).toContain('Pillar 1 — Understand the business')
+    expect(tabsSource).toContain('Pillar 2 — Moat')
+    expect(tabsSource).toContain('Pillar 3 — Management')
+    expect(tabsSource).toContain('Pillar 4 — Value the business')
+  })
+
+  it('reflects the current app state — no retired-feature claims', () => {
+    // SCALE-DOWN: onboarding carries no capital; sizing is removed by design, not "a later phase";
+    // nothing binds buys (the harness never executes one).
+    expect(tabsSource).not.toContain('model, capital')
+    expect(tabsSource).not.toContain('a later phase')
+    expect(tabsSource).not.toContain('15% deployment cap')
+    // The CLI never writes config/credentials — three read/launch/diagnose commands.
+    expect(tabsSource).not.toContain('reads and writes config')
+    // Certification is optional (responsibility is the user's) — no fictional production gate.
+    expect(tabsSource).not.toContain('Golden-set qualification')
+    expect(tabsSource).not.toContain('reaches production only after')
+  })
+
+  it('the Shariah tab documents the screening toggle honestly (fail-visible OFF)', () => {
+    expect(tabsSource).toContain('Shariah screening')
+    expect(tabsSource).toContain('GATE OFF')
+    expect(tabsSource).toContain('DISABLED')
+  })
+})
+
+describe('StrategyPage source', () => {
+  const strategyPageSource = readFileSync('apps/web/src/app/strategy/page.tsx', 'utf8')
+
+  it('claims no retired position sizing and no reverse-DCF-as-the-method in the metadata', () => {
+    expect(strategyPageSource).not.toContain('position sizing')
+    expect(strategyPageSource).not.toContain('reverse-DCF valuation')
+  })
 })

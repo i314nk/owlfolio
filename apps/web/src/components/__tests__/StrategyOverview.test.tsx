@@ -171,4 +171,17 @@ describe('StrategyOverview', () => {
     expect(html).toContain('The SIZE IS YOURS')
     expect(html).toContain('act boldly — load up the truck')
   })
+
+  it('REBRAND: the kicker carries the display name, never the old internal strategy name', () => {
+    const html = render()
+    expect(html).toContain('Buffett 4-Pillar')
+    expect(html).not.toContain('Buffett-Munger Quality Compounder')
+  })
+
+  it('SCALE-DOWN: the ladders read as the pullback-review monitor policy, not an entry prescription', () => {
+    const html = render()
+    // No confirmation flow exists in the open-holding form — the copy must not claim one.
+    expect(html).not.toContain('you confirm it in the T1 ledger entry')
+    expect(html).toContain('pullback-review')
+  })
 })

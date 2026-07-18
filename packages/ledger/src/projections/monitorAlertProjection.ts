@@ -222,9 +222,11 @@ function holdingMonitorAlerts(event: LedgerEventEnvelope<unknown>, payload: Reco
       subject,
       severity: 'attention',
       headline: `${label}: concentration over cap`,
+      // SCALE-DOWN truth: no deployment cap binds anything (the harness never executes a buy) —
+      // the threshold is a review bar, nothing more.
       detail: weight === undefined
-        ? 'Position weight is past the concentration-review threshold (a higher bar than the 15% deployment cap on new buys). Winners run; this is a review-on-appreciation alert, never an auto-trim. You decide.'
-        : `Position is ${fmtPct(weight)} of NAV, past the concentration-review threshold (a higher bar than the 15% deployment cap on new buys). Winners run; this is a review-on-appreciation alert, never an auto-trim. You decide.`,
+        ? 'Position weight is past the concentration-review threshold. Winners run; this is a review-on-appreciation alert, never an auto-trim. You decide.'
+        : `Position is ${fmtPct(weight)} of NAV, past the concentration-review threshold. Winners run; this is a review-on-appreciation alert, never an auto-trim. You decide.`,
       recorded_at: event.created_at,
       is_observation: true,
       is_draft: false,

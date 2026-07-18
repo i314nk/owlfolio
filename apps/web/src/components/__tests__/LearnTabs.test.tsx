@@ -227,9 +227,11 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('does not depend on which state')
     // Stale "separate watchlist and holdings monitors" framing is replaced.
     expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
-    // Honesty: deteriorating watched name, no prune action yet; exits are sold vs screened out.
+    // Honesty: deteriorating watched name flagged; the human-authored prune (Remove from watchlist)
+    // SHIPPED — the copy names it instead of the stale "no prune action yet" gap.
     expect(html.toLowerCase()).toContain('deteriorating')
-    expect(html.toLowerCase()).toContain('no prune action yet')
+    expect(html.toLowerCase()).toContain('remove from watchlist')
+    expect(html.toLowerCase()).not.toContain('no prune action yet')
     expect(html.toLowerCase()).toContain('screened out')
     // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
     // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).

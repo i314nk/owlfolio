@@ -5,6 +5,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import { fcfIntrinsicValuePerShare } from '@owlfolio/strategies/bookValuation'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { strategyDisplayName } from '../lib/strategyDisplay'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import {
   SIZING_PARAMS,
@@ -350,7 +351,8 @@ export function StrategyOverview(): ReactNode {
 
     // 1. Letterhead — serif title + gold mono kicker + hairline rule
     createElement(RouteHeader, {
-      kicker: `${strategy.name} · v${strategy.version}`,
+      // REBRAND: the display name, never the contract's internal name (which stays persisted).
+      kicker: `${strategyDisplayName(strategy.id)} · v${strategy.version}`,
       title: 'The strategy',
       description:
         'The method your agent follows, end to end: a concentrated, quality-value, Shariah-aware discipline in the Buffett 4-Pillar tradition. One principle holds it together — a strict division of labour. Grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
@@ -631,15 +633,15 @@ export function StrategyOverview(): ReactNode {
     // 7b. Tranche ladders (position-sizing-spec §2–§4) — both ladders + re-anchoring + time-completion
     Section({
       eyebrow: 'Tranche ladders',
-      title: 'How a position is laddered in',
+      title: 'Pullback-review rungs — tranches buy information',
       lead: createElement(
         'span',
         null,
-        'Tranches buy information, not just price. Entry is laddered across rungs, each beyond T1 gated by a thesis re-check. The harness suggests a ladder from the regime temperature at T1 (temperature ≤ ',
+        'Tranches buy information, not just price. The ladders below are the worker’s pullback-review policy — the rungs at which a falling price on a held name triggers a thesis re-check BEFORE you consider adding (regime temperature ≤ ',
         createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD)),
         ' → normal; ≥ ',
         createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD + 1)),
-        ' → cold); you confirm it in the T1 ledger entry and it is fixed for that position thereafter. Fractions and triggers below are read from the live sizing config.',
+        ' → cold). They prescribe nothing and execute nothing — the size and every buy are yours. Fractions and triggers below are read from the live sizing config.',
       ),
       children: createElement(
         'div',

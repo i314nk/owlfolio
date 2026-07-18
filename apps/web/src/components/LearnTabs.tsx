@@ -144,6 +144,17 @@ function StrategyTab(): ReactNode {
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     PanelSection({
+      eyebrow: 'The strategy',
+      title: 'Buffett 4-Pillar — the default method',
+      lead: 'Four questions, asked in order, each grounded in primary filings. The first three are quality gates — a business must pass them before its price is ever considered. The fourth computes what it is worth. The dossier renders a case pillar by pillar in exactly this frame.',
+      children: cardGrid([
+        { key: 'p1', eyebrow: 'Pillar 1 — Understand the business', body: 'Can we explain how it actually makes money? The understand lane grounds the model, unit economics, and accounting quality — and the circle-of-competence gate sets a case aside honestly when durable predictability cannot be argued from evidence.' },
+        { key: 'p2', eyebrow: 'Pillar 2 — Moat', body: 'What stops a funded rival? The moat lane grounds which moat types hold and their direction; a below-wide moat ends the case at the moat gate before any further spend.' },
+        { key: 'p3', eyebrow: 'Pillar 3 — Management', body: 'Integrity and talent, from the DEF 14A and the capital-allocation record. A grounded worst-tier judgment vetoes an unattended BUY.' },
+        { key: 'p4', eyebrow: 'Pillar 4 — Value the business', body: 'A dedicated valuation pass judges growth and the exit comps; the harness computes intrinsic value and both zone thresholds deterministically. Price is the LAST question, never the first.' },
+      ], '230px'),
+    }),
+    PanelSection({
       eyebrow: 'Buffett 4-Pillar discipline',
       title: 'Quality compounders, bought when the model’s buy-below is met and its reasoning holds',
       lead: createElement(
@@ -461,7 +472,7 @@ function LifecycleTab(): ReactNode {
       ),
       children: bullets([
         createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the front gates; the Shariah sector exclusion is applied before a candidate even enters the ledger, and most names die cheaply here.'),
-        createElement('span', { key: 2 }, gold('Watched & held'), ' — entered only by an explicit human ledger entry; a holding records an already-executed trade. Position sizing on the watched→held step is a later phase.'),
+        createElement('span', { key: 2 }, gold('Watched & held'), ' — entered only by an explicit human ledger entry; a holding records an already-executed trade. Position sizing is deliberately out of scope by the scale-down: the size is yours, and your entry price is the one manual field the system keeps.'),
         createElement('span', { key: 3 }, gold('Exited — two opposite meanings'), ' — an exit is either SOLD (a closed holding) or SCREENED OUT (research rejected / pass). The Lifecycle page shows which, because they mean opposite things; a name that comes back live keeps its prior-exit history.'),
       ]),
     }),
@@ -483,7 +494,7 @@ function LifecycleTab(): ReactNode {
         cardGrid([
           { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
           { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs) — never mechanical averaging-down.' },
-          { key: 'conc', eyebrow: 'Concentration (held)', body: 'The 15% deployment cap binds new buys; a held position that APPRECIATES past a higher concentration-review threshold (~22%) raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim.' },
+          { key: 'conc', eyebrow: 'Concentration (held)', body: 'A held position that APPRECIATES past the concentration-review threshold raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim, and nothing here executes or blocks a buy (the harness never trades).' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
           { key: 'rereview', eyebrow: 'Check-in (any decided name; quarterly rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
         ]),
@@ -491,10 +502,10 @@ function LifecycleTab(): ReactNode {
           createElement(
             'span',
             null,
-            gold('Honest gap: '),
-            'when the falsifier trips on a WATCHED name, the engine flags it as deteriorating but there is ',
-            gold('no prune action yet'),
-            ' (a later phase). The Lifecycle page surfaces that gap on the name rather than hiding it — a deteriorating watched name never looks healthy.',
+            gold('The action is yours: '),
+            'when the falsifier trips on a WATCHED name, the engine flags it as deteriorating — and stops there. The watchlist row carries the human-authored ',
+            gold('Remove from watchlist'),
+            ' (a recorded prune, with your reason); the engine itself never prunes a name. A deteriorating watched name never looks healthy, and it never disappears without your signature.',
           ),
         ),
       ),
@@ -543,7 +554,7 @@ function ShariahTab(): ReactNode {
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     PanelSection({
-      eyebrow: 'Enforced at six points',
+      eyebrow: 'Enforced along the pipeline',
       title: 'Shariah is a property, not a single lane',
       lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, and exit rules. A FAIL stops the case outright and is never price-overridable. The dossier states the purification RATE as guidance; Owner’s Manual keeps no payment books.',
       children: cardGrid([
@@ -552,6 +563,21 @@ function ShariahTab(): ReactNode {
         { key: 'cash', eyebrow: 'Cash ratio', body: createElement('span', null, 'Cash + interest-bearing securities / market cap below ', mono(pct(AAOIFI_CASH_SECURITIES_RATIO_MAX)), '.') },
         { key: 'income', eyebrow: 'Impermissible income', body: createElement('span', null, 'Impermissible income / revenue below ', mono(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)), '; the remainder sets the purification percentage.') },
       ]),
+    }),
+    PanelSection({
+      eyebrow: 'The screening toggle',
+      title: 'Opt-out, never silent — OFF is fail-visible',
+      lead: createElement(
+        'span',
+        null,
+        'Screening is an opt-out (',
+        gold('Settings → Shariah screening'),
+        ', default ON). Turning it OFF is never a fake pass: gates record explicit ',
+        gold('DISABLED'),
+        ' decisions in the ledger, boards show ',
+        gold('GATE OFF'),
+        ' chips, Shariah provider spend and the quarterly re-screen stop, and the purification surfaces hide. Turn it back ON and the next runs screen again — the OFF period stays honestly visible in the record.',
+      ),
     }),
     PanelSection({
       eyebrow: 'Purification guidance',
@@ -647,7 +673,7 @@ function TieringTab(): ReactNode {
         createElement('span', { key: 2 }, gold('Schema validation + retry'), ' — output is validated against the lane schema; two failures mark the run FAILED rather than passing it through.'),
         createElement('span', { key: 3 }, gold('Citation verification'), ' — every claim must cite a harness-fetched, content-hashed source.'),
         createElement('span', { key: 4 }, gold('Range / sanity checks'), ' — code rejects impossible numbers (inc-ROIC over 100%, maintenance capex above revenue).'),
-        createElement('span', { key: 5 }, gold('Golden-set qualification'), ' — a model reaches production only after passing a frozen set of already-analyzed companies; quality is verified, not assumed.'),
+        createElement('span', { key: 5 }, gold('Certification scenarios'), ' — an optional deeper audit: a target-specific certification report records what a model proved (grounding + the security invariants). Until one exists the model runs experimental and the choice is yours — verified when audited, never assumed.'),
         createElement('span', { key: 6 }, gold('Dual-model cross-check'), ' — for moat class and Shariah status only, the lane runs twice on two models; disagreement escalates to a human and the conservative answer holds.'),
       ]),
     }),
@@ -728,7 +754,7 @@ function CliTab(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'The CLI is deliberately small. Onboarding — mode, provider, API keys, model, capital — all lives in the ',
+        'The CLI is deliberately small. Onboarding — mode, provider, API keys, model — all lives in the ',
         gold('browser'),
         ' (it is the same shared surface, so nothing can drift), so the CLI keeps only what the browser cannot do from a terminal.',
       ),
@@ -751,7 +777,7 @@ function CliTab(): ReactNode {
           createElement('span', null, gold('OWLFOLIO_ENV_FILE'), '            # the local key store (never committed)'),
           createElement('span', null, gold('OWLFOLIO_PERSONAL_LEDGER_PATH'), ' # the personal-local SQLite ledger'),
         ]),
-        caveat('The CLI is dry-run/admin by constitution: it reads and writes config, credentials, and onboarding state, but it never executes an investment action, confirms a watchlist entry, opens a holding, or authorizes a purification payment — every irreversible transition is authored by a human in the web workflow.'),
+        caveat('The CLI is read-and-diagnose by constitution: it launches the app, reports readiness, and inspects config, credential presence, and the ledger — it writes nothing and never executes an investment action, confirms a watchlist entry, or opens a holding. Every irreversible transition is authored by a human in the web workflow.'),
       ),
     }),
   )
