@@ -172,6 +172,24 @@ describe('generic audit activity', () => {
     expect(fullHtml).toContain('href="/audit"')
   })
 
+  it('presents a compact sticky search bar: search fields up front, technical filters behind Advanced, chips inside', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+    ]))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { entity: 'MSFT' } }))
+
+    // The bar follows the scroll…
+    expect(html).toContain('position:sticky')
+    // …the two search fields and actions stay up front (outside any details)…
+    expect(html).toMatch(/name="q"[\s\S]*?<details/)
+    // …while the technical filters live behind the Advanced toggle.
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="actor"/)
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="event_id"/)
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="schema_version"/)
+    // Active-filter chips ride inside the sticky bar (visible while scrolled deep).
+    expect(html).toMatch(/position:sticky(?:(?!<\/section>)[\s\S])*Active audit filters/)
+  })
+
   it('filters by event type, actor, entity search, and reverses time ordering', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
       event({ event_id: 'evt_early_msft', aggregate_id: 'rc_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-05-30T08:00:00.000Z' }),

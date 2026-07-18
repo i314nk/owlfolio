@@ -89,6 +89,9 @@ test('audit filters keep actor and related controls from overlapping at desktop 
   await page.goto('/audit')
 
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
+  // The technical filters live behind the sticky bar's Advanced toggle — expand before measuring.
+  await page.locator('form[action="/audit"] summary').click()
+  await expect(page.locator('select[name="actor"]')).toBeVisible()
   const layout = await measureAuditFilterLayout(page)
 
   expect(layout.hasHorizontalCollision).toBe(false)

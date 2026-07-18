@@ -54,15 +54,6 @@ const controlStyle: CSSProperties = {
   width: '100%',
 }
 
-const filterActionsStyle: CSSProperties = {
-  alignItems: 'center',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '0.65rem',
-  gridColumn: '1 / -1',
-  marginTop: '0.2rem',
-}
-
 const activeFiltersStyle: CSSProperties = {
   alignItems: 'center',
   display: 'flex',
@@ -258,8 +249,7 @@ export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: Audi
         ? createElement('a', { className: 'owl-focusable', href: '/audit?view=full', style: traceLinkStyle }, dt('au_view_full_link'))
         : createElement('a', { className: 'owl-focusable', href: '/audit', style: traceLinkStyle }, dt('au_view_decisions_link')),
     ),
-    createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
-    createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),
+    createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions, activeFilters: view.activeFilters }),
     view.events.length === 0
       ? createElement(
         'p',
@@ -302,45 +292,61 @@ function AuditLedgerLine({ events, filterOptions, shownCount }: {
 
 // ── The filters — present the power cleanly ───────────────────────────────────
 
-function AuditActivityFiltersForm({ filters, filterOptions }: {
+/**
+ * The filter bar (polish, owner-requested 2026-07-18): a COMPACT sticky card that follows the
+ * scroll — the two search fields + actions always at hand, the technical filters (ids, type,
+ * actor, dates, schema) behind one Advanced toggle, and the active-filter chips riding along so
+ * the reader always knows what the trail is filtered on. Pure CSS sticky, no client JS.
+ */
+function AuditActivityFiltersForm({ filters, filterOptions, activeFilters }: {
   filters: AuditActivityFilters
   filterOptions: ReturnType<typeof deriveAuditActivityView>['filterOptions']
+  activeFilters: string[]
 }) {
+  // Open the technical filters when any of them is active — a filtered view must show its controls.
+  const advancedActive = [filters.eventId, filters.correlationId, filters.sourceId, filters.eventType, filters.actor, filters.dateFrom, filters.dateTo, filters.schemaVersion]
+    .some((value) => value !== undefined && value !== '')
+
   return createElement(
     'section',
-    { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    {
+      className: 'owl-section-card',
+      style: { gap: 'var(--owl-space-2)', position: 'sticky', top: '0.6rem', zIndex: 20 },
+    },
     createElement('p', { className: 'owl-section-accent' }, dt('au_filter_accent')),
-    createElement('h2', { className: 'owl-section-title' }, dt('au_filter_title')),
     createElement(
       'form',
-      { action: '/audit', method: 'get', style: filterFormStyle },
-      filterInput(dt('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID'),
-      filterInput(dt('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field'),
-      filterInput(dt('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
-      filterInput(dt('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
-      filterInput(dt('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
-      filterSelect(dt('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, dt('au_all_types')),
-      filterSelect(dt('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, dt('au_all_actors')),
-      filterInput(dt('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
-      filterInput(dt('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
-      filterSelect(dt('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], dt('au_order_asc')),
-      createElement(
-        'details',
-        { style: { gridColumn: '1 / -1' } },
-        createElement('summary', { style: advancedSummaryStyle }, dt('au_advanced')),
-        createElement(
-          'div',
-          { style: { marginTop: '0.6rem', maxWidth: '260px' } },
-          filterSelect(dt('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, dt('au_all_schema')),
-        ),
-      ),
+      { action: '/audit', method: 'get', style: { display: 'grid', gap: '0.7rem', margin: 0 } },
+      // Primary row: the two searches + actions, always visible.
       createElement(
         'div',
-        { style: filterActionsStyle },
+        { style: { alignItems: 'flex-end', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+        filterInput(dt('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field', undefined, { flex: '2 1 240px' }),
+        filterInput(dt('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID', undefined, { flex: '1 1 180px' }),
         createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, dt('au_apply')),
         createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, dt('au_clear')),
       ),
+      // The technical filters, one toggle away (open whenever one is active).
+      createElement(
+        'details',
+        advancedActive ? { open: true } : {},
+        createElement('summary', { style: advancedSummaryStyle }, dt('au_advanced')),
+        createElement(
+          'div',
+          { style: { ...filterFormStyle, marginTop: '0.6rem' } },
+          filterInput(dt('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
+          filterInput(dt('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
+          filterInput(dt('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
+          filterSelect(dt('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, dt('au_all_types')),
+          filterSelect(dt('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, dt('au_all_actors')),
+          filterInput(dt('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
+          filterInput(dt('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
+          filterSelect(dt('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], dt('au_order_asc')),
+          filterSelect(dt('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, dt('au_all_schema')),
+        ),
+      ),
     ),
+    createElement(ActiveAuditFilters, { activeFilters }),
   )
 }
 
@@ -611,10 +617,10 @@ function detail(term: string, value: string) {
   )
 }
 
-function filterInput(label: string, name: string, value: string, placeholder: string, type?: string) {
+function filterInput(label: string, name: string, value: string, placeholder: string, type?: string, layout?: CSSProperties) {
   return createElement(
     'label',
-    { style: filterLabelStyle },
+    { style: layout === undefined ? filterLabelStyle : { ...filterLabelStyle, ...layout } },
     label,
     createElement('input', {
       defaultValue: value,
