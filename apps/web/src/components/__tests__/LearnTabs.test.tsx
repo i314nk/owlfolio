@@ -176,9 +176,8 @@ describe('LearnTabs', () => {
     expect(html).toContain('never agent-inferred')
     expect(html).toContain('edgar sic')
     expect(html).toContain('permissive by default')
-    // Size = deferred Pabrai Principle 5 axis.
-    expect(html).toContain('pabrai principle 5')
-    expect(html).toContain('deferred')
+    // No roadmap language: deferred/later-phase promises are gone (owner, 2026-07-18).
+    expect(html).not.toContain('deferred')
     // Cheapness only on an already-wonderful business; uncertainty vs permanent-loss + bear case.
     expect(html).toContain('already-wonderful')
     expect(html).toContain('permanent-loss risk')
@@ -187,8 +186,9 @@ describe('LearnTabs', () => {
     expect(html).toContain('signed thesis')
     expect(html).toContain('never pre-filled')
     expect(html).toContain('computed')
-    // NO OVERCLAIM: no admit-recommendation panel yet.
-    expect(html).toContain('no admit-recommendation panel yet')
+    // No roadmap language — the honest-scope caveat states what IS, without deferred promises.
+    expect(html).toContain('admit is human-decided')
+    expect(html).not.toContain('admit-recommendation panel')
   })
 
   it('states the grounding invariant on the swarm panel', () => {
@@ -239,7 +239,9 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('since a decision')
     expect(html.toLowerCase()).toContain('intact, weakened, broken')
     expect(html.toLowerCase()).toContain('inconclusive')
-    expect(html.toLowerCase()).toContain('no scheduler fires it yet')
+    // Human-fired launch points named; no roadmap "yet" language (owner, 2026-07-18).
+    expect(html.toLowerCase()).toContain('you launch it from the dossier')
+    expect(html.toLowerCase()).not.toContain('no scheduler fires it yet')
   })
 
   it('describes the four model tiers including the compute-everything T0 rule', () => {

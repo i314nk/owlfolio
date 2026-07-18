@@ -235,13 +235,12 @@ function StrategyTab(): ReactNode {
         { style: { display: 'grid', gap: '0.75rem' } },
         bullets([
           createElement('span', { key: 1 }, gold('Circle of competence'), ' — the model’s grounded judgment (durable predictability), argued from fetched, content-hashed sources in the deep dive, never agent-inferred from thin air. The config screen does NOT determine competence; it sets owner-policy exclusions the harness CHECKS mechanically (a sector boundary via the EDGAR SIC code, the same discipline as the discount anchor) that only narrow the universe. It ships ', gold('permissive by default'), ' — no boundary until you narrow it.'),
-          createElement('span', { key: 2 }, gold('Size'), ' — the Pabrai Principle 5 axis, ', gold('deferred'), '. A size boundary favouring small, under-followed names is part of the model but shipped permissive; it does not yet constrain admission.'),
           createElement('span', { key: 3 }, gold('Cheapness counts only on an already-wonderful business'), ' — price is never the entry reason. Cheapness is considered only after a business passes the quality gate; a cheap business that fails the gate is still a PASS.'),
           createElement('span', { key: 4 }, gold('Uncertainty vs permanent-loss risk'), ' — the admit judgment splits the two. An opportunity is high uncertainty + ', gold('low permanent-loss risk'), '; an independent bear case tests that the downside is uncertainty, not impairment.'),
           createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and the frozen ', gold('computed buy-below'), ' at admit. A future re-underwrite re-anchors that buy-below visibly, never moving it silently.'),
           createElement('span', { key: 6 }, gold('The Superinvestors page feeds this funnel'), ' — /discovery monitors seven concentrated value investors\u2019 quarterly SEC 13F filings (Buffett, Pabrai, Burry, Li Lu, Klarman, Ackman, Spier): their latest portfolios, buys, and sells. Filings arrive up to 45 days late, cover long US equities only, and give no reasons — every figure is stamped with its report and filing dates, dormant filers are labeled, and a signal is an ', gold('idea to research, never a copy trade'), '.'),
         ]),
-        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
+        caveat('Honest scope: the circle is permissive by default until you narrow it, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided with your own signed thesis.'),
       ),
     }),
     PanelSection({
@@ -496,7 +495,7 @@ function LifecycleTab(): ReactNode {
           { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs) — never mechanical averaging-down.' },
           { key: 'conc', eyebrow: 'Concentration (held)', body: 'A held position that APPRECIATES past the concentration-review threshold raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim, and nothing here executes or blocks a buy (the harness never trades).' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
-          { key: 'rereview', eyebrow: 'Check-in (any decided name; quarterly rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; launch it from the dossier, watchlist, or portfolio, or via a worker tick — no scheduler fires it yet.' },
+          { key: 'rereview', eyebrow: 'Check-in (any decided name; quarterly rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; you launch it from the dossier, watchlist, or portfolio, or via a worker tick.' },
         ]),
         caveat(
           createElement(
@@ -543,7 +542,7 @@ function LifecycleTab(): ReactNode {
     PanelSection({
       eyebrow: 'Learning loop',
       title: 'Post-mortems and calibration',
-      lead: 'Every exited position gets a post-mortem — thesis versus outcome, which lane was most wrong, whether the gates and the model’s buy-below reasoning held. Those live in the append-only ledger, the raw material a future calibration pass learns from. The system learns through its parameters, never through loosened judgment.',
+      lead: 'Every exited position gets a post-mortem — thesis versus outcome, which lane was most wrong, whether the gates and the model’s buy-below reasoning held. Those live in the append-only ledger. The system learns through its parameters, never through loosened judgment.',
     }),
   )
 }

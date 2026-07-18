@@ -406,14 +406,6 @@ export function StrategyOverview(): ReactNode {
           createElement(
             'li',
             null,
-            createElement('span', { style: goldText }, 'Size — the Pabrai Principle 5 axis, deferred.'),
-            ' A size boundary (favouring the small, under-followed names where mispricing concentrates) is part of the model but ',
-            createElement('span', { style: goldText }, 'shipped permissive / deferred'),
-            ' — it does not yet constrain admission.',
-          ),
-          createElement(
-            'li',
-            null,
             createElement('span', { style: goldText }, 'Cheapness counts only on an already-wonderful business.'),
             ' Price is never the entry reason. Cheapness is considered only after a business has passed the quality gate (≥ wide moat, honest growth, safe balance sheet, Shariah-clean) — a cheap business that fails the gate is still a PASS.',
           ),
@@ -439,7 +431,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
+          'Honest scope: the circle is permissive by default until you narrow it, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided with your own signed thesis.',
         ),
       ),
     }),
@@ -711,7 +703,7 @@ export function StrategyOverview(): ReactNode {
           headings: ['State', 'Means', 'Cadence action (state-branched)'],
           rows: [
             [createElement('span', { style: goldText }, 'candidate'), 'In research, not yet user-confirmed to the watchlist', 'Advance or screen out (research re-run)'],
-            [createElement('span', { style: goldText }, 'watched'), 'User-confirmed, tracked for a buy window', createElement('span', null, 'Buy-window / staleness observation; a tripped falsifier flags it ', createElement('span', { style: rejected }, 'deteriorating'), ' (no prune action yet — later phase)')],
+            [createElement('span', { style: goldText }, 'watched'), 'User-confirmed, tracked for a buy window', createElement('span', null, 'Buy-window / staleness observation; a tripped falsifier flags it ', createElement('span', { style: rejected }, 'deteriorating'), ' — pruning it is your call via the watchlist’s Remove')],
             [createElement('span', { style: goldText }, 'held'), 'An open holding (explicit user entry)', 'Tranche / concentration / Shariah-grace re-check'],
             [createElement('span', { style: goldText }, 'exited'), 'No live entity — sold, or screened out', 'Post-mortem; re-discovery keeps prior-exit history'],
           ],
@@ -719,7 +711,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, margin: 0 } },
-          'Sold and screened-out are opposite kinds of exit and are kept distinct. Position sizing on the watched→held step and a prune action for deteriorating watched names are later phases — the lifecycle view shows those gaps rather than hiding them.',
+          'Sold and screened-out are opposite kinds of exit and are kept distinct. The size is yours — the scale-down keeps no capital books — and pruning a deteriorating watched name is the human-authored Remove on the watchlist, recorded with your reason.',
         ),
       ),
     }),

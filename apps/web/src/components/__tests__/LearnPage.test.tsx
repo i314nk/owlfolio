@@ -42,6 +42,11 @@ describe('LearnPage source', () => {
     // Certification is optional (responsibility is the user's) — no fictional production gate.
     expect(tabsSource).not.toContain('Golden-set qualification')
     expect(tabsSource).not.toContain('reaches production only after')
+    // No roadmap language (owner, 2026-07-18): the docs describe what IS, never what is deferred.
+    expect(tabsSource).not.toMatch(/\bdeferred\b/i)
+    expect(tabsSource).not.toContain('later slice')
+    expect(tabsSource).not.toContain('no scheduler fires it yet')
+    expect(tabsSource).not.toContain('future calibration')
   })
 
   it('the Shariah tab documents the screening toggle honestly (fail-visible OFF)', () => {
