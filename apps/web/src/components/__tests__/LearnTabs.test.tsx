@@ -62,15 +62,17 @@ describe('LearnTabs', () => {
     expect(html).toContain('re-fetch')
   })
 
-  it('documents model selection: reasoning-only picker + curated recommendations by tier', () => {
+  it('documents model selection: reasoning-only picker + a flat curated shortlist (no tiers)', () => {
     const html = render('tiering')
     expect(html).toContain('reasoning models the harness can actually drive')
     expect(html).toContain('Recommended for the job')
-    // A curated T1 recommendation is rendered live from the catalog.
+    // A curated recommendation is rendered live from the catalog.
     expect(html).toContain('anthropic/claude-opus-4.8')
-    // Tier headings present.
-    expect(html).toContain('T1 — Frontier')
-    expect(html).toContain('T3 — Cheap / high-volume')
+    // MODEL TIERING REMOVED (owner, 2026-07-18): one model runs the analysis; easy jobs are
+    // programmatic. No tier headings, no tier framing.
+    expect(html).not.toContain('T1 — Frontier')
+    expect(html).not.toContain('T3 — Cheap')
+    expect(html).not.toContain('Four tiers')
   })
 
   it('documents the CLI: the rebranded launcher, the compat alias, and its read-only boundary', () => {
@@ -213,14 +215,20 @@ describe('LearnTabs', () => {
     expect(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)).toBe('5%')
   })
 
-  it('describes the four model tiers including the compute-everything T0 rule', () => {
+  it('states the single-model reality: one model runs the analysis, quality follows the choice, compute rule intact', () => {
+    const tab = LEARN_TABS.find((t) => t.id === 'tiering')
+    expect(tab?.label).toBe('Models & Trust')
     const html = render('tiering')
-    expect(html).toContain('T1')
-    expect(html).toContain('T0')
-    expect(html.toLowerCase()).toContain('if it can be computed, compute it')
-    // Honest status (owner): the tiered setup is DESIGN, not proven behavior — live testing so far
-    // ran through OpenRouter with a single routed model.
-    expect(html.toLowerCase()).toContain('not been exercised end-to-end')
-    expect(html.toLowerCase()).toContain('openrouter with a single routed model')
+    const lower = html.toLowerCase()
+    // One model, chosen by you — and the analysis is only as good as it.
+    expect(lower).toContain('one configured reasoning model')
+    expect(lower).toContain('only as good as the model')
+    // The compute-everything rule survives the tiering removal (it was never about tiers).
+    expect(lower).toContain('if it can be computed, compute it')
+    // The tiered-routing framing and its honest-status caveat are gone with the tiers.
+    expect(lower).not.toContain('tier routing')
+    expect(lower).not.toContain('not been exercised end-to-end')
+    // The cross-check does not promise a second model (single-model reality).
+    expect(lower).not.toContain('runs twice on two models')
   })
 })

@@ -409,53 +409,41 @@ function ShariahTab(): ReactNode {
   )
 }
 
-// Recommended models per tier, rendered LIVE from the curated OpenRouter catalog (never hard-coded here) so
-// the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
-const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
-  T1: 'T1 — Frontier (synthesis, moat/Shariah)',
-  T2: 'T2 — Mid (inversion)',
-  T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
-}
-
-function recommendedModelsByTier(): ReactNode {
+// Recommended models, rendered LIVE from the curated OpenRouter catalog (never hard-coded here) so
+// the Learn copy stays in sync as the owner curates the shortlist. Flat — model tiering is removed.
+function recommendedModels(): ReactNode {
   const curated = curatedRealTierModelsForProvider('openrouter')
-  return cardGrid((['T1', 'T2', 'T3'] as const).map((tier) => {
-    const models = curated.filter((model) => model.tier_suitability.includes(tier))
-    return {
-      key: tier,
-      eyebrow: TIER_HEADINGS[tier],
-      body: createElement(
-        'span',
-        null,
-        ...models.flatMap((model, index) => [
-          index === 0 ? null : createElement('br', { key: `br-${model.model_id}` }),
-          mono(model.model_id),
-        ]),
-      ),
-    }
-  }), '260px')
+  const ids = [...new Set(curated.map((model) => model.model_id))]
+  return createElement(
+    'p',
+    { style: { ...bodyStyle, lineHeight: 1.9 } },
+    ...ids.flatMap((id, index) => [
+      index === 0 ? null : createElement('br', { key: `br-${id}` }),
+      mono(id),
+    ]),
+  )
 }
 
-// 6 — Model Tiering & Trust
+// 6 — Models & Trust (model tiering removed — owner, 2026-07-18: one model runs the analysis;
+// easy mechanical jobs are done programmatically, never delegated to cheaper models)
 function TieringTab(): ReactNode {
   return createElement(
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     PanelSection({
       eyebrow: 'Models are config, not code',
-      title: 'Four tiers — and one rule above all',
+      title: 'One model runs the analysis — and the analysis is only as good as the model you choose',
       lead: createElement(
         'span',
         null,
-        'The harness must invest the same way regardless of which model is plugged in, so quality is verified by the harness, not assumed from the provider. The one rule above all: ',
-        gold('if it can be computed, compute it.'),
+        'The harness drives ',
+        gold('one configured reasoning model'),
+        ' for the whole analysis; the easy, mechanical jobs are done programmatically, not delegated to cheaper models. So the quality of every verdict tracks that one choice directly — ',
+        gold('the analysis is only as good as the model you choose'),
+        '. The one rule above all: ',
+        gold('if it can be computed, compute it'),
+        ' — valuation math, the Shariah ratios, the purification rate, and 13F/EDGAR parsing are deterministic code and never touch a model.',
       ),
-      children: cardGrid([
-        { key: 't1', eyebrow: 'T1 — Frontier', body: 'Synthesis and the highest-stakes lanes (moat, Shariah). Long-context reasoning and disciplined citation; errors here poison verdicts.' },
-        { key: 't2', eyebrow: 'T2 — Mid', body: 'The Munger inversion pass and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
-        { key: 't3', eyebrow: 'T3 — Cheap / local', body: 'High-volume, low-judgment work: news and filing scans, trigger detection, entity resolution. Near-zero marginal cost.' },
-        { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, the purification rate, 13F/EDGAR parsing. Deterministic by constitution.' },
-      ]),
     }),
     PanelSection({
       eyebrow: 'Choosing a model',
@@ -474,9 +462,9 @@ function TieringTab(): ReactNode {
       children: createElement(
         'div',
         { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
-        createElement('p', { style: microLabel }, 'Recommended for the job (curated, by tier)'),
-        recommendedModelsByTier(),
-        caveat('These are hand-picked reasoning models that clear the harness floor and suit each tier — read live from the curated catalog, so they stay current. They are recommendations, not a lock: any reasoning model in the picker is selectable, and the T3 tier can run a cheaper/local model to keep high-volume scanning near-free.'),
+        createElement('p', { style: microLabel }, 'Recommended for the job (curated)'),
+        recommendedModels(),
+        caveat('These are hand-picked reasoning models that clear the harness floor — read live from the curated catalog, so they stay current. They are recommendations, not a lock: any reasoning model in the picker is selectable.'),
       ),
     }),
     PanelSection({
@@ -484,19 +472,16 @@ function TieringTab(): ReactNode {
       title: 'What makes the harness model-agnostic',
       lead: 'These run on every lane output regardless of which model produced it, so a weaker model degrades into visible retries and failed runs — never silent verdict poisoning.',
       children: bullets([
-        createElement('span', { key: 1 }, gold('Model registry'), ' — every model is one line of config; pipeline logic never hard-codes a model name.'),
+        createElement('span', { key: 1 }, gold('Model registry'), ' — the model is one line of config; pipeline logic never hard-codes a model name.'),
         createElement('span', { key: 2 }, gold('Schema validation + retry'), ' — output is validated against the lane schema; two failures mark the run FAILED rather than passing it through.'),
         createElement('span', { key: 3 }, gold('Citation verification'), ' — every claim must cite a harness-fetched, content-hashed source.'),
         createElement('span', { key: 4 }, gold('Range / sanity checks'), ' — code rejects impossible numbers (inc-ROIC over 100%, maintenance capex above revenue).'),
         createElement('span', { key: 5 }, gold('Certification scenarios'), ' — an optional deeper audit: a target-specific certification report records what a model proved (grounding + the security invariants). Until one exists the model runs experimental and the choice is yours — verified when audited, never assumed.'),
-        createElement('span', { key: 6 }, gold('Dual-model cross-check'), ' — for moat class and Shariah status only, the lane runs twice on two models; disagreement escalates to a human and the conservative answer holds.'),
+        createElement('span', { key: 6 }, gold('Cross-check pass'), ' — for moat class and Shariah status only, an independent second judgment re-checks the call; disagreement escalates to a human and the conservative answer holds.'),
       ]),
     }),
     caveat(
-      'Specific model names live in the registry and will go stale; the registry plus the qualification eval are what stay true. Provider support in this local alpha is bounded by the certification reports — readiness is not certification, and no provider is described as live or certified beyond what a target-specific report records.',
-    ),
-    caveat(
-      'Honest status: the tiered setup itself has not been exercised end-to-end yet — live testing so far ran through OpenRouter with a single routed model, and the other providers remain experimental and largely unexercised. Treat tier routing as design intent, not proven behavior, until a multi-tier run is recorded.',
+      'Specific model names live in the registry and will go stale; the registry plus the certification scenarios are what stay true. Provider support in this local alpha is bounded by the certification reports — readiness is not certification, and no provider is described as live or certified beyond what a target-specific report records.',
     ),
   )
 }
@@ -604,7 +589,7 @@ export const LEARN_TABS: LearnTab[] = [
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
   { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
   { id: 'shariah', label: 'Optional Shariah', render: ShariahTab },
-  { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },
+  { id: 'tiering', label: 'Models & Trust', render: TieringTab },
   { id: 'cli', label: 'The CLI', render: CliTab },
 ]
 
