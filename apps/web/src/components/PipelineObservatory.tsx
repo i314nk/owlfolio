@@ -2,8 +2,10 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
+import { ArchiveAllRunsButton } from './ArchiveAllRunsButton'
 import { ArchiveRunButton } from './ArchiveRunButton'
 import { PipelineLiveRefresh } from './PipelineLiveRefresh'
+import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { RouteHeader } from './designSystem'
 import { t, type MessageKey } from '../lib/i18n'
 import type {
@@ -412,6 +414,14 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
     'section',
     { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
     sectionHead(dt('pp_failed_accent'), dt('pp_failed_title'), dt('pp_failed_note'), 'var(--owl-color-risk-bright)'),
+    // Bulk acknowledge for a pile of failures — each archive stays an individual auditable event.
+    failedRuns.length > 1
+      ? createElement(
+          'div',
+          null,
+          createElement(ArchiveAllRunsButton, { cases: failedRuns.map((run) => ({ caseId: run.case_id, ticker: run.ticker })) }),
+        )
+      : null,
     createElement(
       'div',
       { style: { overflowX: 'auto' } },
@@ -453,7 +463,17 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
               ),
               createElement('td', { style: { ...tdStyle, ...monoMeta } }, relativeTime(run.failed_at)),
               createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
-              createElement('td', { style: tdStyle }, createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker })),
+              createElement(
+                'td',
+                { style: tdStyle },
+                createElement(
+                  'div',
+                  { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } },
+                  createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker }),
+                  // Restart = the existing supersession re-run (confirm-gated: full provider spend).
+                  createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
+                ),
+              ),
             ),
           ),
         ),

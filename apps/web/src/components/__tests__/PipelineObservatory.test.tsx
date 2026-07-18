@@ -181,7 +181,7 @@ describe('PipelineObservatory', () => {
     expect(idleHtml).not.toContain('data-testid="pipeline-live-refresh"')
   })
 
-  it('makes failed runs actionable: the ticker links to the dossier and each row carries the archive action', () => {
+  it('makes failed runs actionable: the ticker links to the dossier and each row carries archive + restart', () => {
     const withFailure: PipelineProjection = {
       ...pipeline,
       failed_runs: [
@@ -192,6 +192,22 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('Failed runs')
     expect(html).toContain('href="/research/rc-dead"')
     expect(html).toContain('data-testid="archive-run-button"')
+    // Restart = the existing supersession re-run (confirm-gated: it spends a full provider run).
+    expect(html).toContain('data-testid="rerun-analysis-button"')
+    // A single failure needs no bulk action.
+    expect(html).not.toContain('data-testid="archive-all-runs-button"')
+  })
+
+  it('offers Archive all when several runs have failed', () => {
+    const withFailures: PipelineProjection = {
+      ...pipeline,
+      failed_runs: [
+        { case_id: 'rc-dead-1', ticker: 'AAA', failed_at: '2026-07-17T00:00:00Z', error_summary: 'x' },
+        { case_id: 'rc-dead-2', ticker: 'BBB', failed_at: '2026-07-17T01:00:00Z', error_summary: 'y' },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: withFailures, mode: 'personal-local' }))
+    expect(html).toContain('data-testid="archive-all-runs-button"')
   })
 
   it('renders the worker-log diagnostics pane when a tail is provided, collapsed, and not otherwise', () => {
