@@ -1,7 +1,10 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import { RouteHeader } from './designSystem'
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import { StatusBadge, type StatusBadgeTone } from './StatusBadge'
+import { englishContentNote, t, type MessageKey } from '../lib/i18n'
 
 /**
  * The Hermes-pattern `/settings/providers` keys page — three stacked sections
@@ -73,7 +76,13 @@ export type ProviderKeysPanelProps = {
   onboardingGate: ProviderKeysGate
   loginRows: ProviderLoginRow[]
   llmGroups: ProviderKeyGroupView[]
+  locale?: OwlLocale
 }
+
+// i18n: render-scoped locale — page chrome follows the locale; key names, readiness strings, and
+// control internals stay English until properly translated (the english-content note says so).
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const SET_KEY_ENDPOINT = '/api/onboarding/credentials'
 
@@ -101,6 +110,8 @@ const subtleTextStyle: CSSProperties = {
 }
 
 export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
+  panelLocale = props.locale ?? 'en'
+  const note = englishContentNote(panelLocale)
   return createElement(
     'main',
     { className: 'owl-route-frame owl-route-frame-wide' },
@@ -110,11 +121,16 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
     createElement(RouteHeader, {
-      kicker: 'Owner’s Manual · Settings',
-      title: 'Provider setup',
-      description: 'Connect an LLM provider API key and choose the one model that runs the analysis. Keys are stored in a single local env file (server-only, masked on display) and never enter the ledger, logs, page source, or git — the ledger records only that a provider was connected.',
+      kicker: dt('sp_kicker'),
+      title: dt('sp_title'),
+      description: dt('sp_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
+    note === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'english-content-note', dir: 'rtl', className: 'owl-row-helper', style: { border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '1rem 0 0', padding: '0.6rem 0.8rem' } },
+      note,
+    ),
     renderEnvFileHeader(props.envFile),
     renderOnboardingGate(props.onboardingGate),
     renderProviderLoginsSection(props.loginRows),

@@ -57,6 +57,20 @@ describe('DataSafetyPanel', () => {
     expect(html).toContain('ledger_path')
     expect(html).toContain('restore-root/runtime/data/personal-ledger.sqlite')
     expect(html).toContain('operator must run the restore archive and verification commands')
+    // The back link goes home — `/settings` is not a route (the old link was dead).
+    expect(html).toContain('href="/"')
+    expect(html).not.toContain('href="/settings"')
+    // SCALE-DOWN: the sensitive-data note no longer lists the removed accounting/purification books.
+    expect(html).not.toContain('accounting, and purification context')
+  })
+
+  it('i18n: the page chrome follows the locale; off-English shows the english-content note', () => {
+    const html = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'ar' }))
+    expect(html).toContain('أمان البيانات')
+    expect(html).toContain('english-content-note')
+    const en = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'en' }))
+    expect(en).toContain('Data Safety')
+    expect(en).not.toContain('english-content-note')
   })
 
   it('SAFETY: hides the destructive bulk-reset control unless explicitly gated on', () => {

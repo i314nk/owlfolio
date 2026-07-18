@@ -4,13 +4,11 @@ import type { AppConfig } from '@owlfolio/shared'
  * Pure, IO-free selector for the persistent "what mode/provider/model am I in?" indicator.
  *
  * This is DISPLAY ONLY: it never initialises, switches, or mutates anything. It collapses the
- * three-state mode plus provider-connected and capital-set signals into a single discriminated
- * status the nav/header can render unambiguously, with a clickable fix href on every not-ready state.
+ * mode plus the provider-connected signal into a single discriminated status the nav/header can
+ * render unambiguously, with a clickable fix href on every not-ready state.
  *
- * Data-source discipline (the trap S2 must avoid): `providerConnected` and `capitalSet` are SEPARATE,
- * REAL checks resolved by the caller — provider readiness covers the provider, but capital-set comes
- * from the S4 onboarding gate's `investable_capital` missing-item (the ledger `projectInvestableCapital`
- * projection). Do NOT assume readiness implies capital.
+ * SCALE-DOWN: the capital-set state is gone — the investable-capital gate item was retired with the
+ * money layer, so the only personal-local blocker is provider connection.
  */
 
 export const ACTIVE_MODE_FIX_HREF = '/settings/providers'
@@ -18,7 +16,6 @@ export const ACTIVE_MODE_FIX_HREF = '/settings/providers'
 export type ActiveModeStatusKind =
   | 'unconfigured'
   | 'provider-not-connected'
-  | 'capital-not-set'
   | 'ready'
 
 export type ActiveModeStatus = {
@@ -32,8 +29,6 @@ export type ActiveModeStatusInput = {
   mode: AppConfig['mode']
   /** Provider readiness from `getProviderReadinessSnapshot` — is the active provider actually usable. */
   providerConnected: boolean
-  /** Capital-set from the S4 gate's `investable_capital` missing-item (ledger projection). */
-  capitalSet: boolean
   providerId: string
   modelId: string
 }
@@ -52,14 +47,6 @@ export function selectActiveModeStatus(input: ActiveModeStatusInput): ActiveMode
     return {
       kind: 'provider-not-connected',
       label: 'Personal-local · provider not connected',
-      href: ACTIVE_MODE_FIX_HREF,
-    }
-  }
-
-  if (!input.capitalSet) {
-    return {
-      kind: 'capital-not-set',
-      label: 'Personal-local · capital not set',
       href: ACTIVE_MODE_FIX_HREF,
     }
   }

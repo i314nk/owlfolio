@@ -52,21 +52,6 @@ describe('ActiveModeIndicator', () => {
     expect(html).toContain('href="/settings/providers"')
   })
 
-  it('renders capital-not-set as a clickable fix link', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActiveModeIndicator, {
-        status: {
-          kind: 'capital-not-set',
-          label: 'Personal-local · capital not set',
-          href: '/settings/providers',
-        },
-      }),
-    )
-
-    expect(html).toContain('Personal-local · capital not set')
-    expect(html).toContain('href="/settings/providers"')
-  })
-
   it('upgrades to the grouped model switcher when modelSwitcher is provided', () => {
     const html = renderToStaticMarkup(
       createElement(ActiveModeIndicator, {

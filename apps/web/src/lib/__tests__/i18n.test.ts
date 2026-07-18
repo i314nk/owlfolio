@@ -22,6 +22,13 @@ describe('i18n S1 (2026-07-17)', () => {
     expect(t('en', 'nav_superinvestors')).toBe('Superinvestors')
   })
 
+  it('the settings chrome keys translate (automation / data safety / provider setup)', () => {
+    expect(t('ar', 'sa_title')).toContain('أتمتة')
+    expect(t('ar', 'sd_title')).toBe('أمان البيانات')
+    expect(t('ar', 'sp_title')).toBe('إعداد المزوِّد')
+    expect(t('en', 'sp_title')).toBe('Provider setup')
+  })
+
   it('the English-content note exists only off-English — the honest not-yet-translated banner', () => {
     expect(englishContentNote('en')).toBeUndefined()
     expect(englishContentNote('ar')).toMatch(/بالإنجليزية/)
