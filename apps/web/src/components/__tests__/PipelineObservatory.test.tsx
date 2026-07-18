@@ -135,4 +135,55 @@ describe('PipelineObservatory', () => {
     expect(enHtml).toContain('Strategy pipeline observatory')
     expect(enHtml).toContain('No research runs yet')
   })
+
+  it('labels unresolved failures honestly — no "recent" window exists in the projection', () => {
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
+    expect(html).toContain('Failed (unresolved)')
+    expect(html).not.toContain('Failed (recent)')
+  })
+
+  it('windows finished runs to 3 days (view-only): old finished hidden with a library note, active and recent finished stay', () => {
+    const recentDone = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const windowed: PipelineProjection = {
+      ...pipeline,
+      runs: [
+        ...pipeline.runs,
+        { research_case_id: 'rc-fresh', ticker: 'FRSH', version: 1, stage_label: 'Decision drafted', status: 'done', verdict: 'WATCH', source_count: 4, started_at: recentDone, updated_at: recentDone },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: windowed, mode: 'personal-local' }))
+    // Running stays regardless of age; a fresh finished run stays.
+    expect(html).toContain('MSFT')
+    expect(html).toContain('FRSH')
+    // The old rejected run (2026-06-08) leaves the table — its home is the Research library.
+    expect(html).not.toContain('ADULT')
+    expect(html).toContain('older finished run')
+    expect(html).toContain('href="/research"')
+  })
+
+  it('keeps an old finished run visible while it is the selected drill-down target', () => {
+    const html = renderToStaticMarkup(
+      createElement(PipelineObservatory, { pipeline, mode: 'personal-local', selectedCaseId: 'rc-rej' }),
+    )
+    expect(html).toContain('ADULT')
+  })
+
+  it('mounts the live auto-refresh indicator only while a run is active', () => {
+    const liveHtml = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
+    expect(liveHtml).toContain('data-testid="pipeline-live-refresh"')
+
+    const idle: PipelineProjection = {
+      ...pipeline,
+      summary: { ...pipeline.summary, active_runs: 0 },
+      runs: [],
+    }
+    const idleHtml = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: idle, mode: 'personal-local' }))
+    expect(idleHtml).not.toContain('data-testid="pipeline-live-refresh"')
+  })
+
+  it('collapses the verdict-state legend behind a toggle (the chips stay in the DOM)', () => {
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
+    expect(html).toContain('Show the states')
+    expect(html).toMatch(/<details[^>]*>[\s\S]*data-verdict-state="TOO-HARD"/)
+  })
 })

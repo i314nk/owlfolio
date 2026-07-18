@@ -2,6 +2,7 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
+import { PipelineLiveRefresh } from './PipelineLiveRefresh'
 import { RouteHeader } from './designSystem'
 import { t, type MessageKey } from '../lib/i18n'
 import type {
@@ -32,6 +33,15 @@ export type PipelineObservatoryProps = {
 // synchronous server render pass.
 let panelLocale: OwlLocale = 'en'
 const dt = (key: MessageKey): string => t(panelLocale, key)
+
+// VIEW WINDOW (owner-approved 2026-07-18): finished runs (done/rejected) older than this leave the
+// observatory's table — their permanent home is the Research library. Active, failed, and the
+// currently selected run always stay. View-only: the ledger keeps everything.
+const FINISHED_RUN_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
+
+function isFinishedRun(run: PipelineRun): boolean {
+  return run.status === 'done' || run.status === 'rejected'
+}
 
 // ── Scoped style vocabulary ───────────────────────────────────────────────────
 // The page leans on the shared editorial classes (owl-route-header, owl-rule,
@@ -587,6 +597,15 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     ? new Date(snapshot_at).toISOString().slice(11, 19)
     : undefined
 
+  // The finished-run view window; active runs and the selected drill-down target always stay.
+  const now = Date.now()
+  const visibleRuns = runs.filter((run) =>
+    !isFinishedRun(run)
+    || run.research_case_id === selectedCaseId
+    || now - Date.parse(run.updated_at) <= FINISHED_RUN_WINDOW_MS,
+  )
+  const hiddenFinishedCount = runs.length - visibleRuns.length
+
   return createElement(
     'section',
     { 'aria-label': 'Pipeline observatory', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
@@ -597,10 +616,18 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     }),
     createElement('hr', { className: 'owl-rule' }),
 
-    // Vital signs + snapshot
+    // Vital signs + snapshot + the live auto-refresh indicator (mounted only while a run executes,
+    // so the "live" claim in the header is actually true).
     createElement(LedgerLine, { summary }),
-    snapshotTime !== undefined
-      ? createElement('p', { style: { ...monoMeta, margin: 0, textAlign: 'right' } }, `Snapshot taken at ${snapshotTime}`)
+    summary.active_runs > 0 || snapshotTime !== undefined
+      ? createElement(
+          'div',
+          { style: { alignItems: 'center', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' } },
+          summary.active_runs > 0 ? createElement(PipelineLiveRefresh, { label: dt('pp_live') }) : null,
+          snapshotTime !== undefined
+            ? createElement('p', { style: { ...monoMeta, margin: 0 } }, `Snapshot taken at ${snapshotTime}`)
+            : null,
+        )
       : null,
 
     // Stage-flow map
@@ -642,7 +669,14 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
       sectionHead(dt('pp_verdict_accent'), dt('pp_verdict_title'), dt('pp_verdict_note')),
-      createElement(VerdictStateLegend),
+      // Collapsed by default: the legend is identical every visit — page space goes to what needs
+      // the user now. The states stay one click away.
+      createElement(
+        'details',
+        null,
+        createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, dt('pp_legend_toggle')),
+        createElement('div', { style: { marginTop: '0.6rem' } }, createElement(VerdictStateLegend)),
+      ),
     ),
 
     // Active & recent runs
@@ -650,7 +684,17 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
       sectionHead(dt('pp_runs_accent'), dt('pp_runs_title'), dt('pp_runs_note')),
-      createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
+      createElement(RunsTable, { runs: visibleRuns, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
+      // The view window is visible, never silent: say how many finished runs left the table.
+      hiddenFinishedCount > 0
+        ? createElement(
+            'p',
+            { style: sectionNoteStyle },
+            hiddenFinishedCount === 1 ? dt('pp_hidden_finished_one') : dt('pp_hidden_finished_many').replace('{count}', String(hiddenFinishedCount)),
+            ' ',
+            createElement('a', { className: 'owl-focusable', href: '/research', style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' } }, dt('pp_open_library')),
+          )
+        : null,
     ),
 
     // Failed runs
