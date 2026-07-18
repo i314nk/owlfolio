@@ -532,7 +532,7 @@ function LifecycleTab(): ReactNode {
     PanelSection({
       eyebrow: 'Learning loop',
       title: 'Post-mortems and calibration',
-      lead: 'Every exited position gets a post-mortem — thesis versus outcome, which lane was most wrong, whether the gates and the model’s buy-below reasoning held. Those feed the calibration file. The system learns through its parameters, never through loosened judgment.',
+      lead: 'Every exited position gets a post-mortem — thesis versus outcome, which lane was most wrong, whether the gates and the model’s buy-below reasoning held. Those live in the append-only ledger, the raw material a future calibration pass learns from. The system learns through its parameters, never through loosened judgment.',
     }),
   )
 }

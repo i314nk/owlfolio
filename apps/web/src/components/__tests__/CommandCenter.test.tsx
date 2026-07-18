@@ -608,8 +608,8 @@ describe('CommandCenter', () => {
     const learnPageSource = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
 
     expect(learnPageSource).toContain('Learn')
-    // eyebrow is user-facing "How it works", not internal "Operator documentation"
-    expect(learnPageSource).toContain('How it works')
+    // eyebrow is user-facing "How it works" (now via the dictionary), not internal "Operator documentation"
+    expect(learnPageSource).toContain("t(locale, 'ln_kicker')")
     // The Learn page is now a tabbed brief documenting the harness specs.
     expect(learnPageSource).toContain('LearnTabs')
     // The provider readiness section retains the #providers anchor (onboarding deep-links here).
