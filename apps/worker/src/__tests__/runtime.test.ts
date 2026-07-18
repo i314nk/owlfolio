@@ -645,6 +645,57 @@ describe('worker runtime', () => {
 
 
 
+  it('NOTIFY-ONLY INVARIANT (owner, 2026-07-18): every default task is dry-run and never auto-approves anything', async () => {
+    // The duty system is alert/notification ONLY: cadences schedule OBSERVATION tasks, the command
+    // center nudges, and the USER initiates every run and authors every decision. This locks the
+    // task-definition layer: any future task added wet-run or auto-approving fails here.
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-01T08:00:00.000Z',
+      automation: {
+        discovery: { enabled: true, cadence: 'weekly', auto_research: false },
+        thesis_review: { enabled: true, cadence: 'monthly' },
+      } as never,
+    })
+    // Read the raw DEFINITION payloads (the projection folds run-state, not the safety block).
+    const definitions = (await store.list())
+      .filter((event) => event.event_type === 'scheduled_task_defined')
+      .map((event) => event.payload as { task_kind: string; dry_run: boolean; safety: { auto_approve_investment_actions: boolean; auto_approve_portfolio_actions: boolean } })
+    expect(definitions.length).toBeGreaterThan(0)
+    for (const task of definitions) {
+      expect(task.dry_run, `${task.task_kind} must be dry-run`).toBe(true)
+      expect(task.safety.auto_approve_investment_actions, `${task.task_kind} must not auto-approve investments`).toBe(false)
+      expect(task.safety.auto_approve_portfolio_actions, `${task.task_kind} must not auto-approve portfolio actions`).toBe(false)
+    }
+  })
+
+  it('wires the thesis check-in cadence into re_review_check; the annual re_underwrite keeps its own rhythm (owner, 2026-07-18)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-01T08:00:00.000Z',
+      automation: { thesis_review: { enabled: true, cadence: 'monthly' } } as never,
+    })
+    const tasks = projectScheduledTasks(await store.list())
+    const checkIn = tasks.find((t) => t.task_kind === 're_review_check')
+    expect(checkIn?.enabled).toBe(true)
+    expect(checkIn?.cadence).toBe('0 6 1 * *')
+    // The annual full re-analysis is the 10-K rhythm, not the check-in cadence — it stays annual.
+    const reUnderwrite = tasks.find((t) => t.task_kind === 're_underwrite')
+    expect(reUnderwrite?.enabled).toBe(true)
+    expect(reUnderwrite?.cadence).toBe('0 6 1 1 *')
+  })
+
+  it('thesis check-in cadence OFF disables re_review_check without touching the annual re_underwrite', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-01T08:00:00.000Z',
+      automation: { thesis_review: { enabled: true, cadence: 'off' } } as never,
+    })
+    const tasks = projectScheduledTasks(await store.list())
+    expect(tasks.find((t) => t.task_kind === 're_review_check')?.enabled).toBe(false)
+    expect(tasks.find((t) => t.task_kind === 're_underwrite')?.enabled).toBe(true)
+  })
+
   it('wires the Settings discovery toggle + cadence into the discovery_13f task (owner, 2026-07-18)', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '')

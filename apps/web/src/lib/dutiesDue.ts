@@ -32,6 +32,7 @@ export type DutiesDueInput = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const MONTH_DAYS = 31
 const QUARTER_DAYS = 92
 const YEAR_DAYS = 366
 
@@ -69,13 +70,15 @@ export function resolveDutiesDue(input: DutiesDueInput): DutyDue[] {
     }
   }
 
-  // ── Quarterly thesis check-in — new filings vs every decided name's recorded thesis. ──
-  if (automation.thesis_review.enabled && input.decided_case_count > 0) {
+  // ── Thesis check-in — new filings vs every decided name's recorded thesis. The window follows
+  // the Settings cadence (monthly / quarterly; 'off' silences the check-in nudge only). ──
+  if (automation.thesis_review.enabled && automation.thesis_review.cadence !== 'off' && input.decided_case_count > 0) {
+    const periodDays = automation.thesis_review.cadence === 'monthly' ? MONTH_DAYS : QUARTER_DAYS
     const days = daysSince(now, lastCompleted(input, 're_review_check'))
-    if (days === undefined || days > QUARTER_DAYS) {
+    if (days === undefined || days > periodDays) {
       duties.push({
         id: 'thesis_check_in',
-        headline: 'The quarterly thesis check-in is due',
+        headline: `The ${automation.thesis_review.cadence} thesis check-in is due`,
         detail: `${input.decided_case_count} decided ${input.decided_case_count === 1 ? 'name has' : 'names have'} a recorded thesis and ${agoLine(days)} — new filings since then may have changed them. Check in from any board row, or run the worker's re_review_check task.`,
         href: input.open_holding_count > 0 ? '/portfolio' : '/watchlist',
         action_label: 'Open the board',

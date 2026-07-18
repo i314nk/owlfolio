@@ -490,6 +490,10 @@ function defaultTaskDefinitions(automation?: AutomationSettings, shariahEnabled 
   // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
   const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
+  // Thesis check-in follows the Settings cadence (owner, 2026-07-18): monthly or quarterly (the
+  // 10-Q default); 'off' disables the check-in while the toggle still governs the ANNUAL
+  // re-underwrite (the 10-K rhythm keeps its own fixed schedule).
+  const thesisReviewCron = cadenceToCron(cfg.thesis_review.cadence, CRON_QUARTERLY)
   // 13F discovery is config-driven (Settings → Superinvestors toggle + cadence; owner, 2026-07-18).
   // The on-demand web "Run discovery" path force-enables via OWLFOLIO_DISCOVERY_13F_ENABLED=1 so a
   // user-clicked harvest runs regardless of the scheduled toggle.
@@ -501,12 +505,12 @@ function defaultTaskDefinitions(automation?: AutomationSettings, shariahEnabled 
     {
       // Thesis re-review check: the new-filings delta vs each decided case's persisted corpus; strong
       // triggers (8-K/6-K) run a grounded diff vs the recorded thesis (research_case_re_review_recorded).
-      // Quarterly = the 10-Q rhythm. Manual today (--task-kind re_review_check); the future scheduler
-      // fires this same task — nothing here loops or polls.
+      // Cadence from Settings (monthly / quarterly — the 10-Q default). Manual today
+      // (--task-kind re_review_check); nothing here loops or polls.
       scheduled_task_id: 'task_re_review_check_quarterly',
       task_kind: 're_review_check',
-      cadence: CRON_QUARTERLY,
-      enabled: cfg.thesis_review.enabled,
+      cadence: thesisReviewCron.cadence,
+      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {

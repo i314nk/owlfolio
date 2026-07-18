@@ -76,6 +76,28 @@ describe('resolveDutiesDue — the command-center duty nudges (owner, 2026-07-18
     expect(noTargets.find((d) => d.id === 'annual_re_analysis')).toBeUndefined()
   })
 
+  it('the check-in nudge window follows the configured cadence (monthly vs quarterly)', () => {
+    // 40 days since the last check-in: overdue on a MONTHLY rhythm, quiet on the QUARTERLY default.
+    const monthly = resolveDutiesDue(baseInput({
+      automation: { discovery: { enabled: false, cadence: 'off', auto_research: false }, thesis_review: { enabled: true, cadence: 'monthly' } } as DutiesDueInput['automation'],
+      tasks: [{ task_kind: 're_review_check', last_completed_at: '2026-06-08T00:00:00.000Z' }],
+    }))
+    expect(monthly.find((d) => d.id === 'thesis_check_in')).toBeDefined()
+
+    const quarterly = resolveDutiesDue(baseInput({
+      tasks: [{ task_kind: 're_review_check', last_completed_at: '2026-06-08T00:00:00.000Z' }],
+    }))
+    expect(quarterly.find((d) => d.id === 'thesis_check_in')).toBeUndefined()
+  })
+
+  it('check-in cadence OFF silences the check-in nudge but keeps the annual re-analysis nudge', () => {
+    const duties = resolveDutiesDue(baseInput({
+      automation: { discovery: { enabled: false, cadence: 'off', auto_research: false }, thesis_review: { enabled: true, cadence: 'off' } } as DutiesDueInput['automation'],
+    }))
+    expect(duties.find((d) => d.id === 'thesis_check_in')).toBeUndefined()
+    expect(duties.find((d) => d.id === 'annual_re_analysis')).toBeDefined()
+  })
+
   it('a recent check-in silences the quarterly duty', () => {
     const duties = resolveDutiesDue(baseInput({
       tasks: [{ task_kind: 're_review_check', last_completed_at: '2026-06-30T00:00:00.000Z' }],
