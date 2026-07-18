@@ -66,6 +66,11 @@ describe('LearnPage source', () => {
     expect(tabsSource).toContain('never silently passed')
   })
 
+  it('the Judgment tab does not list the retired runway axis as a live judgment (C2 2026-07-12)', () => {
+    expect(tabsSource).not.toContain('moat, runway')
+    expect(tabsSource).not.toContain('and runway are')
+  })
+
   it('the hygiene checklists section is removed (owner 2026-07-18: no user-facing checklist exists)', () => {
     // The cognitive list was never presented anywhere; the business list survives only as invisible
     // audit provenance on the promote event. Docs must not describe an experience that does not exist.
