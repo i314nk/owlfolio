@@ -181,6 +181,20 @@ describe('PipelineObservatory', () => {
     expect(idleHtml).not.toContain('data-testid="pipeline-live-refresh"')
   })
 
+  it('renders the worker-log diagnostics pane when a tail is provided, collapsed, and not otherwise', () => {
+    const withLog = renderToStaticMarkup(createElement(PipelineObservatory, {
+      pipeline,
+      mode: 'personal-local',
+      workerLog: { file: 'process_deep_dive_queue-2026-07-18.log', tail: 'lane moat started\nread_source sec_10k → verified' },
+    }))
+    expect(withLog).toContain('Worker log')
+    expect(withLog).toContain('process_deep_dive_queue-2026-07-18.log')
+    expect(withLog).toContain('read_source sec_10k → verified')
+
+    const withoutLog = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
+    expect(withoutLog).not.toContain('Worker log')
+  })
+
   it('collapses the verdict-state legend behind a toggle (the chips stay in the DOM)', () => {
     const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
     expect(html).toContain('Show the states')

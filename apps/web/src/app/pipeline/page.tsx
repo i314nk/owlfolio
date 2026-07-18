@@ -6,6 +6,7 @@ import { PipelineObservatory } from '../../components/PipelineObservatory'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
+import { latestRunLogTail } from '../../lib/runLogs'
 
 export type PipelinePageProps = {
   searchParams: Promise<{ case?: string }>
@@ -34,6 +35,9 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
       ? buildPipelineDrillDown(events, selectedRun.research_case_id)
       : undefined
 
+    // The newest worker run-log tail (secret-redacted in runLogs.ts before it leaves the server).
+    const workerLog = await latestRunLogTail()
+
     return (
       <main className="owl-route-frame owl-route-frame-wide">
         <p className="owl-route-back-row">
@@ -48,6 +52,7 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
           locale={resolveLocale(state.config.language)}
           {...(drillDown !== undefined ? { drillDown } : {})}
           {...(selectedRun !== undefined ? { selectedCaseId: selectedRun.research_case_id } : {})}
+          {...(workerLog !== undefined ? { workerLog } : {})}
         />
       </main>
     )

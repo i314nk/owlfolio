@@ -45,6 +45,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'holding_realized_gain_loss_recorded',
       'research_run_requested',
       'research_run_claimed',
+      'research_run_progress_recorded',
       'research_run_failed',
       'deep_dive_approval_pending',
       'deep_dive_run_requested',
@@ -82,6 +83,18 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       actor_type: 'user',
       projection_owner: 'discovery',
       payload_fields: ['research_case_id', 'archived_at', 'reason'],
+    })
+  })
+
+  it('freezes the run-progress contract as a worker OBSERVATION breadcrumb — never state, never a verdict', () => {
+    // Live-run observability (owner-approved 2026-07-18): the harness appends small per-lane
+    // breadcrumbs (lane started, tool-call outcomes) so the pipeline drill-down reads near-live.
+    // Pure observation: no projection folds it into case state; it renders on the timeline only.
+    expect(contract('research_run_progress_recorded')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'worker',
+      projection_owner: 'discovery',
+      payload_fields: ['research_case_id', 'lane', 'message'],
     })
   })
 

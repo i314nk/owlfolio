@@ -27,6 +27,7 @@ import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/chec
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
 import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
+import { closeRunLog, openRunLog } from './runLogs'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
 import { mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared/appConfig'
@@ -324,6 +325,9 @@ export type SpawnWorkerPaths = {
 }
 
 function defaultSpawnWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
+  // Run-log capture (2026-07-18): the spawn's stdout/stderr append to a per-spawn log file (see
+  // runLogs.ts) instead of vanishing — a failed run's real error is now inspectable from /pipeline.
+  const log = openRunLog('process_research_queue')
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_research_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
@@ -335,12 +339,14 @@ function defaultSpawnWorker({ ledgerPath, sourceLedgerPath, appConfigPath, provi
       ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
     },
     detached: true,
-    stdio: 'ignore',
+    stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
+  if (log !== undefined) closeRunLog(log.fd)
 }
 
 function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
+  const log = openRunLog('process_deep_dive_queue')
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_deep_dive_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
@@ -352,15 +358,17 @@ function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPat
       ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
     },
     detached: true,
-    stdio: 'ignore',
+    stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
+  if (log !== undefined) closeRunLog(log.fd)
 }
 
 function defaultSpawnDiscoveryWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
   // --define-defaults ensures the discovery_13f scheduled task exists in the ledger before
   // runScheduledTasks selects it (it filters over projectScheduledTasks, i.e. store events, not the
   // in-memory definitions). OWLFOLIO_DISCOVERY_13F_ENABLED=1 (below) means it is defined enabled.
+  const log = openRunLog('discovery_13f')
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--define-defaults', '--task-kind', 'discovery_13f'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
@@ -373,9 +381,10 @@ function defaultSpawnDiscoveryWorker({ ledgerPath, sourceLedgerPath, appConfigPa
       ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
     },
     detached: true,
-    stdio: 'ignore',
+    stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
+  if (log !== undefined) closeRunLog(log.fd)
 }
 
 export type EnqueueDiscoveryRunDeps = { spawn?: (paths: SpawnWorkerPaths) => void }

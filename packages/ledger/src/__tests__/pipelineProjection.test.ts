@@ -266,6 +266,18 @@ describe('buildPipelineDrillDown — lane statuses + timeline ordering', () => {
     expect(drill!.status).toBe('running')
   })
 
+  it('renders run-progress breadcrumbs on the timeline with lane · message labels', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'dd', event_type: 'research_case_created', payload: { ticker: 'MSFT' } }),
+      evt({ aggregate_id: 'dd', event_type: 'deep_dive_started', payload: { research_case_id: 'dd', deep_dive_id: 'd1', specialist_lanes: ['moat'] } }),
+      evt({ aggregate_id: 'dd', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { research_case_id: 'dd', lane: 'moat', message: 'read_source sec_10k_item_7 → verified' } }),
+    ]
+    const drill = buildPipelineDrillDown(events, 'dd')
+    expect(drill!.timeline.map((t) => t.event_type)).toContain('research_run_progress_recorded')
+    const entry = drill!.timeline.find((t) => t.event_type === 'research_run_progress_recorded')
+    expect(entry?.label).toBe('moat · read_source sec_10k_item_7 → verified')
+  })
+
   it('marks lanes pending when no deep dive has started', () => {
     const events: LedgerEventEnvelope<unknown>[] = [
       evt({ aggregate_id: 'qs', event_type: 'research_case_created', payload: { ticker: 'QS' } }),

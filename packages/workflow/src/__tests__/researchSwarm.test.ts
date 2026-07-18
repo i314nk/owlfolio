@@ -474,6 +474,8 @@ describe('runStrategyResearchSwarm', () => {
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
+    // Live-run observability: each lane leaves at least a started breadcrumb on the timeline.
+    expect(types.filter((t) => t === 'research_run_progress_recorded').length).toBeGreaterThanOrEqual(3)
   })
 
   it('skips findings for lanes with no verified sources and still completes', async () => {

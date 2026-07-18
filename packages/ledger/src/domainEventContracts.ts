@@ -61,6 +61,7 @@ export const domainEventTypes = [
   'research_run_requested',
   'research_run_claimed',
   'research_run_failed',
+  'research_run_progress_recorded',
   'deep_dive_approval_pending',
   'deep_dive_run_requested',
   'investable_capital_set',
@@ -434,6 +435,16 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'worker',
     projection_owner: 'worker_status',
     payload_fields: ['research_case_id', 'run_id', 'claimed_at', 'worker_id'],
+  },
+  {
+    // Live-run observability (owner-approved 2026-07-18): a small worker-authored breadcrumb (lane
+    // started, tool-call outcome) so the pipeline drill-down reads near-live. Pure OBSERVATION: no
+    // projection folds it into case state; it renders on the drill-down timeline only.
+    event_type: 'research_run_progress_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'worker',
+    projection_owner: 'discovery',
+    payload_fields: ['research_case_id', 'lane', 'message'],
   },
   {
     event_type: 'research_run_failed',

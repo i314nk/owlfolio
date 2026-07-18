@@ -1675,10 +1675,39 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
   })
 
+  // Live-run observability (owner-approved 2026-07-18): worker-authored breadcrumbs (lane started,
+  // tool-call outcomes) appended as research_run_progress_recorded so the pipeline drill-down reads
+  // near-live. Pure observation — an append failure never breaks the run. The run tag keeps ids
+  // unique across a failed-then-re-run of the same case (breadcrumbs are per-execution, not
+  // idempotent workflow state).
+  const progressRunTag = Date.now().toString(36)
+  let progressSeq = 0
+  const recordProgress = (lane: string, message: string): void => {
+    progressSeq += 1
+    void store.append({
+      event_id: `evt_run_progress_${swarmSeg(command.research_case_id)}_${progressRunTag}_${progressSeq}`,
+      event_type: 'research_run_progress_recorded',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: started.event_id,
+      actor_type: 'worker',
+      actor_id: 'research_workflow',
+      payload: { research_case_id: command.research_case_id, lane, message },
+      source_ids: [],
+      idempotency_key: `run-progress:${command.research_case_id}:${progressRunTag}:${progressSeq}`,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+    }).catch(() => {
+      // Observability must never break the run.
+    })
+  }
 
   // ---- Per-lane runner (invoked in STAGES below — S6: the early moat gate sits between them) ----
   const runLaneFn = async (lane: string): Promise<LaneOutcome> => {
     const laneStartedAt = Date.now() // Phase 2 V5: per-lane stage-cost wall clock
+    const laneProgress = (m: string): void => { recordProgress(lane, m) }
+    recordProgress(lane, 'lane started')
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
     // injectFiling governs the verified-id FORCE-ADD + captured-corpus seeding (so the resolver 10-K id is
@@ -1757,6 +1786,7 @@ export async function runResearchDeepDivePhase(
         lane,
         requiredFields: moatRequired,
         useToolLoop: true,
+        onProgress: laneProgress,
         readCorpus: accumulated,
         ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       })
@@ -1824,6 +1854,7 @@ export async function runResearchDeepDivePhase(
         lane,
         requiredFields: understandRequired,
         useToolLoop: true,
+        onProgress: laneProgress,
         readCorpus: accumulated,
         ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       })
@@ -1868,6 +1899,7 @@ export async function runResearchDeepDivePhase(
       }, ManagementLaneSchema, {
         ...deps,
         lane,
+        onProgress: laneProgress,
         requiredFields: mgmtRequired,
         useToolLoop: true,
         readCorpus: accumulated,
@@ -1911,6 +1943,7 @@ export async function runResearchDeepDivePhase(
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, {
       ...deps,
+      onProgress: laneProgress,
       readCorpus: accumulated,
       ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
     }, { lane })

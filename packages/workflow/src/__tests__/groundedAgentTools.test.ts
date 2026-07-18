@@ -58,6 +58,23 @@ describe('buildGroundedToolExecutor', () => {
     expect(out).toContain(tool.verified_ids[0]!)
   })
 
+  it('emits one onProgress breadcrumb per tool call with the outcome (and never lets the callback break the loop)', async () => {
+    const messages: string[] = []
+    const tool = buildGroundedToolExecutor({ lane: 'moat', ground: stubGround, onProgress: (m) => { messages.push(m) } })
+
+    await tool.executor('fetch_source', { url: 'https://www.sec.gov/Archives/edgar/data/789019/x.htm' })
+    await tool.executor('read_source', { source_id: 'tool_src_missing' })
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatch(/fetch_source .*sec\.gov.* → verified/)
+    expect(messages[1]).toMatch(/read_source tool_src_missing → uncitable/)
+
+    // A throwing callback must never break the tool loop.
+    const explosive = buildGroundedToolExecutor({ lane: 'moat', ground: stubGround, onProgress: () => { throw new Error('boom') } })
+    const out2 = await explosive.executor('fetch_source', { url: 'https://www.sec.gov/Archives/edgar/data/789019/y.htm' })
+    expect(out2).toMatch(/source_id=/)
+  })
+
   it('fetch_source returns UNAVAILABLE (not a crash) for an SSRF-blocked / dead url and does not verify it', async () => {
     const tool = buildGroundedToolExecutor({ lane: 'moat', ground: stubGround })
     const out = await tool.executor('fetch_source', { url: 'https://random-blog.example.com/post' })
