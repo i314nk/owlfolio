@@ -70,8 +70,16 @@ function redactSecrets(text: string): string {
     .replace(/((?:API_KEY|APIKEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*\s*[=:]\s*)[^\s'"]+/gi, '$1[redacted]')
 }
 
-/** The newest run log's tail (redacted), or undefined when no logs exist yet. */
-export async function latestRunLogTail(maxBytes = DEFAULT_TAIL_BYTES): Promise<{ file: string; tail: string } | undefined> {
+/**
+ * The newest run log's tail (redacted), or undefined when no log matches. The optional filter
+ * matches a log to a SELECTED run (its task kinds + a not-before timestamp) so the diagnostics pane
+ * shows the process that ran the case, not merely the newest spawn; callers fall back to the
+ * unfiltered call when nothing matches.
+ */
+export async function latestRunLogTail(
+  maxBytes = DEFAULT_TAIL_BYTES,
+  filter?: { sinceMs?: number; taskKinds?: readonly string[] },
+): Promise<{ file: string; tail: string } | undefined> {
   try {
     const dir = resolveRunLogDir()
     const names = (await readdir(dir)).filter((name) => name.endsWith('.log'))
@@ -79,7 +87,9 @@ export async function latestRunLogTail(maxBytes = DEFAULT_TAIL_BYTES): Promise<{
 
     let newest: { name: string; mtimeMs: number; size: number } | undefined
     for (const name of names) {
+      if (filter?.taskKinds !== undefined && !filter.taskKinds.some((kind) => name.startsWith(`${kind}-`))) continue
       const s = await stat(join(dir, name))
+      if (filter?.sinceMs !== undefined && s.mtimeMs < filter.sinceMs) continue
       if (newest === undefined || s.mtimeMs > newest.mtimeMs) {
         newest = { name, mtimeMs: s.mtimeMs, size: s.size }
       }

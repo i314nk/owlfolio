@@ -35,8 +35,16 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
       ? buildPipelineDrillDown(events, selectedRun.research_case_id)
       : undefined
 
-    // The newest worker run-log tail (secret-redacted in runLogs.ts before it leaves the server).
-    const workerLog = await latestRunLogTail()
+    // The worker run-log tail (secret-redacted in runLogs.ts before it leaves the server). With a
+    // selected run, prefer the log of the process that ran it (research/deep-dive spawns since just
+    // before the run started); fall back to the newest log of any kind.
+    const workerLog = (selectedRun !== undefined
+      ? await latestRunLogTail(undefined, {
+          sinceMs: Date.parse(selectedRun.started_at) - 60_000,
+          taskKinds: ['process_research_queue', 'process_deep_dive_queue'],
+        })
+      : undefined)
+      ?? await latestRunLogTail()
 
     return (
       <main className="owl-route-frame owl-route-frame-wide">

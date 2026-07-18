@@ -181,6 +181,19 @@ describe('PipelineObservatory', () => {
     expect(idleHtml).not.toContain('data-testid="pipeline-live-refresh"')
   })
 
+  it('makes failed runs actionable: the ticker links to the dossier and each row carries the archive action', () => {
+    const withFailure: PipelineProjection = {
+      ...pipeline,
+      failed_runs: [
+        { case_id: 'rc-dead', ticker: 'DEAD', failed_at: '2026-07-17T00:00:00Z', error_summary: 'synthesis stage failed after retry' },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: withFailure, mode: 'personal-local' }))
+    expect(html).toContain('Failed runs')
+    expect(html).toContain('href="/research/rc-dead"')
+    expect(html).toContain('data-testid="archive-run-button"')
+  })
+
   it('renders the worker-log diagnostics pane when a tail is provided, collapsed, and not otherwise', () => {
     const withLog = renderToStaticMarkup(createElement(PipelineObservatory, {
       pipeline,

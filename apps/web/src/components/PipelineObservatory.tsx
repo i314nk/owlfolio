@@ -2,6 +2,7 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
+import { ArchiveRunButton } from './ArchiveRunButton'
 import { PipelineLiveRefresh } from './PipelineLiveRefresh'
 import { RouteHeader } from './designSystem'
 import { t, type MessageKey } from '../lib/i18n'
@@ -423,7 +424,7 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
           createElement(
             'tr',
             null,
-            ...['Ticker', 'Failed', 'Reason'].map((heading) =>
+            ...['Ticker', 'Failed', 'Reason', 'Actions'].map((heading) =>
               createElement('th', { key: heading, style: thStyle }, heading),
             ),
           ),
@@ -431,13 +432,28 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
         createElement(
           'tbody',
           null,
+          // Failures are ACTIONABLE where they surface: the ticker opens the dossier (the error +
+          // re-run live there), and Archive acknowledges + discards in place. Never a dead end.
           ...failedRuns.map((run) =>
             createElement(
               'tr',
               { key: run.case_id },
-              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-gold-bright)', fontWeight: 800 } }, run.ticker),
+              createElement(
+                'td',
+                { style: tdStyle },
+                createElement(
+                  'a',
+                  {
+                    className: 'owl-focusable',
+                    href: `/research/${encodeURIComponent(run.case_id)}`,
+                    style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800, textDecoration: 'none' },
+                  },
+                  run.ticker,
+                ),
+              ),
               createElement('td', { style: { ...tdStyle, ...monoMeta } }, relativeTime(run.failed_at)),
               createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
+              createElement('td', { style: tdStyle }, createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker })),
             ),
           ),
         ),

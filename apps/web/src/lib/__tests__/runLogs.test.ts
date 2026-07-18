@@ -56,6 +56,21 @@ describe('runLogs', () => {
     expect(await latestRunLogTail()).toBeUndefined()
   })
 
+  it('matches a log to a run via task-kind + since filters (undefined when nothing matches — caller falls back)', async () => {
+    const dir = await tempLogDir()
+    await writeFile(join(dir, 'discovery_13f-newest.log'), 'harvest output\n')
+    await writeFile(join(dir, 'process_deep_dive_queue-run.log'), 'deep dive lane output\n')
+    await utimes(join(dir, 'process_deep_dive_queue-run.log'), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+
+    // The deep-dive log matches the run's task kinds even though the harvest log is newer overall.
+    const matched = await latestRunLogTail(undefined, { taskKinds: ['process_research_queue', 'process_deep_dive_queue'] })
+    expect(matched?.file).toBe('process_deep_dive_queue-run.log')
+
+    // A since-filter after the deep-dive log's mtime excludes it.
+    const excluded = await latestRunLogTail(undefined, { sinceMs: Date.now() - 30_000, taskKinds: ['process_deep_dive_queue'] })
+    expect(excluded).toBeUndefined()
+  })
+
   it('bounds the tail to the requested byte budget (tail, not the whole file)', async () => {
     const dir = await tempLogDir()
     const big = `${'x'.repeat(10_000)}\nTHE-END\n`
