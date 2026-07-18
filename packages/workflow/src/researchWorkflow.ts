@@ -60,6 +60,16 @@ export type RunDemoBuffettMungerAnalysisCommand = {
   idempotency_key: string
 }
 
+/** The Arabic rendering of the six synthesis prose fields (task #88). English stays authoritative. */
+export type DecisionArabicProse = {
+  decision_reason: string
+  thesis_summary: string
+  evidence_summary: string
+  valuation_rationale: string
+  shariah_rationale: string
+  synthesis_summary: string
+}
+
 type DecisionDraftedPayload = {
   research_case_id: string
   decision_id: string
@@ -72,6 +82,8 @@ type DecisionDraftedPayload = {
   shariah_rationale?: string
   risks?: string[]
   open_questions?: string[]
+  /** Arabic rendering of the prose fields, generated at analysis time when the app language is Arabic. */
+  prose_ar?: DecisionArabicProse
 }
 
 export type DecisionDrafted = LedgerEventEnvelope<DecisionDraftedPayload> & DecisionDraftedPayload
@@ -101,6 +113,7 @@ export type DraftDecisionCommand = {
   shariah_rationale?: string
   risks?: string[]
   open_questions?: string[]
+  prose_ar?: DecisionArabicProse
   causation_id: string
   idempotency_key?: string
   source_ids?: string[]
@@ -296,6 +309,7 @@ export async function draftDecision(store: ResearchEventStore, command: DraftDec
     ...(command.shariah_rationale === undefined ? {} : { shariah_rationale: command.shariah_rationale }),
     ...(command.risks === undefined ? {} : { risks: command.risks }),
     ...(command.open_questions === undefined ? {} : { open_questions: command.open_questions }),
+    ...(command.prose_ar === undefined ? {} : { prose_ar: command.prose_ar }),
   }
 
   const event: LedgerEventEnvelope<DecisionDraftedPayload> = {

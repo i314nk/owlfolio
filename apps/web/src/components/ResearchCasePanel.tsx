@@ -303,10 +303,28 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings, shariahEnabled = true, locale = 'en' }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal-local', configuredProviderId, marketQuote, savings, shariahEnabled = true, locale = 'en' }: ResearchCasePanelProps) {
   // i18n S2: render-scoped locale for the dossier chrome — every create* helper below runs
   // synchronously inside this call, so the module variable is safe per render.
   dossierLocale = locale
+  // Task #88 (owner, 2026-07-18): when the locale is Arabic AND the run recorded an Arabic prose
+  // rendering, substitute the six prose fields ONCE here — every downstream card inherits it. The
+  // ENGLISH ledger record stays authoritative (the substitution is view-only; a labeled note says so).
+  const arabicProse = locale === 'ar' ? recordedCase.prose_ar : undefined
+  const researchCase = arabicProse === undefined ? recordedCase : {
+    ...recordedCase,
+    reason: arabicProse.decision_reason,
+    thesis_summary: arabicProse.thesis_summary,
+    evidence_summary: arabicProse.evidence_summary,
+    valuation_rationale: arabicProse.valuation_rationale,
+    shariah_rationale: arabicProse.shariah_rationale,
+    synthesis_summary: arabicProse.synthesis_summary,
+  }
+  const arabicProseNote = arabicProse === undefined ? null : createElement(
+    'p',
+    { 'data-testid': 'arabic-prose-note', dir: 'rtl', className: 'owl-row-helper', style: { border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '0.6rem 0 0', padding: '0.5rem 0.8rem' } },
+    dt('ar_prose_note'),
+  )
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -462,6 +480,8 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     { style: { display: 'grid', gap: '1rem' } },
     // ── 0. Mock-provider honesty banner (personal-local, mock-authored, real provider configured) ──
     mockWarningBanner,
+    // ── Task #88: the Arabic-prose provenance note (view-only substitution; English authoritative) ──
+    arabicProseNote,
     // ── Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
     createElement(PillarJumpNav, { entries: jumpEntries }),

@@ -2298,6 +2298,8 @@ export async function runProcessResearchQueueTask(
     circle_gate?: CircleGateSettings
   /** SCREENING TOGGLE: false skips the Shariah phases (zero Shariah spend; DISABLED honestly). */
   shariah_enabled?: boolean
+  /** Task #88: 'ar' asks the run for the Arabic prose rendering (fail-open; English authoritative). */
+  prose_locale?: 'ar'
     /** Deep-dive approval pause ('review' pauses behind the gates; undefined → automatic). */
     deep_dive_approval?: 'automatic' | 'review'
     /** F.2 — the compliant savings anchor (decimal) for the valuation discount. */
@@ -2418,6 +2420,7 @@ export async function runProcessResearchQueueTask(
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
           ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
+          ...(options.prose_locale === undefined ? {} : { prose_locale: options.prose_locale }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
           ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
@@ -2473,6 +2476,8 @@ export async function runProcessDeepDiveQueueTask(
     circle_gate?: CircleGateSettings
   /** SCREENING TOGGLE: false skips the Shariah phases (zero Shariah spend; DISABLED honestly). */
   shariah_enabled?: boolean
+  /** Task #88: 'ar' asks the run for the Arabic prose rendering (fail-open; English authoritative). */
+  prose_locale?: 'ar'
     /**
      * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit) from the app-config savings
      * sleeve, threaded into the deep-dive discount anchor. Omitted → the swarm fails closed to the strategy's
@@ -2514,6 +2519,7 @@ export async function runProcessDeepDiveQueueTask(
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           ...(options.required_return === undefined ? {} : { required_return: options.required_return }),
           ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
+          ...(options.prose_locale === undefined ? {} : { prose_locale: options.prose_locale }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
