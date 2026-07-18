@@ -570,8 +570,11 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
         ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No swarm events recorded for this run yet.')
         : createElement(
             'ul',
-            { style: { fontSize: 'var(--owl-text-sm)', listStyle: 'none', margin: '0.3rem 0 0', padding: 0 } },
-            ...drillDown.timeline.map((entry, index) =>
+            // The breadcrumb feed scrolls INSIDE the card (never stretches the page). column-reverse
+            // over a newest-first list keeps the visual order ascending while pinning the scroll to
+            // the newest entry — the live feed reads like a log tail with no client JS.
+            { style: { display: 'flex', flexDirection: 'column-reverse', fontSize: 'var(--owl-text-sm)', listStyle: 'none', margin: '0.3rem 0 0', maxHeight: '22rem', overflowY: 'auto', padding: 0 } },
+            ...[...drillDown.timeline].reverse().map((entry, index) =>
               createElement(
                 'li',
                 {

@@ -198,6 +198,16 @@ describe('PipelineObservatory', () => {
     expect(html).not.toContain('data-testid="archive-all-runs-button"')
   })
 
+  it('scrolls the drill-down timeline inside its card, pinned to the newest entry', () => {
+    const html = renderToStaticMarkup(
+      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'personal-local' }),
+    )
+    // Bounded + scrollable (the breadcrumb feed must never stretch the page)…
+    expect(html).toContain('max-height:22rem')
+    // …and column-reverse over a newest-first list pins the scroll to the latest entry.
+    expect(html).toContain('column-reverse')
+  })
+
   it('offers Archive all when several runs have failed', () => {
     const withFailures: PipelineProjection = {
       ...pipeline,
