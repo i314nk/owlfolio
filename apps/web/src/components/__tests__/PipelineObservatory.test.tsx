@@ -208,6 +208,18 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('column-reverse')
   })
 
+  it('hides Restart (keeps Archive) on a failed row whose ticker is a case-id fallback — a re-run needs a real ticker', () => {
+    const withLegacyFailure: PipelineProjection = {
+      ...pipeline,
+      failed_runs: [
+        { case_id: 'rc_adbe_legacy', ticker: 'rc_adbe_legacy', failed_at: '2026-07-17T00:00:00Z', error_summary: 'x' },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: withLegacyFailure, mode: 'personal-local' }))
+    expect(html).toContain('data-testid="archive-run-button"')
+    expect(html).not.toContain('data-testid="rerun-analysis-button"')
+  })
+
   it('offers Archive all when several runs have failed', () => {
     const withFailures: PipelineProjection = {
       ...pipeline,

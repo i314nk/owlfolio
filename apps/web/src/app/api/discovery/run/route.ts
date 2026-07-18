@@ -9,7 +9,8 @@ export async function POST(_request: Request, _context?: unknown, deps: EnqueueD
   const state = await getOnboardingState()
   try {
     const result = await enqueueDiscoveryRun(state, deps)
-    return NextResponse.json(result, { status: 202 })
+    // 202 = a worker was spawned; 200 already_running = honest no-op (dedupe guard) — no new spawn.
+    return NextResponse.json(result, { status: result.started ? 202 : 200 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'discovery run failed'
     const status = message.startsWith('Personal-local workflow is not initialized') ? 409 : 500

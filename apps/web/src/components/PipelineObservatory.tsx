@@ -478,7 +478,11 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
                   { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } },
                   createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker }),
                   // Restart = the existing supersession re-run (confirm-gated: full provider spend).
-                  createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
+                  // Hidden when the ticker is a case-id fallback (legacy cases without a recorded
+                  // ticker) — a re-run needs the real symbol; the dossier link remains the path.
+                  /^rc[_-]/i.test(run.ticker)
+                    ? null
+                    : createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
                   createElement(
                     'a',
                     { className: 'owl-focusable', href: `/pipeline/run-log/${encodeURIComponent(run.case_id)}`, style: { ...monoMeta, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' } },

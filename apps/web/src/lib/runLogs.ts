@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -23,15 +23,36 @@ export function resolveRunLogDir(): string {
  * Also prunes logs older than the retention window (best-effort).
  */
 export function openRunLog(taskKind: string): { fd: number; path: string } | undefined {
+  // Test hygiene: under vitest (mocked children, real fs) a log write would pollute the developer's
+  // real data/run-logs with header-only files — the "empty log" mystery. Tests that WANT files set
+  // OWLFOLIO_RUN_LOG_DIR explicitly; playwright isolates the same way via its web-server env.
+  if (process.env['VITEST'] !== undefined && process.env['OWLFOLIO_RUN_LOG_DIR'] === undefined) {
+    return undefined
+  }
   try {
     const dir = resolveRunLogDir()
     mkdirSync(dir, { recursive: true })
     pruneOldLogs(dir)
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const now = new Date().toISOString()
+    const stamp = now.replace(/[:.]/g, '-')
     const path = join(dir, `${taskKind}-${stamp}.log`)
-    return { fd: openSync(path, 'a'), path }
+    const fd = openSync(path, 'a')
+    // Header from the PARENT, before the child exists: a spawn attempt can never leave a 0-byte
+    // mystery, and an exec failure (noteSpawnFailure) lands in a file that names its attempt.
+    writeSync(fd, `[owlfolio] ${taskKind} spawn requested at ${now}\n`)
+    return { fd, path }
   } catch {
     return undefined
+  }
+}
+
+/** Append a child-process exec failure to its run log (spawn 'error' event) — best-effort. */
+export function noteSpawnFailure(path: string, error: unknown): void {
+  try {
+    const message = error instanceof Error ? error.message : String(error)
+    appendFileSync(path, `[owlfolio] spawn FAILED before the worker ran: ${message}\n`)
+  } catch {
+    // Best-effort only.
   }
 }
 

@@ -80,6 +80,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const runtime = await resolveWorkerRuntimePaths()
+  // Run-journal output (owner feedback 2026-07-18): the log used to be a full app-config echo + one
+  // JSON blob — "settings, no value". Now: timestamped lifecycle lines + a COMPACT runtime line +
+  // the result JSON. Lane-level live detail stays on the pipeline timeline (ledger breadcrumbs);
+  // this journal's job is what ran, what it concluded, and — via stderr — how anything died.
+  const startedAtMs = Date.now()
+  const logLine = (message: string): void => {
+    console.log(`[${new Date().toISOString()}] ${message}`)
+  }
+  const runtimeSummary = {
+    project_dir: runtime.project_dir,
+    config_path: runtime.config_path,
+    ledger_path: runtime.ledger_path,
+    source_ledger_path: runtime.source_ledger_path,
+    mode: runtime.config.mode,
+    provider_id: runtime.config.provider.provider_id,
+    ...(runtime.config.provider.model_id === undefined ? {} : { model_id: runtime.config.provider.model_id }),
+  }
+  const reportResult = (result: { summaries?: string[] }): void => {
+    for (const summary of result.summaries ?? []) logLine(summary)
+    logLine(`worker done in ${((Date.now() - startedAtMs) / 1000).toFixed(1)}s`)
+    console.log(JSON.stringify({ runtime: runtimeSummary, result }, null, 2))
+  }
+
   const store = new SQLiteEventStore<import('@owlfolio/ledger/eventEnvelope').LedgerEventEnvelope<unknown>>(runtime.ledger_path)
   try {
     if (options.define_defaults) {
@@ -109,7 +132,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // web-executed one when screening is OFF.
     const shariah_enabled = runtime.config.shariah.enabled
 
+    logLine(`worker start — task=${options.task_kind ?? 'all'} dry_run=${options.dry_run === true} provider=${runtime.config.provider.provider_id}${runtime.config.provider.model_id === undefined ? '' : ` model=${runtime.config.provider.model_id}`}`)
+
     if (options.task_kind === 'process_research_queue') {
+      logLine('processing the research queue (front gates → deep dive when approval is automatic)…')
       const result = await runProcessResearchQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
@@ -127,11 +153,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         loaded_mode: runtime.config.mode,
         config_path: runtime.config_path,
       })
-      console.log(JSON.stringify({ runtime, result }, null, 2))
+      reportResult(result)
       return 0
     }
 
     if (options.task_kind === 'process_deep_dive_queue') {
+      logLine('processing the deep-dive queue…')
       const result = await runProcessDeepDiveQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
@@ -141,7 +168,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         shariah_enabled,
         ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
       })
-      console.log(JSON.stringify({ runtime, result }, null, 2))
+      reportResult(result)
       return 0
     }
 
@@ -160,7 +187,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ...(runtime.config.automation === undefined ? {} : { automation: runtime.config.automation }),
       ...(options.task_kind === undefined ? {} : { task_kind: options.task_kind }),
     })
-    console.log(JSON.stringify({ runtime, result }, null, 2))
+    reportResult(result)
     return result.failed > 0 ? 1 : 0
   } finally {
     store.close()

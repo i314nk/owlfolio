@@ -17,6 +17,7 @@ import {
 } from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import type { HoldingProjection } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import type { WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
@@ -27,7 +28,7 @@ import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/chec
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
 import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
-import { closeRunLog, openRunLog } from './runLogs'
+import { closeRunLog, noteSpawnFailure, openRunLog } from './runLogs'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
 import { mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared/appConfig'
@@ -342,7 +343,11 @@ function defaultSpawnWorker({ ledgerPath, sourceLedgerPath, appConfigPath, provi
     stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
-  if (log !== undefined) closeRunLog(log.fd)
+  if (log !== undefined) {
+    const logPath = log.path
+    child.on('error', (spawnError) => noteSpawnFailure(logPath, spawnError))
+    closeRunLog(log.fd)
+  }
 }
 
 function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
@@ -361,7 +366,11 @@ function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPat
     stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
-  if (log !== undefined) closeRunLog(log.fd)
+  if (log !== undefined) {
+    const logPath = log.path
+    child.on('error', (spawnError) => noteSpawnFailure(logPath, spawnError))
+    closeRunLog(log.fd)
+  }
 }
 
 function defaultSpawnDiscoveryWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
@@ -384,15 +393,39 @@ function defaultSpawnDiscoveryWorker({ ledgerPath, sourceLedgerPath, appConfigPa
     stdio: log === undefined ? 'ignore' : ['ignore', log.fd, log.fd],
   })
   child.unref()
-  if (log !== undefined) closeRunLog(log.fd)
+  if (log !== undefined) {
+    const logPath = log.path
+    child.on('error', (spawnError) => noteSpawnFailure(logPath, spawnError))
+    closeRunLog(log.fd)
+  }
 }
 
 export type EnqueueDiscoveryRunDeps = { spawn?: (paths: SpawnWorkerPaths) => void }
 
-export async function enqueueDiscoveryRun(state: OnboardingState, deps: EnqueueDiscoveryRunDeps = {}): Promise<{ started: true }> {
+// A RUNNING discovery mark older than this is treated as a dead worker (stale) — a re-spawn is
+// allowed so a crashed tick can never wedge discovery forever.
+const DISCOVERY_RUNNING_STALE_MS = 15 * 60 * 1000
+
+export async function enqueueDiscoveryRun(state: OnboardingState, deps: EnqueueDiscoveryRunDeps = {}): Promise<{ started: boolean; already_running?: boolean }> {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined || state.config.source_ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
   }
+
+  // Spawn dedupe: while a discovery tick is genuinely RUNNING (recent start mark), a second POST is
+  // a no-op — repeated clicks/calls must not pile up worker processes on one ledger.
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const task = projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')
+    if (task?.last_run_status === 'running' && task.last_started_at !== undefined) {
+      const startedMs = Date.parse(task.last_started_at)
+      if (Number.isFinite(startedMs) && Date.now() - startedMs < DISCOVERY_RUNNING_STALE_MS) {
+        return { started: false, already_running: true }
+      }
+    }
+  } finally {
+    store.close()
+  }
+
   ;(deps.spawn ?? defaultSpawnDiscoveryWorker)({
     ledgerPath: state.config.ledger_path,
     sourceLedgerPath: state.config.source_ledger_path,

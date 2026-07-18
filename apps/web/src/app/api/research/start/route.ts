@@ -19,6 +19,11 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string;
   if (ticker.length === 0) {
     throw new Error('Ticker is required')
   }
+  // Ticker-sanity guard: a legacy failed case without a recorded ticker falls back to its case id on
+  // the boards; restarting THAT must not mint a case whose "ticker" is a research-case id.
+  if (/^rc[_-]/i.test(ticker)) {
+    throw new Error(`"${ticker}" looks like a research-case id, not a ticker symbol — open the case and re-run it with its real ticker.`)
+  }
 
   // Optional explicit re-run supersession: when the dossier's "Re-run on current engine" action starts a
   // NEW run that supersedes a specific prior case, it passes that case id here. Absent → today's behavior

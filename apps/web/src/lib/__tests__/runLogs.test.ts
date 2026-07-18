@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { latestRunLogTail, resolveRunLogDir, runLogTailsForWindow } from '../runLogs'
+import { readFile } from 'node:fs/promises'
+
+import { closeRunLog, latestRunLogTail, openRunLog, resolveRunLogDir, runLogTailsForWindow } from '../runLogs'
 
 const dirs: string[] = []
 
@@ -54,6 +56,20 @@ describe('runLogs', () => {
   it('returns undefined when no logs exist yet', async () => {
     await tempLogDir()
     expect(await latestRunLogTail()).toBeUndefined()
+  })
+
+  it('refuses to write under vitest without an explicit dir override (tests must never pollute the real data/run-logs)', () => {
+    delete process.env['OWLFOLIO_RUN_LOG_DIR']
+    expect(openRunLog('process_research_queue')).toBeUndefined()
+  })
+
+  it('stamps a spawn header the moment the log opens — a spawn attempt can never leave a 0-byte mystery', async () => {
+    await tempLogDir()
+    const log = openRunLog('process_research_queue')
+    expect(log).toBeDefined()
+    closeRunLog(log!.fd)
+    const content = await readFile(log!.path, 'utf8')
+    expect(content).toContain('[owlfolio] process_research_queue spawn requested at ')
   })
 
   it('matches a log to a run via task-kind + since filters (undefined when nothing matches — caller falls back)', async () => {
