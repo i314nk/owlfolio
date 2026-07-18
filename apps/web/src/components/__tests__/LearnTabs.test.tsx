@@ -29,7 +29,6 @@ describe('LearnTabs', () => {
       'strategy',
       'swarm',
       'sources',
-      'lifecycle',
       'shariah',
       'tiering',
       'cli',
@@ -208,35 +207,6 @@ describe('LearnTabs', () => {
     expect(pct(AAOIFI_DEBT_RATIO_MAX)).toBe('30%')
     expect(pct(AAOIFI_CASH_SECURITIES_RATIO_MAX)).toBe('30%')
     expect(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)).toBe('5%')
-  })
-
-  it('describes the unified lifecycle and the single state-branched cadence engine on the lifecycle panel', () => {
-    const html = render('lifecycle')
-    // One list, one lifecycle: candidate → watched → held → exited.
-    expect(html.toUpperCase()).toContain('CANDIDATE')
-    expect(html.toUpperCase()).toContain('WATCHED')
-    expect(html.toUpperCase()).toContain('HELD')
-    expect(html.toUpperCase()).toContain('EXITED')
-    // ONE cadence engine; detection state-independent; action branches on state.
-    expect(html.toLowerCase()).toContain('one cadence engine')
-    expect(html.toLowerCase()).toContain('does not depend on which state')
-    // Stale "separate watchlist and holdings monitors" framing is replaced.
-    expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
-    // Honesty: deteriorating watched name flagged; the human-authored prune (Remove from watchlist)
-    // SHIPPED — the copy names it instead of the stale "no prune action yet" gap.
-    expect(html.toLowerCase()).toContain('deteriorating')
-    expect(html.toLowerCase()).toContain('remove from watchlist')
-    expect(html.toLowerCase()).not.toContain('no prune action yet')
-    expect(html.toLowerCase()).toContain('screened out')
-    // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
-    // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).
-    expect(html.toLowerCase()).toContain('check-in') // renamed from 'thesis re-review' (owner, Phase 4)
-    expect(html.toLowerCase()).toContain('since a decision')
-    expect(html.toLowerCase()).toContain('intact, weakened, broken')
-    expect(html.toLowerCase()).toContain('inconclusive')
-    // Human-fired launch points named; no roadmap "yet" language (owner, 2026-07-18).
-    expect(html.toLowerCase()).toContain('you launch it from the dossier')
-    expect(html.toLowerCase()).not.toContain('no scheduler fires it yet')
   })
 
   it('describes the four model tiers including the compute-everything T0 rule', () => {

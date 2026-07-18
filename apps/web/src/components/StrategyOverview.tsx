@@ -708,7 +708,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'sell decision'),
         ' on-demand — worst case first, then a verdict. It is bounded by the recommendation and never trades: the ',
         createElement('span', { style: goldText }, 'close is human-authored'),
-        ', and there is no auto-sell. A sale needs one of four real reasons; a falling price alone is never one of them.',
+        ', and there is no auto-sell. A sale needs a real, recorded reason — one of the four triggers below, a released minimum-hold guard, or an unresolvable Shariah breach (the close form records exactly these); a falling price alone is never one of them.',
       ),
       children: createElement(
         'div',

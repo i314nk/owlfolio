@@ -5,7 +5,6 @@ import { createElement, useCallback, useRef, useState, type CSSProperties, type 
 import {
   buffettMungerStrategy,
 } from '@owlfolio/strategies/buffettMunger'
-import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
 import {
   AAOIFI_DEBT_RATIO_MAX,
   AAOIFI_CASH_SECURITIES_RATIO_MAX,
@@ -25,10 +24,6 @@ const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
-// Phase 6 sell parameters (rendered live from the versioned config, never hard-coded).
-const MIN_HOLD_MONTHS = SELL_PARAMS.minimum_hold_months
-const SELL_IV_FRACTION = SELL_PARAMS.sell_iv_fraction
-const BETTER_OPP_MIN_MARGIN = SELL_PARAMS.better_opportunity_min_margin
 
 function pct(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
@@ -360,107 +355,6 @@ function SourcesTab(): ReactNode {
   )
 }
 
-// 4 — Lifecycle
-function LifecycleTab(): ReactNode {
-  return createElement(
-    'div',
-    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
-    PanelSection({
-      eyebrow: 'One list, one lifecycle',
-      title: 'Candidate → watched → held → exited',
-      lead: createElement(
-        'span',
-        null,
-        'There is ONE list of names, and every name sits in exactly one lifecycle state: ',
-        gold('CANDIDATE'),
-        ' → ',
-        gold('WATCHED'),
-        ' → ',
-        gold('HELD'),
-        ' → ',
-        gold('EXITED'),
-        '. A name becomes a candidate from discovery + research, advances to watched on a user-confirmed watchlist entry, becomes held on an explicit open-holding entry, and is exited when no live entity remains. Every transition is append-only and timestamped, and ',
-        gold('every irreversible transition is human-authored'),
-        ' — the agent never trades and never moves a name between states. Research, watchlist, and portfolio each render their slice of this one list.',
-      ),
-      children: bullets([
-        createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the front gates; the Shariah sector exclusion is applied before a candidate even enters the ledger, and most names die cheaply here.'),
-        createElement('span', { key: 2 }, gold('Watched & held'), ' — entered only by an explicit human ledger entry; a holding records an already-executed trade. Position sizing is deliberately out of scope by the scale-down: the size is yours, and your entry price is the one manual field the system keeps.'),
-        createElement('span', { key: 3 }, gold('Exited — two opposite meanings'), ' — an exit is either SOLD (a closed holding) or SCREENED OUT (research rejected / pass). The Lifecycle page shows which, because they mean opposite things; a name that comes back live keeps its prior-exit history.'),
-      ]),
-    }),
-    PanelSection({
-      eyebrow: 'One cadence engine',
-      title: 'One falsifier check + re-underwrite — detection is state-independent, the action branches on state',
-      lead: createElement(
-        'span',
-        null,
-        'There are not separate watchlist and holdings monitors. ',
-        gold('One cadence engine'),
-        ' runs the same falsifier check and re-underwrite across the whole list — the detection logic does not depend on which state a name is in. What differs is the ',
-        gold('action'),
-        ' the engine can take, which branches on state. The worker is dry-run and mock-safe for this alpha: it observes and drafts, it never executes.',
-      ),
-      children: createElement(
-        'div',
-        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
-        cardGrid([
-          { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
-          { key: 'tranche', eyebrow: 'Pullback review (held)', body: 'A price 10% or 20% below your entry triggers a thesis re-check first, then an alert (the worker\u2019s own review rungs) — never mechanical averaging-down.' },
-          { key: 'conc', eyebrow: 'Concentration (held)', body: 'A held position that APPRECIATES past the concentration-review threshold raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim, and nothing here executes or blocks a buy (the harness never trades).' },
-          { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
-          { key: 'rereview', eyebrow: 'Check-in (any decided name; quarterly rhythm)', body: 'The filings that appeared SINCE a decision (weighted by 8-K item code — impairments and executive departures are strong signals, routine earnings announcements are not) are grounded and compared against the recorded thesis and its break triggers. The output is a DIFF, never a fresh verdict: INTACT, WEAKENED, BROKEN — or honestly INCONCLUSIVE / UNVERIFIED when the evidence cannot support a call. A BROKEN thesis on a held name escalates a full re-run DRAFT; you launch it from the dossier, watchlist, or portfolio, or via a worker tick.' },
-        ]),
-        caveat(
-          createElement(
-            'span',
-            null,
-            gold('The action is yours: '),
-            'when the falsifier trips on a WATCHED name, the engine flags it as deteriorating — and stops there. The watchlist row carries the human-authored ',
-            gold('Remove from watchlist'),
-            ' (a recorded prune, with your reason); the engine itself never prunes a name. A deteriorating watched name never looks healthy, and it never disappears without your signature.',
-          ),
-        ),
-      ),
-    }),
-    PanelSection({
-      eyebrow: 'Sell discipline',
-      title: 'A sell needs a reason — price is an input, never a cause',
-      lead: createElement(
-        'span',
-        null,
-        'A HELD name gets an advisory ',
-        gold('sell decision'),
-        ' on-demand — worst-case first, then a verdict. It is bounded by the recommendation and never trades: ',
-        gold('the close is human-authored'),
-        ', and there is no auto-sell. A sale needs one of four real reasons; a falling price alone is never one of them.',
-      ),
-      children: createElement(
-        'div',
-        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
-        cardGrid([
-          { key: 'thesis', eyebrow: 'Thesis broke', body: 'The durable advantage or the original bet no longer holds — the reason you bought is gone.' },
-          { key: 'inverted', eyebrow: 'Valuation inverted', body: createElement('span', null, 'Price reached the frozen intrinsic value. The Pabrai recant: do NOT sell winners at 90–95% of IV — this fires only at/above ', mono(pct(SELL_IV_FRACTION)), ' of the sign-off-frozen IV (a hard threshold, biased to hold below it).') },
-          { key: 'better', eyebrow: 'Better opportunity', body: createElement('span', null, 'A materially higher net owner-earnings yield — at least ', mono(pct(BETTER_OPP_MIN_MARGIN, 1)), ' after switching friction — and it ALSO always needs human sign-off.') },
-          { key: 'mistake', eyebrow: 'Original mistake', body: 'The underwriting was wrong from the start — admit it and exit, rather than anchor to the entry price.' },
-        ], '220px'),
-        bullets([
-          createElement('span', { key: 1 }, gold('No stop-loss'), ' — price is an INPUT to "are we at a loss?", never the CAUSE of a sale. The harness never sells just because a quote fell.'),
-          createElement('span', { key: 2 }, gold('The minimum-hold guard consumes the fixable-vs-permanent judgment'), ' — it is NOT a clock. A trigger inside the ~', mono(`${MIN_HOLD_MONTHS}-month`), ' window is held only when the problem is judged ', gold('fixable / temporary'), '; a ', gold('permanent impairment'), ' releases a sell review even inside the window. When the judgment is ', gold('unresolved'), ', the decision escalates to ', gold('human review'), ' rather than defaulting either way.'),
-          createElement('span', { key: 3 }, gold('Guard-held is the correct posture'), ' — when the guard holds a fixable problem, that is the disposition brake working as designed, surfaced as a positive state, not a warning.'),
-          createElement('span', { key: 4 }, gold('Bias guards (advisory)'), ' — disposition (holding to avoid realizing a loss) and anchoring (fixating on the entry price) are surfaced as advisory caveats; they never block or change the decision.'),
-        ]),
-        caveat('Honest scope: the sell decision is advisory and bounded by the recommendation — it leads with the concrete worst case (downside floor + its basis = a reliability signal), runs the four triggers + the minimum-hold guard + the bias guards, and stops there. The exit itself is always authored and signed by you; the harness never closes a holding.'),
-      ),
-    }),
-    PanelSection({
-      eyebrow: 'Learning loop',
-      title: 'Post-mortems and calibration',
-      lead: 'Every exited position gets a post-mortem — thesis versus outcome, which lane was most wrong, whether the gates and the model’s buy-below reasoning held. Those live in the append-only ledger. The system learns through its parameters, never through loosened judgment.',
-    }),
-  )
-}
-
 // 5 — Shariah by Design
 function ShariahTab(): ReactNode {
   return createElement(
@@ -701,7 +595,6 @@ export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
   { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
-  { id: 'lifecycle', label: 'Lifecycle', render: LifecycleTab },
   { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },
   { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },
   { id: 'cli', label: 'The CLI', render: CliTab },
