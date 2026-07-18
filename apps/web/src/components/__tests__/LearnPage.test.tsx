@@ -60,13 +60,13 @@ describe('LearnPage source', () => {
     expect(tabsSource).not.toContain('transcripts')
   })
 
-  it('the Judgment tab matches the mechanisms: base-rate burdens are FLAGGED (never auto-rejected)', () => {
-    // Mechanism 3 flags base_rate_burden_unmet and surfaces it — synthesis does not reject.
-    expect(tabsSource).not.toContain('Synthesis rejects inside-view')
+  it('the Judgment Objectivity tab is removed (owner 2026-07-18) — the surviving points live on Swarm/Sources', () => {
+    expect(tabsSource).not.toContain('Judgment Objectivity')
+    expect(tabsSource).not.toContain("id: 'judgment'")
+    // The Swarm synthesis bullet carries the accurate base-rate semantics (flag, never auto-reject).
     expect(tabsSource).toContain('never silently passed')
-  })
-
-  it('the Judgment tab does not list the retired runway axis as a live judgment (C2 2026-07-12)', () => {
+    expect(tabsSource).not.toContain('Synthesis rejects inside-view')
+    // The retired runway axis stays out (C2 2026-07-12).
     expect(tabsSource).not.toContain('moat, runway')
     expect(tabsSource).not.toContain('and runway are')
   })

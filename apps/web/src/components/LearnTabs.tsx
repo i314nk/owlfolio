@@ -284,7 +284,7 @@ function SwarmTab(): ReactNode {
         createElement('span', { key: 1 }, gold('Front gates'), ' — the grounded Shariah sector judgment (plus the deterministic AAOIFI ratios when computable) runs first, on the harness-verified annual filing; then the circle-of-competence judgment — durable predictability, cite-verified — decides whether the deep dive is worth spending on.'),
         createElement('span', { key: 2 }, gold('Pillar lanes'), ` — ${LANE_COUNT} specialist lanes (Buffett's pillars: understand, moat, management) ground their own claims; understand + moat run first and the MOAT GATE ends a below-gate case before management/valuation spend.`),
         createElement('span', { key: 3 }, gold('Valuation judgment'), ' — a dedicated grounded stage owns the owner-earnings bridge, assumed growth, and buy-below (cite-checked); the harness computes the margin-of-safety GRADE arithmetically against a uniform required margin — the model never grades its own margin.'),
-        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced, and the cite-checked case against the thesis weighed before any verdict.'),
+        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, the base-rate burden checked (an unmet burden is flagged on the verdict, never silently passed), and the cite-checked case against the thesis weighed before any verdict.'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
       ]),
     }),
@@ -357,31 +357,6 @@ function SourcesTab(): ReactNode {
         'Comparing freshly-discovered filings against the persisted ledger yields the "what is new since the decision" delta — the substrate for thesis re-reviews.',
       ]),
     }),
-  )
-}
-
-// 4 — Judgment Objectivity
-function JudgmentTab(): ReactNode {
-  return createElement(
-    'div',
-    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
-    PanelSection({
-      eyebrow: 'Grounded judgment, not a scoring machine',
-      title: 'The model judges; grounding and an adversarial pass keep it honest',
-      lead: 'The frontier model makes the judgments — circle, moat, growth, the verdict. What makes a judgment trustworthy is not a rubric that scores it into a tier; it is that every claim is grounded in a fetched, content-hashed source and survives an adversarial bear case. The model abstains and flags rather than fabricating. Determinism corroborates and sanity-checks; it never sets or bounds the judgment.',
-      children: cardGrid([
-        { key: 'thesis', eyebrow: 'Cite-verified theses', title: 'Claims, not scores', body: 'Circle and moat are grounded, cite-verified theses — each claim cited to a source the harness fetched and content-hashed; reinvestment runway is argued inside the valuation stage’s cited growth judgment, not as a separate axis. There is no per-row rubric, no M1–M6, no total-score-to-tier map.' },
-        { key: 'anchor', eyebrow: 'Quant corroborates', title: 'The numbers only confirm', body: 'A quant anchor read straight from the filings (ROIC, reinvestment, leverage) corroborates the thesis — but it does not set the tier or bound it. The model’s grounded argument is the judgment; the numbers either back it up or expose a contradiction.' },
-        { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any claim that beats a base rate must carry a structural exceptionality argument cited to evidence — inside-view narrative like "strong execution" does not meet the burden. An unmet burden is flagged on the verdict for the human, never silently passed.' },
-        { key: 'inversion', eyebrow: 'Inversion pass', title: 'Invert, always invert', body: 'Before synthesis, one adversarial agent — ideally on a different model — argues the case against itself. The strongest cite-checked objection (and the consensus read) is weighed by the synthesis and rendered on the dossier as the case against.' },
-        { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
-        { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings and regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
-        { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
-      ]),
-    }),
-    caveat(
-      'This layer makes judgment grounded, adversarially tested, and honest about what it cannot support — it does not manufacture a contrarian edge. A judgment that merely restates the consensus earns roughly market returns; grounding and the bear-case pass are simply how you find out whether the model’s view genuinely diverged from the market and was right.',
-    ),
   )
 }
 
@@ -726,7 +701,6 @@ export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
   { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
-  { id: 'judgment', label: 'Judgment Objectivity', render: JudgmentTab },
   { id: 'lifecycle', label: 'Lifecycle', render: LifecycleTab },
   { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },
   { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },

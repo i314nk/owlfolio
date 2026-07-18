@@ -23,11 +23,12 @@ function render(initialTabId?: string): string {
 
 describe('LearnTabs', () => {
   it('exposes the harness-spec tabs in order, including the sources and CLI tabs', () => {
+    // Judgment Objectivity was removed (owner 2026-07-18): Sources & Grounding and the Swarm tab
+    // carry the surviving points; the epistemics are properties of the swarm, not their own tab.
     expect(LEARN_TABS.map((tab) => tab.id)).toEqual([
       'strategy',
       'swarm',
       'sources',
-      'judgment',
       'lifecycle',
       'shariah',
       'tiering',
@@ -60,13 +61,6 @@ describe('LearnTabs', () => {
     // Cross-run auditability via immutable URLs
     expect(html).toContain('immutable')
     expect(html).toContain('re-fetch')
-  })
-
-  it('documents the circle-gate hardening: k-sample unanimous agreement + grounded evidence floors, settings-tunable', () => {
-    const html = render('judgment')
-    expect(html).toContain('unanimous')
-    expect(html).toContain('evidence floor')
-    expect(html).toContain('Settings')
   })
 
   it('documents model selection: reasoning-only picker + curated recommendations by tier', () => {

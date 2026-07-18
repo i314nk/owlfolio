@@ -219,13 +219,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // both the per-row-rubric and the score-to-tier matchers, each of which strips it for its own scan).
     label: 'per-row rubric / score-to-tier scoring — retired; grounded cite-verified theses, not rubric scores',
     pattern: /scored from a rubric|rubric of cite|per[-\s]row rubric|score[-\s]?to[-\s]?tier/i,
-    allow: [
-      {
-        file: 'apps/web/src/components/LearnTabs.tsx',
-        snippet: 'There is no per-row rubric, no M1–M6, no total-score-to-tier map.',
-        reason: 'LearnTabs "Claims, not scores" card NAMES the retired per-row-rubric / score-to-tier to say there is none.',
-      },
-    ],
+    // The LearnTabs "Claims, not scores" allow entry was removed with the Judgment Objectivity tab
+    // (owner, 2026-07-18) — no rendered copy names the retired rubric anymore.
+    allow: [],
   },
   {
     // CALIBRATION-AS-PARAMETER-FREEZE — DISSOLVED. The owner-curated calibration backtest desk (the
