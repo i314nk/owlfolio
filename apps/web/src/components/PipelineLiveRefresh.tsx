@@ -30,7 +30,14 @@ export function PipelineLiveRefresh({ label, intervalMs = 5000 }: { label: strin
   const router = useSafeRouter()
 
   useEffect(() => {
-    const timer = setInterval(() => { router.refresh() }, intervalMs)
+    const timer = setInterval(() => {
+      // Never yank the DOM out from under the user mid-decision: while any confirm step is open
+      // (archive / archive-all / re-run), or a button holds focus, skip this tick — an auto-refresh
+      // that replaces the row between mousedown and mouseup silently swallows the click.
+      if (document.querySelector('[data-testid$="-confirm"]') !== null) return
+      if (document.activeElement instanceof HTMLButtonElement) return
+      router.refresh()
+    }, intervalMs)
     return () => clearInterval(timer)
   }, [router, intervalMs])
 
