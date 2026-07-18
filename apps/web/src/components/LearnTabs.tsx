@@ -355,11 +355,22 @@ function SourcesTab(): ReactNode {
   )
 }
 
-// 5 — Shariah by Design
+// 5 — Optional Shariah
 function ShariahTab(): ReactNode {
   return createElement(
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    // The boundary LEADS the tab (owner, 2026-07-18): before any mechanics, say what this is not.
+    caveat(
+      createElement(
+        'span',
+        null,
+        gold('Not a fatwa. '),
+        'This is an educational project; its screens and rates are a local, optional aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Before acting on any compliance conclusion, ',
+        gold('obtain an Islamic ruling from certified Islamic scholars'),
+        '.',
+      ),
+    ),
     PanelSection({
       eyebrow: 'Enforced along the pipeline',
       title: 'Shariah is a property, not a single lane',
@@ -395,9 +406,6 @@ function ShariahTab(): ReactNode {
         createElement('span', { key: 2 }, gold('The discipline'), ' — track and pay it yourself (a spreadsheet does this honestly); confidently wrong purification amounts from stale inputs are worse than none.'),
       ]),
     }),
-    caveat(
-      'These screens and the purification rate are a local screening aid — not a fatwa, not a professional Shariah ruling, and not tax advice. Material ambiguity should be taken to a qualified Shariah adviser.',
-    ),
   )
 }
 
@@ -595,7 +603,7 @@ export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
   { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
-  { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },
+  { id: 'shariah', label: 'Optional Shariah', render: ShariahTab },
   { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },
   { id: 'cli', label: 'The CLI', render: CliTab },
 ]

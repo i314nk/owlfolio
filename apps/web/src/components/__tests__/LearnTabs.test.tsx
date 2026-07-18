@@ -191,10 +191,14 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('the harness computes')
   })
 
-  it('keeps the honest Shariah boundary (a screening aid, not a fatwa)', () => {
+  it('the Shariah tab is "Optional Shariah" and leads with the honest boundary (owner, 2026-07-18)', () => {
+    expect(LEARN_TABS.find((tab) => tab.id === 'shariah')?.label).toBe('Optional Shariah')
     const html = render('shariah')
-    expect(html.toLowerCase()).toContain('not a')
-    expect(html.toLowerCase()).toContain('fatwa')
+    const lower = html.toLowerCase()
+    // Not a fatwa; a ruling must come from certified Islamic scholars; this is an educational project.
+    expect(lower).toContain('not a fatwa')
+    expect(lower).toContain('certified islamic scholars')
+    expect(lower).toContain('educational project')
   })
 
   it('live-renders the AAOIFI financial-ratio thresholds from the exported constants (no hardcode drift)', () => {
