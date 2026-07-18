@@ -120,6 +120,58 @@ describe('generic audit activity', () => {
     expect(events[0]?.event_summary).toBe('Run progress — moat · read_source sec_10k §7 → verified')
   })
 
+  it('defaults to the decision trail: user transitions + decision-grade milestones stay, machinery drops', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+      event({ event_id: 'evt_gate', event_type: 'shariah_gate_judged', actor_type: 'provider' }),
+      event({ event_id: 'evt_fail', event_type: 'research_run_failed', actor_type: 'worker' }),
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+      event({ event_id: 'evt_price', event_type: 'price_snapshot_recorded', actor_type: 'worker' }),
+    ]))
+
+    const view = deriveAuditActivityView(events)
+    expect(view.effectiveView).toBe('decisions')
+    expect(view.events.map((e) => e.event_id).sort()).toEqual(['evt_fail', 'evt_gate', 'evt_user_open'])
+  })
+
+  it('a targeted filter (event id / type / source / query) bypasses the curation so trace links always resolve', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+    ]))
+
+    const byId = deriveAuditActivityView(events, { eventId: 'evt_progress' })
+    expect(byId.effectiveView).toBe('full')
+    expect(byId.events).toHaveLength(1)
+
+    const byType = deriveAuditActivityView(events, { eventType: 'research_run_progress_recorded' })
+    expect(byType.events).toHaveLength(1)
+  })
+
+  it('view=full shows every event, exactly as written', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+    ]))
+
+    const view = deriveAuditActivityView(events, { view: 'full' })
+    expect(view.effectiveView).toBe('full')
+    expect(view.events).toHaveLength(2)
+  })
+
+  it('renders the view toggle: decision-trail note with a full-record link by default, and the way back in full mode', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+    ]))
+
+    const decisionsHtml = renderToStaticMarkup(createElement(AuditActivityPanel, { events }))
+    expect(decisionsHtml).toContain('Decision trail')
+    expect(decisionsHtml).toContain('href="/audit?view=full"')
+
+    const fullHtml = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { view: 'full' } }))
+    expect(fullHtml).toContain('Full record')
+    expect(fullHtml).toContain('href="/audit"')
+  })
+
   it('filters by event type, actor, entity search, and reverses time ordering', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
       event({ event_id: 'evt_early_msft', aggregate_id: 'rc_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-05-30T08:00:00.000Z' }),

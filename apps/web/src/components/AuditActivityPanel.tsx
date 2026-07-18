@@ -248,6 +248,16 @@ export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: Audi
     }),
     createElement('hr', { className: 'owl-rule' }),
     createElement(AuditLedgerLine, { events, filterOptions: view.filterOptions, shownCount: view.events.length }),
+    // The view toggle: the curated decision trail is the default; the full record is one click away
+    // (a curated VIEW, never a curated ledger).
+    createElement(
+      'p',
+      { className: 'owl-row-helper', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', margin: 0 } },
+      view.effectiveView === 'decisions' ? dt('au_view_decisions_note') : dt('au_view_full_note'),
+      view.effectiveView === 'decisions'
+        ? createElement('a', { className: 'owl-focusable', href: '/audit?view=full', style: traceLinkStyle }, dt('au_view_full_link'))
+        : createElement('a', { className: 'owl-focusable', href: '/audit', style: traceLinkStyle }, dt('au_view_decisions_link')),
+    ),
     createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
     createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),
     view.events.length === 0
