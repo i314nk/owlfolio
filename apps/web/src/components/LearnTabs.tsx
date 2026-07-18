@@ -11,7 +11,6 @@ import {
   AAOIFI_CASH_SECURITIES_RATIO_MAX,
   AAOIFI_IMPERMISSIBLE_INCOME_MAX,
 } from '@owlfolio/strategies/shariahFinancialRatios'
-import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
@@ -313,14 +312,6 @@ function SwarmTab(): ReactNode {
   )
 }
 
-// The hygiene-checklist prompts, rendered LIVE from CHECKLIST_PARAMS (never a hardcoded copy of the
-// prompts) so the copy stays in sync as the owner extends the list. This is copy, not a live checklist —
-// it LISTS the prompts; it never renders a count/progress/score (a count is a score in disguise).
-function checklistPromptList(category: ChecklistCategory): ReactNode {
-  const items = CHECKLIST_PARAMS.items.filter((item) => item.category === category)
-  return bullets(items.map((item) => createElement('span', { key: item.id }, item.prompt)))
-}
-
 // 3 — Sources & Grounding (the document set + the grounding architecture)
 function SourcesTab(): ReactNode {
   return createElement(
@@ -387,58 +378,6 @@ function JudgmentTab(): ReactNode {
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings and regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
         { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
       ]),
-    }),
-    PanelSection({
-      eyebrow: 'Quality & bias hygiene',
-      title: 'Two checklists that force the question — they never score it',
-      lead: createElement(
-        'span',
-        null,
-        'Two hygiene checklists ride the workflow as ',
-        gold('prompts, not gates'),
-        ': each one names a known failure mode so you address it before committing, but nothing ',
-        gold('scores, tallies, or pass/fails'),
-        ' your answers, and a "risk present" answer never auto-rejects the case. The business list is agent-marshaled (grounded evidence beside each item on the admit checkpoint); the cognitive list is human-only. There is no checklist ceremony at sign-off — review-and-promote means the promote itself is the human commitment. The lists below are read ',
-        gold('live from the versioned checklist config'),
-        ', so they stay in sync as the owner adds failure modes learned from experience.',
-      ),
-      children: createElement(
-        'div',
-        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
-        cardGrid([
-          {
-            key: 'business',
-            eyebrow: 'Business failure modes',
-            title: 'Agent-marshaled, human-affirmed',
-            body: 'Guards the investment. The harness marshals the named persisted evidence beside each item (read-only, never a score), and YOU still affirm each one in your own words.',
-          },
-          {
-            key: 'cognitive',
-            eyebrow: 'Cognitive biases',
-            title: 'Human-only — the agent never pre-fills',
-            body: 'Guards your reasoning. Introspective and human-only: the agent never pre-fills, suggests, or seeds a cognitive answer — these are yours alone.',
-          },
-        ], '260px'),
-        createElement(
-          'div',
-          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
-          createElement(
-            'div',
-            { style: { display: 'grid', gap: '0.5rem' } },
-            createElement('p', { style: microLabel }, 'Business failure modes'),
-            checklistPromptList('business'),
-          ),
-          createElement(
-            'div',
-            { style: { display: 'grid', gap: '0.5rem' } },
-            createElement('p', { style: microLabel }, 'Cognitive biases'),
-            checklistPromptList('cognitive'),
-          ),
-        ),
-        caveat(
-          'These checklists are decision-NEUTRAL by construction: they list the questions to address; they do not auto-reject, score, rank, or block. The human plus the existing hard gates make the decision — the checklist asks the questions; the promote itself is your commitment.',
-        ),
-      ),
     }),
     caveat(
       'This layer makes judgment grounded, adversarially tested, and honest about what it cannot support — it does not manufacture a contrarian edge. A judgment that merely restates the consensus earns roughly market returns; grounding and the bear-case pass are simply how you find out whether the model’s view genuinely diverged from the market and was right.',

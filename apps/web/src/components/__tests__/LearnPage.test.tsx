@@ -60,12 +60,20 @@ describe('LearnPage source', () => {
     expect(tabsSource).not.toContain('transcripts')
   })
 
-  it('the Judgment tab matches the mechanisms: base-rate burdens are FLAGGED (never auto-rejected) and checklists never block', () => {
+  it('the Judgment tab matches the mechanisms: base-rate burdens are FLAGGED (never auto-rejected)', () => {
     // Mechanism 3 flags base_rate_burden_unmet and surfaces it — synthesis does not reject.
     expect(tabsSource).not.toContain('Synthesis rejects inside-view')
     expect(tabsSource).toContain('never silently passed')
-    // The promote is never gated — the checklist asks; it cannot refuse a sign-off.
-    expect(tabsSource).not.toContain('refuses to let a sign-off through')
+  })
+
+  it('the hygiene checklists section is removed (owner 2026-07-18: no user-facing checklist exists)', () => {
+    // The cognitive list was never presented anywhere; the business list survives only as invisible
+    // audit provenance on the promote event. Docs must not describe an experience that does not exist.
+    expect(tabsSource).not.toContain('Quality & bias hygiene')
+    expect(tabsSource).not.toContain('CHECKLIST_PARAMS')
+    const strategySource = readFileSync('apps/web/src/components/StrategyOverview.tsx', 'utf8')
+    expect(strategySource).not.toContain('Quality & bias hygiene')
+    expect(strategySource).not.toContain('CHECKLIST_PARAMS')
   })
 
   it('the Shariah tab documents the screening toggle honestly (fail-visible OFF)', () => {
