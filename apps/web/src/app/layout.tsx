@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 
 import './globals.css'
 import { AppShell } from '../components/designSystem'
-import { localeDir, resolveLocale, resolveTheme } from '@owlfolio/shared'
+import { resolveTheme } from '@owlfolio/shared'
 
 import { getOnboardingState } from '../lib/onboarding'
 import { resolveActiveModeStatus } from '../lib/resolveActiveModeStatus'
@@ -19,11 +19,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const activeModeStatus = await resolveActiveModeStatus(onboarding.config)
   const modelSwitcher = await resolveModelSwitcher(onboarding.config)
   const theme = resolveTheme(onboarding.config.appearance)
-  const locale = resolveLocale(onboarding.config.language)
 
   return createElement(
     'html',
-    { 'data-owl-theme': theme, dir: localeDir(locale), lang: locale },
+    { 'data-owl-theme': theme, dir: 'ltr', lang: 'en' },
     createElement(
       'body',
       null,
@@ -33,7 +32,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           isSetupComplete: onboarding.is_initialized,
           activeModeStatus,
           theme,
-          locale,
           ...(modelSwitcher === undefined ? {} : { modelSwitcher }),
         },
         children,

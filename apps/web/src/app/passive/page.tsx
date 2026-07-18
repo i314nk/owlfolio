@@ -3,11 +3,9 @@
 // passive foundation as pedagogy: keep market exposure via broad ETFs, contribute on a schedule,
 // never sell the sleeve — plus named Shariah-compliant ETF candidates, clearly labeled educational
 // content, not advice. Nothing on this page reads or writes the ledger.
-import { resolveLocale } from '@owlfolio/shared'
 
 import { RouteHeader } from '../../components/designSystem'
-import { englishContentNote, t } from '../../lib/i18n'
-import { getOnboardingState } from '../../lib/onboarding'
+import { t } from '../../lib/i18n'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,21 +37,14 @@ const ETFS = [
 ]
 
 export default async function PassivePage() {
-  const locale = resolveLocale((await getOnboardingState()).config.language)
-  const note = englishContentNote(locale)
   return (
     <main className="owl-route-frame">
       <RouteHeader
-        kicker={t(locale, 'ps_kicker')}
-        title={t(locale, 'ps_title')}
-        description={t(locale, 'ps_desc')}
+        kicker={t('ps_kicker')}
+        title={t('ps_title')}
+        description={t('ps_desc')}
       />
       <hr className="owl-rule" />
-      {note === undefined ? null : (
-        <p data-testid="english-content-note" dir="rtl" className="owl-row-helper" style={{ border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '1rem 0 0', padding: '0.6rem 0.8rem' }}>
-          {note}
-        </p>
-      )}
 
       <section className="owl-section-card" aria-label="The passive principles">
         <p className="owl-section-accent">The passive foundation</p>

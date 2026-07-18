@@ -7,10 +7,8 @@ import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { ResearchCaseActions } from './ResearchCaseActions'
 import { StartResearchButton } from './StartResearchButton'
-import { resolveLocale } from '@owlfolio/shared'
 
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
-import { englishContentNote } from '../../../lib/i18n'
 import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
@@ -69,7 +67,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             <p className="owl-empty-state-kicker">Research run failed</p>
             <h2 className="owl-section-title">This research run did not complete</h2>
             <p className="owl-empty-state-description">
-              The research worker reported a failure for <code>{caseId}</code>
+              The research worker reported a failure for <code translate="no">{caseId}</code>
               {view.error_summary === undefined ? '.' : `: ${view.error_summary}`}{' '}
               {view.ticker !== undefined
                 ? 'Use “Re-run on current engine” above to start a fresh run for this ticker, or start a new research case from the command center.'
@@ -194,11 +192,6 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             Archived — hidden from the active research library and pipeline. Still in the ledger.
           </p>
         ) : null}
-        {englishContentNote(resolveLocale(state.config.language)) === undefined ? null : (
-          <p data-testid="english-content-note" dir="rtl" className="owl-row-helper" style={{ border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '0 0 var(--owl-space-3)', padding: '0.6rem 0.8rem' }}>
-            {englishContentNote(resolveLocale(state.config.language))}
-          </p>
-        )}
         <ResearchCasePanel
           researchCase={researchCase}
           mode={state.config.mode}
@@ -206,7 +199,6 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           {...(state.config.savings !== undefined ? { savings: state.config.savings } : {})}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
           shariahEnabled={state.config.shariah.enabled}
-          locale={resolveLocale(state.config.language)}
         />
       </main>
     )

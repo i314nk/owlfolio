@@ -349,7 +349,7 @@ export function renderModelSelection(
       },
       ...models.map((model) => createElement(
         'option',
-        { key: model.model_id, value: model.model_id },
+        { key: model.model_id, value: model.model_id, translate: 'no' },
         `${model.model_id} — ${model.note}`,
       )),
     ),
@@ -427,12 +427,12 @@ function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveM
       { id: datalistId },
       ...curated.map((model) => createElement(
         'option',
-        { key: `curated:${model.model_id}`, value: model.model_id },
+        { key: `curated:${model.model_id}`, value: model.model_id, translate: 'no' },
         `${model.model_id} — recommended · ${model.note}`,
       )),
       ...liveOnly.map((model) => createElement(
         'option',
-        { key: `live:${model.id}`, value: model.id },
+        { key: `live:${model.id}`, value: model.id, translate: 'no' },
         model.name,
       )),
     ),

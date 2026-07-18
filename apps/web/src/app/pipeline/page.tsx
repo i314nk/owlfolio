@@ -1,6 +1,5 @@
 import { buildPipelineDrillDown, projectPipeline } from '@owlfolio/ledger/projections/pipelineProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveLocale } from '@owlfolio/shared'
 
 import { PipelineObservatory } from '../../components/PipelineObservatory'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
@@ -45,7 +44,6 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
           pipeline={pipeline}
           mode={state.config.mode}
           shariahEnabled={state.config.shariah.enabled}
-          locale={resolveLocale(state.config.language)}
           {...(drillDown !== undefined ? { drillDown } : {})}
           {...(selectedRun !== undefined ? { selectedCaseId: selectedRun.research_case_id } : {})}
         />

@@ -1,7 +1,6 @@
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { projectLatestPriceSnapshots } from '@owlfolio/ledger/projections/priceSnapshotProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveLocale } from '@owlfolio/shared'
 
 import { RefreshPricesButton } from '../../components/RefreshPricesButton'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
@@ -28,7 +27,7 @@ export default async function WatchlistPage() {
         </a>
         <RefreshPricesButton />
       </div>
-      <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} shariahEnabled={state.config.shariah.enabled} locale={resolveLocale(state.config.language)} />
+      <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} shariahEnabled={state.config.shariah.enabled} />
     </main>
   )
 }

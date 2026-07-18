@@ -93,7 +93,7 @@ export function ActiveModelSwitcher({ switcher }: ActiveModelSwitcherProps) {
           'optgroup',
           { key: provider.provider_id, label: provider.label },
           ...provider.models.map((model) =>
-            createElement('option', { key: model.model_id, value: encode(provider.provider_id, model.model_id) }, model.model_id),
+            createElement('option', { key: model.model_id, value: encode(provider.provider_id, model.model_id), translate: 'no' }, model.model_id),
           ),
         ),
       ),

@@ -1,13 +1,12 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { ArchiveAllRunsButton } from './ArchiveAllRunsButton'
 import { ArchiveRunButton } from './ArchiveRunButton'
 import { PipelineLiveRefresh } from './PipelineLiveRefresh'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { RouteHeader } from './designSystem'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import type {
   PipelineDrillDown,
   PipelineFailedRun,
@@ -29,13 +28,10 @@ export type PipelineObservatoryProps = {
   /** SCREENING TOGGLE (owner, 2026-07-16): false renders the Shariah-gate stage as OFF. */
   shariahEnabled?: boolean
   /** i18n: the page chrome language (projection data stays as recorded). */
-  locale?: OwlLocale
 }
 
 // i18n: render-scoped locale — set once per page render; all helpers run inside the same
 // synchronous server render pass.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 // VIEW WINDOW (owner-approved 2026-07-18): finished runs (done/rejected) older than this leave the
 // observatory's table — their permanent home is the Research library. Active, failed, and the
@@ -187,14 +183,14 @@ function sectionHead(accent: string, title: string, note?: string, titleColor?: 
 
 function LedgerLine({ summary }: { summary: PipelineProjection['summary'] }): ReactNode {
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_active'), value: String(summary.active_runs) },
-    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_awaiting'), value: String(summary.awaiting_approval) },
+    { figureClass: 'owl-ledger-figure', label: t('pp_stat_active'), value: String(summary.active_runs) },
+    { figureClass: 'owl-ledger-figure', label: t('pp_stat_awaiting'), value: String(summary.awaiting_approval) },
     {
       figureClass: `owl-ledger-figure ${summary.failed_recent > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald'}`,
-      label: dt('pp_stat_failed'),
+      label: t('pp_stat_failed'),
       value: String(summary.failed_recent),
     },
-    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: dt('pp_stat_sources'), value: String(summary.grounded_sources) },
+    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: t('pp_stat_sources'), value: String(summary.grounded_sources) },
   ]
 
   return createElement(
@@ -346,7 +342,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
     return createElement(
       'div',
       { className: 'owl-row', style: { color: 'var(--owl-color-muted)', gridTemplateColumns: '1fr' } },
-      dt('pp_runs_empty'),
+      t('pp_runs_empty'),
     )
   }
 
@@ -411,7 +407,7 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
   return createElement(
     'section',
     { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
-    sectionHead(dt('pp_failed_accent'), dt('pp_failed_title'), dt('pp_failed_note'), 'var(--owl-color-risk-bright)'),
+    sectionHead(t('pp_failed_accent'), t('pp_failed_title'), t('pp_failed_note'), 'var(--owl-color-risk-bright)'),
     // Bulk acknowledge for a pile of failures — each archive stays an individual auditable event.
     failedRuns.length > 1
       ? createElement(
@@ -632,8 +628,7 @@ function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): Reac
 
 // ── The page ──────────────────────────────────────────────────────────────────
 
-export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true, locale = 'en' }: PipelineObservatoryProps): ReactNode {
-  panelLocale = locale
+export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true }: PipelineObservatoryProps): ReactNode {
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
 
   const snapshotTime = snapshot_at !== undefined
@@ -653,9 +648,9 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     'section',
     { 'aria-label': 'Pipeline observatory', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: dt('pp_kicker'),
-      title: dt('pp_title'),
-      description: dt('pp_desc'),
+      kicker: t('pp_kicker'),
+      title: t('pp_title'),
+      description: t('pp_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
 
@@ -666,7 +661,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
       ? createElement(
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' } },
-          summary.active_runs > 0 ? createElement(PipelineLiveRefresh, { label: dt('pp_live') }) : null,
+          summary.active_runs > 0 ? createElement(PipelineLiveRefresh, { label: t('pp_live') }) : null,
           snapshotTime !== undefined
             ? createElement('p', { style: { ...monoMeta, margin: 0 } }, `Snapshot taken at ${snapshotTime}`)
             : null,
@@ -677,7 +672,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead(dt('pp_flow_accent'), dt('pp_flow_title'), dt('pp_flow_note')),
+      sectionHead(t('pp_flow_accent'), t('pp_flow_title'), t('pp_flow_note')),
       // SCREENING OFF: the gate stage reads OFF (gray dot) — the funnel never implies a screen that
       // is not running. The count stays (historical + DISABLED pass-throughs still move through it).
       createElement(StageFlowMap, {
@@ -711,13 +706,13 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead(dt('pp_verdict_accent'), dt('pp_verdict_title'), dt('pp_verdict_note')),
+      sectionHead(t('pp_verdict_accent'), t('pp_verdict_title'), t('pp_verdict_note')),
       // Collapsed by default: the legend is identical every visit — page space goes to what needs
       // the user now. The states stay one click away.
       createElement(
         'details',
         null,
-        createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, dt('pp_legend_toggle')),
+        createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, t('pp_legend_toggle')),
         createElement('div', { style: { marginTop: '0.6rem' } }, createElement(VerdictStateLegend)),
       ),
     ),
@@ -726,16 +721,16 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead(dt('pp_runs_accent'), dt('pp_runs_title'), dt('pp_runs_note')),
+      sectionHead(t('pp_runs_accent'), t('pp_runs_title'), t('pp_runs_note')),
       createElement(RunsTable, { runs: visibleRuns, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
       // The view window is visible, never silent: say how many finished runs left the table.
       hiddenFinishedCount > 0
         ? createElement(
             'p',
             { style: sectionNoteStyle },
-            hiddenFinishedCount === 1 ? dt('pp_hidden_finished_one') : dt('pp_hidden_finished_many').replace('{count}', String(hiddenFinishedCount)),
+            hiddenFinishedCount === 1 ? t('pp_hidden_finished_one') : t('pp_hidden_finished_many').replace('{count}', String(hiddenFinishedCount)),
             ' ',
-            createElement('a', { className: 'owl-focusable', href: '/research', style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' } }, dt('pp_open_library')),
+            createElement('a', { className: 'owl-focusable', href: '/research', style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' } }, t('pp_open_library')),
           )
         : null,
     ),
@@ -750,7 +745,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
         ? createElement(
             'p',
             { style: sectionNoteStyle },
-            dt('pp_select_run'),
+            t('pp_select_run'),
           )
         : null,
   )

@@ -1,6 +1,5 @@
 import { createElement, Fragment } from 'react'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { OwlButtonLink, OwlValuationChip, RouteHeader } from './designSystem'
 import { createPriceLadderElement } from './PriceLadder'
@@ -20,12 +19,9 @@ export type WatchlistPanelProps = {
   /** SCREENING TOGGLE (owner, 2026-07-15): false hides the purification-rate surfaces. */
   shariahEnabled?: boolean
   /** i18n: the page chrome language (row data stays as recorded). */
-  locale?: OwlLocale
 }
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
   urgent: 'danger',
@@ -75,8 +71,7 @@ function zoneSort(a: AppWatchlistItem, b: AppWatchlistItem): number {
   return da - db
 }
 
-export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], shariahEnabled = true, locale = 'en' }: WatchlistPanelProps) {
-  panelLocale = locale
+export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], shariahEnabled = true }: WatchlistPanelProps) {
   // ONE HOME PER NAME (owner, 2026-07-14): a HELD name lives on the portfolio — it leaves the
   // watchlist board while its holding is open (the item itself survives in the ledger and returns
   // to plain watching when the holding closes).
@@ -91,9 +86,9 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], sh
     return [
       createElement(
         'section',
-        { key: `band-${band}`, 'aria-label': dt(meta.title), 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-        createElement('p', { className: 'owl-section-accent' }, `${dt(meta.title)} · ${bandItems.length}`),
-        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt(meta.note)),
+        { key: `band-${band}`, 'aria-label': t(meta.title), 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+        createElement('p', { className: 'owl-section-accent' }, `${t(meta.title)} · ${bandItems.length}`),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, t(meta.note)),
         ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alertMatchesItem(alert, item)), band, shariahEnabled)),
       ),
     ]
@@ -103,9 +98,9 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], sh
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: dt('wl_kicker'),
-      title: dt('wl_title'),
-      description: dt('wl_desc'),
+      kicker: t('wl_kicker'),
+      title: t('wl_title'),
+      description: t('wl_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
     createLedgerLine(watching, heldCount),
@@ -174,16 +169,16 @@ function createLedgerLine(items: AppWatchlistItem[], heldCount: number) {
   const gateClear = items.filter((item) => item.shariah_gate_allowed === true).length
 
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: '', label: dt('wl_stat_tracked'), value: String(items.length) },
+    { figureClass: '', label: t('wl_stat_tracked'), value: String(items.length) },
     {
       figureClass: awaiting > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald',
-      label: dt('wl_stat_awaiting'),
+      label: t('wl_stat_awaiting'),
       value: String(awaiting),
     },
-    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_confirmed'), value: String(confirmed) },
-    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_gate_clear'), value: String(gateClear) },
+    { figureClass: 'owl-ledger-figure-emerald', label: t('wl_stat_confirmed'), value: String(confirmed) },
+    { figureClass: 'owl-ledger-figure-emerald', label: t('wl_stat_gate_clear'), value: String(gateClear) },
     // Held names live on the PORTFOLIO — one home per name.
-    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_held'), value: String(heldCount) },
+    { figureClass: 'owl-ledger-figure-emerald', label: t('wl_stat_held'), value: String(heldCount) },
   ]
 
   return createElement(
@@ -202,16 +197,16 @@ function createEmptyState(heldCount = 0) {
   return createElement(
     'section',
     { 'aria-label': 'Empty watchlist', className: 'owl-section-card' },
-    createElement('p', { className: 'owl-section-accent' }, dt('wl_kicker')),
-    createElement('h2', { className: 'owl-section-title' }, dt('wl_empty_title')),
+    createElement('p', { className: 'owl-section-accent' }, t('wl_kicker')),
+    createElement('h2', { className: 'owl-section-title' }, t('wl_empty_title')),
     createElement(
       'p',
       { className: 'owl-body', style: { margin: 0 } },
       heldCount > 0
         ? heldCount === 1
-          ? dt('wl_empty_held_one')
-          : dt('wl_empty_held_many').replace('{count}', String(heldCount))
-        : dt('wl_empty_body'),
+          ? t('wl_empty_held_one')
+          : t('wl_empty_held_many').replace('{count}', String(heldCount))
+        : t('wl_empty_body'),
     ),
   )
 }

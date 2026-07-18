@@ -271,39 +271,6 @@ describe('WatchlistPanel thesis honesty', () => {
 })
 
 describe('WatchlistPanel i18n', () => {
-  it('renders the page chrome in Arabic when locale is ar (row data stays as recorded)', () => {
-    const html = renderToStaticMarkup(createElement(WatchlistPanel, {
-      locale: 'ar',
-      mode: 'personal-local',
-      items: [
-        item({ watchlist_item_id: 'w_ar', ticker: 'COST', verdict: { state: 'WATCH', proposed_buy_below: 100, market_price_per_share: 130, distance_to_buy_pct: 30 } }),
-      ],
-    }))
-    // Header, stats, and band chrome follow the locale…
-    expect(html).toContain('قائمة المراقبة')
-    expect(html).toContain('بانتظار قرارك')
-    expect(html).toContain('فوق المنطقة — انتظار')
-    expect(html).not.toContain('Above the zone — waiting')
-    expect(html).not.toContain('Candidates tracked')
-    // …while row data does not.
-    expect(html).toContain('COST')
-    expect(html).toContain('buy ≤ $100.00')
-  })
-
-  it('renders the Arabic empty state, including the held-elsewhere variant', () => {
-    const emptyHtml = renderToStaticMarkup(createElement(WatchlistPanel, { locale: 'ar', mode: 'personal-local', items: [] }))
-    expect(emptyHtml).toContain('لا مرشحين متابَعين بعد')
-    expect(emptyHtml).not.toContain('No candidates tracked yet')
-
-    const heldHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
-      locale: 'ar',
-      mode: 'personal-local',
-      items: [item({ watchlist_item_id: 'w_held', ticker: 'KO', holding_id: 'h_ko' })],
-    }))
-    expect(heldHtml).toContain('المحفظة')
-    expect(heldHtml).not.toContain('on the portfolio')
-  })
-
   it('defaults the page chrome to English when no locale is given', () => {
     const html = render([])
     expect(html).toContain('Watchlist desk')

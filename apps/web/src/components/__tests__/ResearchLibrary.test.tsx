@@ -360,33 +360,6 @@ describe('ResearchLibrary', () => {
     expect(html).not.toContain('owl-ledger-label">Open files')
   })
 
-  it('renders the page chrome in Arabic when locale is ar (case data stays as recorded)', () => {
-    const html = renderToStaticMarkup(
-      createElement(ResearchLibrary, {
-        mode: 'personal-local',
-        selectedStrategyName: 'Buffett 4-Pillar',
-        locale: 'ar',
-        cases: [
-          researchCase({
-            research_case_id: 'rc_msft_ar',
-            ticker: 'MSFT',
-            stage: 'decision_drafted',
-            decision: 'BUY',
-          }),
-        ],
-      }),
-    )
-    // Header + stats + group chrome follow the locale…
-    expect(html).toContain('مكتبة البحث')
-    expect(html).toContain('الأرشيف')
-    expect(html).toContain('قيد التنفيذ')
-    expect(html).toContain('مرشحات الشراء')
-    expect(html).not.toContain('Research library')
-    expect(html).not.toContain('Buy candidates')
-    // …while recorded case data does not.
-    expect(html).toContain('MSFT')
-  })
-
   it('defaults the page chrome to English when no locale is given', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {

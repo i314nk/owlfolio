@@ -1,9 +1,8 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import type { DataSafetyViewModel } from '../lib/dataSafety'
-import { englishContentNote, t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import { BulkResetControl } from './BulkResetControl'
 import { RouteHeader } from './designSystem'
 import { StatusBadge } from './StatusBadge'
@@ -15,13 +14,10 @@ export type DataSafetyPanelProps = {
    * reset control is ABSENT — not a disabled stub.
    */
   bulkResetEnabled?: boolean
-  locale?: OwlLocale
 }
 
 // i18n: render-scoped locale — page chrome follows the locale; the status surfaces and technical
 // vocabulary stay English until properly translated (the english-content note says so off-English).
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 /** Inline mono path/identifier styling (globals.css is not editable in this lane). */
 const codeStyle = {
@@ -32,7 +28,7 @@ const codeStyle = {
 }
 
 function Code({ children }: { children: ReactNode }) {
-  return createElement('code', { style: codeStyle }, children)
+  return createElement('code', { style: codeStyle, translate: 'no' }, children)
 }
 
 /**
@@ -43,9 +39,7 @@ function Code({ children }: { children: ReactNode }) {
  * honest state of restore is today. Local-first and conservative throughout —
  * status and proposal evidence only, never a destructive control.
  */
-export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false, locale = 'en' }: DataSafetyPanelProps) {
-  panelLocale = locale
-  const note = englishContentNote(locale)
+export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false }: DataSafetyPanelProps) {
   return createElement(
     'main',
     { className: 'owl-route-frame owl-route-frame-narrow owl-data-safety-page' },
@@ -54,16 +48,11 @@ export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false, locale =
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
     createElement(RouteHeader, {
-      kicker: dt('sd_kicker'),
-      title: dt('sd_title'),
-      description: dt('sd_desc'),
+      kicker: t('sd_kicker'),
+      title: t('sd_title'),
+      description: t('sd_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
-    note === undefined ? null : createElement(
-      'p',
-      { 'data-testid': 'english-content-note', dir: 'rtl', className: 'owl-row-helper', style: { border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '1rem 0 0', padding: '0.6rem 0.8rem' } },
-      note,
-    ),
     createPrivacyBoundary(),
     createManifestSnapshot(dataSafety),
     createIncludedCategories(dataSafety),

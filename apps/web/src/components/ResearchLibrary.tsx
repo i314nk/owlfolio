@@ -1,7 +1,6 @@
 import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import type { ResearchCaseProjection, ResearchCaseStage } from '@owlfolio/ledger/projections/researchCaseProjection'
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { titleCaseEntityName } from '../lib/entityName'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
@@ -12,8 +11,6 @@ import { recordedThesis } from '../lib/thesisDisplay'
 import type { WorkflowMode } from '../lib/workflow'
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 function humanRelativeDate(isoString: string): string {
   const diffMs = Date.now() - Date.parse(isoString)
@@ -38,7 +35,6 @@ export type ResearchLibraryProps = {
   selectedStrategyName: string
   cases: ResearchCaseProjection[]
   /** i18n: the page chrome language (case data stays as recorded). */
-  locale?: OwlLocale
 }
 
 // Internal ledger slugs ("company_cost") are machine ids, never display names — a card without a
@@ -383,18 +379,18 @@ function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactN
   const count = cases.length
   return createElement(
     'section',
-    { key: group.kind, 'aria-label': dt(group.title), className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    { key: group.kind, 'aria-label': t(group.title), className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
     createElement(
       'div',
       { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' } },
       createElement(
         'div',
         { style: { display: 'grid', gap: '0.2rem' } },
-        createElement('p', { className: 'owl-section-accent' }, dt(group.eyebrow)),
-        createElement('h2', { className: 'owl-section-title' }, dt(group.title)),
-        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt(group.description)),
+        createElement('p', { className: 'owl-section-accent' }, t(group.eyebrow)),
+        createElement('h2', { className: 'owl-section-title' }, t(group.title)),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, t(group.description)),
       ),
-      createElement('span', { style: metaChipStyle }, `${count} ${count === 1 ? dt('rl_case_one') : dt('rl_case_many')}`),
+      createElement('span', { style: metaChipStyle }, `${count} ${count === 1 ? t('rl_case_one') : t('rl_case_many')}`),
     ),
     createElement(
       'div',
@@ -404,8 +400,7 @@ function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactN
   )
 }
 
-export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, locale = 'en' }: ResearchLibraryProps): ReactNode {
-  panelLocale = locale
+export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases }: ResearchLibraryProps): ReactNode {
   // Latest version per company: keep only non-superseded cases, then dedupe by ticker keeping the highest version.
   const latestByTicker = new Map<string, ResearchCaseProjection>()
   for (const researchCase of cases) {
@@ -433,23 +428,23 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, loca
 
   const countOf = (kind: VerdictKind): number => (grouped.get(kind) ?? []).length
   const ledgerStats: { figureClass: string; label: string; value: number }[] = [
-    { figureClass: '', label: dt('rl_stat_cases'), value: latest.length },
-    { figureClass: 'owl-ledger-figure-emerald', label: dt('rl_stat_buys'), value: countOf('buy') },
-    { figureClass: '', label: dt('rl_stat_watch'), value: countOf('watch') },
-    { figureClass: '', label: dt('rl_stat_in_progress'), value: countOf('in_progress') },
-    { figureClass: 'owl-ledger-figure-risk', label: dt('rl_stat_set_aside'), value: countOf('avoid') + countOf('pass') },
+    { figureClass: '', label: t('rl_stat_cases'), value: latest.length },
+    { figureClass: 'owl-ledger-figure-emerald', label: t('rl_stat_buys'), value: countOf('buy') },
+    { figureClass: '', label: t('rl_stat_watch'), value: countOf('watch') },
+    { figureClass: '', label: t('rl_stat_in_progress'), value: countOf('in_progress') },
+    { figureClass: 'owl-ledger-figure-risk', label: t('rl_stat_set_aside'), value: countOf('avoid') + countOf('pass') },
   ]
 
   const newResearchAction = createElement(
     OwlButtonLink,
     { href: '/research/new', variant: 'primary' },
-    dt('rl_new_research'),
+    t('rl_new_research'),
   )
 
   const intakeLink = createElement(
     'a',
     { className: 'owl-button owl-button-secondary owl-focusable', href: '/research/new' },
-    dt('rl_manual_intake'),
+    t('rl_manual_intake'),
   )
 
   const pipelineLink = createElement(
@@ -459,7 +454,7 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, loca
       href: '/pipeline',
       style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' },
     },
-    dt('rl_pipeline_link'),
+    t('rl_pipeline_link'),
   )
 
   const populatedGroups = GROUP_ORDER.filter((group) => (grouped.get(group.kind) ?? []).length > 0)
@@ -468,9 +463,9 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, loca
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: dt('rl_kicker'),
-      title: dt('rl_title'),
-      description: dt('rl_desc'),
+      kicker: t('rl_kicker'),
+      title: t('rl_title'),
+      description: t('rl_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
 
@@ -496,16 +491,16 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, loca
         createElement(
           'div',
           { style: { display: 'grid', gap: '0.25rem' } },
-          createElement('p', { className: 'owl-section-accent' }, dt('rl_start_accent')),
-          createElement('h2', { className: 'owl-section-title' }, dt('rl_start_title')),
-          createElement('p', { className: 'owl-row-helper', style: { margin: 0, maxWidth: '40rem' } }, dt('rl_start_helper')),
+          createElement('p', { className: 'owl-section-accent' }, t('rl_start_accent')),
+          createElement('h2', { className: 'owl-section-title' }, t('rl_start_title')),
+          createElement('p', { className: 'owl-row-helper', style: { margin: 0, maxWidth: '40rem' } }, t('rl_start_helper')),
         ),
         createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' } }, newResearchAction, intakeLink),
       ),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--owl-color-border)', paddingTop: 'var(--owl-space-3)' } },
-        createElement('span', { style: metaChipStyle }, `${dt('rl_selected_strategy')} ${selectedStrategyName}`),
+        createElement('span', { style: metaChipStyle }, `${t('rl_selected_strategy')} ${selectedStrategyName}`),
         pipelineLink,
       ),
     ),
@@ -515,7 +510,7 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, loca
       ? createElement(
           'div',
           { style: { ...cardStyle, color: 'var(--owl-color-muted)', marginTop: 'var(--owl-space-4)' } },
-          createElement('p', { style: { margin: 0 } }, dt('rl_empty')),
+          createElement('p', { style: { margin: 0 } }, t('rl_empty')),
         )
       : createElement(
           'div',

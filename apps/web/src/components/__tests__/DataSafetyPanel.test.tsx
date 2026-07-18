@@ -58,15 +58,6 @@ describe('DataSafetyPanel', () => {
     expect(html).not.toContain('accounting, and purification context')
   })
 
-  it('i18n: the page chrome follows the locale; off-English shows the english-content note', () => {
-    const html = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'ar' }))
-    expect(html).toContain('أمان البيانات')
-    expect(html).toContain('english-content-note')
-    const en = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'en' }))
-    expect(en).toContain('Data Safety')
-    expect(en).not.toContain('english-content-note')
-  })
-
   it('SAFETY: hides the destructive bulk-reset control unless explicitly gated on', () => {
     // The most important safety property: in normal operation (no bulkResetEnabled), the dev/test
     // wholesale-clear control must be ABSENT — not a disabled stub. (The enabled render mounts a
