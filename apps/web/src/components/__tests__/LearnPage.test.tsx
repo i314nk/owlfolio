@@ -60,6 +60,14 @@ describe('LearnPage source', () => {
     expect(tabsSource).not.toContain('transcripts')
   })
 
+  it('the Judgment tab matches the mechanisms: base-rate burdens are FLAGGED (never auto-rejected) and checklists never block', () => {
+    // Mechanism 3 flags base_rate_burden_unmet and surfaces it — synthesis does not reject.
+    expect(tabsSource).not.toContain('Synthesis rejects inside-view')
+    expect(tabsSource).toContain('never silently passed')
+    // The promote is never gated — the checklist asks; it cannot refuse a sign-off.
+    expect(tabsSource).not.toContain('refuses to let a sign-off through')
+  })
+
   it('the Shariah tab documents the screening toggle honestly (fail-visible OFF)', () => {
     expect(tabsSource).toContain('Shariah screening')
     expect(tabsSource).toContain('GATE OFF')

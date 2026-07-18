@@ -381,7 +381,7 @@ function JudgmentTab(): ReactNode {
       children: cardGrid([
         { key: 'thesis', eyebrow: 'Cite-verified theses', title: 'Claims, not scores', body: 'Circle, moat, and runway are grounded, cite-verified theses — each claim cited to a source the harness fetched and content-hashed. There is no per-row rubric, no M1–M6, no total-score-to-tier map.' },
         { key: 'anchor', eyebrow: 'Quant corroborates', title: 'The numbers only confirm', body: 'A quant anchor read straight from the filings (ROIC, reinvestment, leverage) corroborates the thesis — but it does not set the tier or bound it. The model’s grounded argument is the judgment; the numbers either back it up or expose a contradiction.' },
-        { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any proposal that beats a base rate must carry a structural exceptionality argument cited to evidence. Synthesis rejects inside-view narrative like "strong execution" as insufficient.' },
+        { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any claim that beats a base rate must carry a structural exceptionality argument cited to evidence — inside-view narrative like "strong execution" does not meet the burden. An unmet burden is flagged on the verdict for the human, never silently passed.' },
         { key: 'inversion', eyebrow: 'Inversion pass', title: 'Invert, always invert', body: 'Before synthesis, one adversarial agent — ideally on a different model — argues the case against itself. The strongest cite-checked objection (and the consensus read) is weighed by the synthesis and rendered on the dossier as the case against.' },
         { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings and regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
@@ -436,7 +436,7 @@ function JudgmentTab(): ReactNode {
           ),
         ),
         caveat(
-          'These checklists are decision-NEUTRAL by construction: they list the questions to address; they do not auto-reject, score, or rank. The human plus the existing hard gates make the decision — the checklist only refuses to let a sign-off through with an unaddressed item.',
+          'These checklists are decision-NEUTRAL by construction: they list the questions to address; they do not auto-reject, score, rank, or block. The human plus the existing hard gates make the decision — the checklist asks the questions; the promote itself is your commitment.',
         ),
       ),
     }),
