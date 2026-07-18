@@ -628,7 +628,8 @@ describe('CommandCenter', () => {
 
     expect(researchPageSource).toContain('ResearchLibrary')
     expect(researchPageSource).toContain('projectResearchCases')
-    expect(researchPageSource).toContain('selectedStrategyLabel')
+    // The strategy chip gets the DISPLAY name — the persisted strategy_id never renders raw.
+    expect(researchPageSource).toContain('selectedStrategyName={strategyDisplayName(selectedStrategyId)}')
     // The live stage board now lives on /pipeline; /research must not duplicate it.
     expect(researchPageSource).not.toContain('ResearchPipelineCockpit')
     expect(researchPageSource).not.toContain('Start research intake')

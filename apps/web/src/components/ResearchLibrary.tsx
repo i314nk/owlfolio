@@ -1,12 +1,18 @@
 import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import type { ResearchCaseProjection, ResearchCaseStage } from '@owlfolio/ledger/projections/researchCaseProjection'
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { titleCaseEntityName } from '../lib/entityName'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { OwlButtonLink, RouteHeader } from './designSystem'
+import { t, type MessageKey } from '../lib/i18n'
 import type { WorkflowMode } from '../lib/workflow'
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 function humanRelativeDate(isoString: string): string {
   const diffMs = Date.now() - Date.parse(isoString)
@@ -27,9 +33,20 @@ function humanRelativeDate(isoString: string): string {
 
 export type ResearchLibraryProps = {
   mode: WorkflowMode
-  selectedStrategyLabel: string
+  /** Strategy DISPLAY name (e.g. "Buffett 4-Pillar") — never the persisted strategy_id. */
+  selectedStrategyName: string
   cases: ResearchCaseProjection[]
+  /** i18n: the page chrome language (case data stays as recorded). */
+  locale?: OwlLocale
 }
+
+// Internal ledger slugs ("company_cost") are machine ids, never display names — a card without a
+// recorded entity_name shows just the ticker rather than leaking the slug.
+const INTERNAL_COMPANY_ID = /^company[_-]/
+
+// The model stamps a draft placeholder thesis before sources are read; a terminal card must never
+// present it as the recorded thesis.
+const PLACEHOLDER_THESIS = /^\s*(will formulate|to be (?:formulated|determined|written))\b/i
 
 // ── Verdict classification ───────────────────────────────────────────────────
 type VerdictKind = 'buy' | 'watch' | 'avoid' | 'pass' | 'in_progress' | 'failed'
@@ -256,11 +273,14 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
     }
   }
 
-  // Terminal verdict extra info
-  const thesisSummary = isTerminal && researchCase.thesis_summary !== undefined
-    ? researchCase.thesis_summary.length > 120
-      ? `${researchCase.thesis_summary.slice(0, 120)}…`
-      : researchCase.thesis_summary
+  // Terminal verdict extra info. A blank or placeholder summary falls back honestly instead of
+  // rendering the model's pre-source draft as a thesis.
+  const rawThesis = isTerminal ? researchCase.thesis_summary : undefined
+  const thesisUnrecorded = rawThesis !== undefined && (rawThesis.trim() === '' || PLACEHOLDER_THESIS.test(rawThesis))
+  const thesisSummary = rawThesis !== undefined && !thesisUnrecorded
+    ? rawThesis.length > 120
+      ? `${rawThesis.slice(0, 120)}…`
+      : rawThesis
     : undefined
 
   const buyPrice = isTerminal && researchCase.valuation?.buy_price_per_share !== undefined
@@ -299,7 +319,7 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
             ? createElement('span', { style: { color: 'var(--owl-color-muted)', flex: '0 1 auto', fontSize: 'var(--owl-text-md)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `— ${titleCaseEntityName(researchCase.entity_name)}`)
             : null,
         ),
-        researchCase.entity_name === undefined && company !== undefined
+        researchCase.entity_name === undefined && company !== undefined && !INTERNAL_COMPANY_ID.test(company)
           ? createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, company)
           : null,
       ),
@@ -311,6 +331,9 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
     // Thesis snippet for terminal-verdict cards
     thesisSummary !== undefined
       ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, fontStyle: 'italic' } }, thesisSummary)
+      : null,
+    thesisUnrecorded
+      ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No thesis summary recorded.')
       : null,
     // Buy price for terminal-verdict cards
     buyPrice !== undefined
@@ -347,42 +370,33 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
   )
 }
 
-type LibraryGroup = { kind: VerdictKind; title: string; description: string }
+type LibraryGroup = { kind: VerdictKind; eyebrow: MessageKey; title: MessageKey; description: MessageKey }
 
 const GROUP_ORDER: LibraryGroup[] = [
-  { kind: 'in_progress', title: 'In progress', description: 'Cases still moving through quick screen, deep dive, or synthesis.' },
-  { kind: 'failed', title: 'Failed runs', description: 'Runs that died mid-flight — open one to see the error and start a re-run.' },
-  { kind: 'buy', title: 'Buy candidates', description: 'Cases whose decision reads as a buy or an open holding.' },
-  { kind: 'watch', title: 'Watch', description: 'Cases worth monitoring before any capital is committed.' },
-  { kind: 'avoid', title: 'Avoided', description: 'Cases rejected on the quality, valuation, or Shariah gates.' },
-  { kind: 'pass', title: 'Passed', description: 'Cases set aside without a watch or buy verdict.' },
+  { kind: 'in_progress', eyebrow: 'rl_eyebrow_open_files', title: 'rl_group_in_progress', description: 'rl_group_in_progress_desc' },
+  { kind: 'failed', eyebrow: 'rl_eyebrow_needs_attention', title: 'rl_group_failed', description: 'rl_group_failed_desc' },
+  { kind: 'buy', eyebrow: 'rl_eyebrow_conviction', title: 'rl_group_buy', description: 'rl_group_buy_desc' },
+  { kind: 'watch', eyebrow: 'rl_eyebrow_under_observation', title: 'rl_group_watch', description: 'rl_group_watch_desc' },
+  { kind: 'avoid', eyebrow: 'rl_eyebrow_set_aside', title: 'rl_group_avoid', description: 'rl_group_avoid_desc' },
+  { kind: 'pass', eyebrow: 'rl_eyebrow_set_aside', title: 'rl_group_pass', description: 'rl_group_pass_desc' },
 ]
-
-const GROUP_EYEBROW: Record<VerdictKind, string> = {
-  in_progress: 'Open files',
-  failed: 'Needs attention',
-  buy: 'Conviction',
-  watch: 'Under observation',
-  avoid: 'Set aside',
-  pass: 'Set aside',
-}
 
 function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactNode {
   const count = cases.length
   return createElement(
     'section',
-    { key: group.kind, 'aria-label': group.title, className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    { key: group.kind, 'aria-label': dt(group.title), className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
     createElement(
       'div',
       { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' } },
       createElement(
         'div',
         { style: { display: 'grid', gap: '0.2rem' } },
-        createElement('p', { className: 'owl-section-accent' }, GROUP_EYEBROW[group.kind]),
-        createElement('h2', { className: 'owl-section-title' }, group.title),
-        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, group.description),
+        createElement('p', { className: 'owl-section-accent' }, dt(group.eyebrow)),
+        createElement('h2', { className: 'owl-section-title' }, dt(group.title)),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt(group.description)),
       ),
-      createElement('span', { style: metaChipStyle }, `${count} ${count === 1 ? 'case' : 'cases'}`),
+      createElement('span', { style: metaChipStyle }, `${count} ${count === 1 ? dt('rl_case_one') : dt('rl_case_many')}`),
     ),
     createElement(
       'div',
@@ -392,7 +406,8 @@ function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactN
   )
 }
 
-export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: ResearchLibraryProps): ReactNode {
+export function ResearchLibrary({ mode: _mode, selectedStrategyName, cases, locale = 'en' }: ResearchLibraryProps): ReactNode {
+  panelLocale = locale
   // Latest version per company: keep only non-superseded cases, then dedupe by ticker keeping the highest version.
   const latestByTicker = new Map<string, ResearchCaseProjection>()
   for (const researchCase of cases) {
@@ -420,23 +435,23 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
 
   const countOf = (kind: VerdictKind): number => (grouped.get(kind) ?? []).length
   const ledgerStats: { figureClass: string; label: string; value: number }[] = [
-    { figureClass: '', label: 'Cases studied', value: latest.length },
-    { figureClass: 'owl-ledger-figure-emerald', label: 'Buys', value: countOf('buy') },
-    { figureClass: '', label: 'On watch', value: countOf('watch') },
-    { figureClass: '', label: 'Open files', value: countOf('in_progress') },
-    { figureClass: 'owl-ledger-figure-risk', label: 'Set aside', value: countOf('avoid') + countOf('pass') },
+    { figureClass: '', label: dt('rl_stat_cases'), value: latest.length },
+    { figureClass: 'owl-ledger-figure-emerald', label: dt('rl_stat_buys'), value: countOf('buy') },
+    { figureClass: '', label: dt('rl_stat_watch'), value: countOf('watch') },
+    { figureClass: '', label: dt('rl_stat_in_progress'), value: countOf('in_progress') },
+    { figureClass: 'owl-ledger-figure-risk', label: dt('rl_stat_set_aside'), value: countOf('avoid') + countOf('pass') },
   ]
 
   const newResearchAction = createElement(
     OwlButtonLink,
     { href: '/research/new', variant: 'primary' },
-    'New research',
+    dt('rl_new_research'),
   )
 
   const intakeLink = createElement(
     'a',
     { className: 'owl-button owl-button-secondary owl-focusable', href: '/research/new' },
-    'Manual ticker intake',
+    dt('rl_manual_intake'),
   )
 
   const pipelineLink = createElement(
@@ -446,7 +461,7 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
       href: '/pipeline',
       style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' },
     },
-    'Watch live execution on the Pipeline →',
+    dt('rl_pipeline_link'),
   )
 
   const populatedGroups = GROUP_ORDER.filter((group) => (grouped.get(group.kind) ?? []).length > 0)
@@ -455,10 +470,9 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: 'The archive',
-      title: 'Research library',
-      description:
-        'Every company your agent has studied, grouped by verdict. Each shows its latest, non-superseded dossier — with in-progress cases called out. Live stage execution lives on the Pipeline.',
+      kicker: dt('rl_kicker'),
+      title: dt('rl_title'),
+      description: dt('rl_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
 
@@ -484,16 +498,16 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
         createElement(
           'div',
           { style: { display: 'grid', gap: '0.25rem' } },
-          createElement('p', { className: 'owl-section-accent' }, 'Start a case'),
-          createElement('h2', { className: 'owl-section-title' }, 'Point your agent at a ticker'),
-          createElement('p', { className: 'owl-row-helper', style: { margin: 0, maxWidth: '40rem' } }, 'Kick off a new research case from a ticker; the harness runs the quick screen and deep-dive swarm.'),
+          createElement('p', { className: 'owl-section-accent' }, dt('rl_start_accent')),
+          createElement('h2', { className: 'owl-section-title' }, dt('rl_start_title')),
+          createElement('p', { className: 'owl-row-helper', style: { margin: 0, maxWidth: '40rem' } }, dt('rl_start_helper')),
         ),
         createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' } }, newResearchAction, intakeLink),
       ),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--owl-color-border)', paddingTop: 'var(--owl-space-3)' } },
-        createElement('span', { style: metaChipStyle }, selectedStrategyLabel),
+        createElement('span', { style: metaChipStyle }, `${dt('rl_selected_strategy')} ${selectedStrategyName}`),
         pipelineLink,
       ),
     ),
@@ -503,7 +517,7 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
       ? createElement(
           'div',
           { style: { ...cardStyle, color: 'var(--owl-color-muted)', marginTop: 'var(--owl-space-4)' } },
-          createElement('p', { style: { margin: 0 } }, 'No research yet — start with Manual ticker intake.'),
+          createElement('p', { style: { margin: 0 } }, dt('rl_empty')),
         )
       : createElement(
           'div',
