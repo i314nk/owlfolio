@@ -20,16 +20,16 @@ export type ProviderCapabilityId = (typeof providerCapabilityIds)[number]
 export type ProviderCapabilitySupport = 'native' | 'adapter' | 'unsupported'
 export type ProviderCapabilities = Record<ProviderCapabilityId, ProviderCapabilitySupport>
 
-export const providerVendorIds = ['mock', 'anthropic', 'openai', 'google', 'openrouter', 'unknown'] as const
+// Vendor ids anthropic/openai/google are PRESERVED (they label models routed through OpenRouter)
+// even though their direct API surfaces were removed (owner, 2026-07-18).
+export const providerVendorIds = ['mock', 'anthropic', 'openai', 'google', 'openrouter', 'local', 'unknown'] as const
 export type ProviderVendorId = (typeof providerVendorIds)[number]
 
 export const providerSurfaceIds = [
   'mock-provider',
   'openrouter-api',
-  // Direct OpenAI-compatible API surfaces (key path), executed via the generalized OpenAI-compatible adapter.
-  'openai-api',
-  'anthropic-api',
-  'gemini-developer-api',
+  // The experimental local OpenAI-compatible surface (Ollama / vLLM) — UNTESTED, unstable.
+  'local',
 ] as const
 export type ProviderSurfaceId = (typeof providerSurfaceIds)[number]
 

@@ -18,27 +18,23 @@ export function resolveProvider(options: ResolveProviderOptions): Provider {
     return new OpenRouterProvider(options)
   }
 
-  // Direct OpenAI-compatible API surfaces (key path) — the generalized OpenAI-compatible adapter pointed at
-  // each vendor's `/chat/completions` endpoint with its own key. `reasoningBody: {}` omits OpenRouter's
-  // unified `reasoning` param (these endpoints reject unknown params).
-  if (options.provider_id === 'openai-api') {
+  // The experimental LOCAL surface (owner, 2026-07-18): an OpenAI-compatible endpoint the user runs
+  // themselves (Ollama / vLLM), via the same generalized adapter. UNSTABLE / UNTESTED — fail-closed.
+  // `reasoningBody: {}` omits OpenRouter's unified `reasoning` param (local endpoints reject unknown
+  // params). Most local servers need no auth: a placeholder bearer is sent when no key is configured.
+  if (options.provider_id === 'local') {
+    const env = options.env ?? process.env
     return new OpenRouterProvider({
-      ...options, providerId: 'openai-api', label: 'OpenAI', apiKeyEnvVar: 'OPENAI_API_KEY',
-      baseUrl: 'https://api.openai.com/v1', surfaceId: 'openai-api', vendorId: 'openai', reasoningBody: {}, extraHeaders: {},
-    })
-  }
-
-  if (options.provider_id === 'anthropic-api') {
-    return new OpenRouterProvider({
-      ...options, providerId: 'anthropic-api', label: 'Anthropic', apiKeyEnvVar: 'ANTHROPIC_API_KEY',
-      baseUrl: 'https://api.anthropic.com/v1', surfaceId: 'anthropic-api', vendorId: 'anthropic', reasoningBody: {}, extraHeaders: {},
-    })
-  }
-
-  if (options.provider_id === 'gemini-developer-api') {
-    return new OpenRouterProvider({
-      ...options, providerId: 'gemini-developer-api', label: 'Gemini', apiKeyEnvVar: 'GEMINI_API_KEY',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', surfaceId: 'gemini-developer-api', vendorId: 'google', reasoningBody: {}, extraHeaders: {},
+      ...options,
+      providerId: 'local',
+      label: 'Local (Ollama / vLLM)',
+      apiKeyEnvVar: 'OWLFOLIO_LOCAL_API_KEY',
+      apiKey: options.apiKey ?? env['OWLFOLIO_LOCAL_API_KEY'] ?? 'local-no-auth',
+      baseUrl: options.baseUrl ?? env['OWLFOLIO_LOCAL_API_BASE_URL'] ?? 'http://127.0.0.1:11434/v1',
+      surfaceId: 'local',
+      vendorId: 'local',
+      reasoningBody: {},
+      extraHeaders: {},
     })
   }
 

@@ -1,4 +1,4 @@
-import { curatedRealTierModelsForProvider } from '@owlfolio/providers'
+import { curatedRealModelsForProvider } from '@owlfolio/providers'
 import type { AppConfig, ProviderId } from '@owlfolio/shared'
 
 import { getOnboardingProviderOptions } from './onboarding'
@@ -62,8 +62,7 @@ export async function resolveModelSwitcher(
     if (!readiness.is_ready) {
       continue
     }
-    const models = curatedRealTierModelsForProvider(option.provider_id)
-      .filter((model) => model.tier_suitability.length > 0)
+    const models = curatedRealModelsForProvider(option.provider_id)
       .map((model) => ({ model_id: model.model_id }))
     if (models.length === 0) {
       continue

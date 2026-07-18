@@ -231,11 +231,7 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
       return 'Mock provider'
     case 'openrouter':
       return 'OpenRouter'
-    case 'openai-api':
-      return 'OpenAI (API key)'
-    case 'anthropic-api':
-      return 'Anthropic (Claude API key)'
-    case 'gemini-developer-api':
-      return 'Gemini (Google API key)'
+    case 'local':
+      return 'Local (Ollama / vLLM)'
   }
 }

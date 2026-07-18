@@ -1,14 +1,18 @@
 # Owner's Manual v2 local-use candidate readiness
 
-Date: 2026-06-07 · **Updated: 2026-07-08**
+Date: 2026-06-07 · **Updated: 2026-07-18**
 Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Owner's Manual v2 branch after provider-surface, research-pipeline, accounting, purification, and Data Safety hardening.
 
 > **Update 2026-07-08.** Major changes since the 2026-06-07 baseline:
 >
 > - **Provider excision (2026-06-29):** the whole CLI/OAuth lane (Codex CLI, Claude CLI, Gemini CLI)
->   was retired. Surviving providers: `mock-provider` (certified) plus `openrouter` (the new default),
->   `openai-api`, `anthropic-api`, `gemini-developer-api` — all experimental/fail-closed on one shared
->   function-calling grounded tool loop. Native/provider web search is disabled by construction.
+>   was retired. **Provider consolidation (2026-07-18):** the direct API-key providers
+>   (`openai-api`, `anthropic-api`, `gemini-developer-api`) were then also removed, along with all
+>   model-tiering machinery. Surviving providers: `mock-provider` (certified, test-only) plus
+>   `openrouter` (the default) and the UNSTABLE/EXPERIMENTAL/UNTESTED `local` (Ollama / vLLM)
+>   surface — experimental/fail-closed on one shared function-calling grounded tool loop, one
+>   configured model running every analysis stage. Native/provider web search is disabled by
+>   construction.
 > - **EDGAR grounding deepened:** annual filings readable by Item via a hash-verified `read_source`
 >   tool; 8-K/10-Q/6-K interim narrative grounded (10-Q numbers quarantined); DEF 14A proxies for the
 >   management lane; EX-99 press-release exhibits grounded alongside 8-K covers; cross-run source
@@ -66,9 +70,8 @@ Latest persisted reports are under `data/provider-certifications/` and are summa
 | --- | --- | --- | --- |
 | `mock-provider` | `mock-provider.latest.json` | Certified | Deterministic provider for demo/test/e2e only, not real research intelligence. |
 | `openrouter` | none target-specific yet | Experimental (the default personal-local provider) | Proven grounded `runToolLoop` in live product use; usable with `OPENROUTER_API_KEY`. Model choice + optional per-model certification are the user's responsibility; support labels stay experimental until a report exists. |
-| `openai-api` | `openai-api.latest.json` (historical) | Experimental | Shares OpenRouter's tool loop; distinct from the retired Codex CLI lane; usable with a key. |
-| `anthropic-api` | none recorded yet | Experimental | Shares OpenRouter's tool loop; distinct from the retired Claude CLI lane; usable with a key. |
-| `gemini-developer-api` | `gemini-developer-api.latest.json` (historical) | Experimental | Usable with a key. Privacy posture still blocks production/autonomous claims; paid Developer API remains experimental behind privacy/security gates. |
+| `local` | none | **UNSTABLE / EXPERIMENTAL / UNTESTED** | Local OpenAI-compatible endpoint (Ollama / vLLM) the user runs themselves; not exercised end-to-end; fail-closed. |
+| retired: `openai-api`, `anthropic-api`, `gemini-developer-api` | `openai-api.latest.json`, `gemini-developer-api.latest.json` (historical) | Removed 2026-07-18 | The direct API-key providers were removed in the provider consolidation; their reports remain dated evidence only. |
 | retired: `openai`/`openai-codex-cli`, `claude`, `gemini-cli` | `openai.latest.json`, `claude.latest.json` (historical evidence) | Removed 2026-06-29 | The CLI/OAuth lane was excised; these reports remain as dated evidence only and must not be read as current support. |
 
 Provider claims must not exceed this evidence. **Certification has shifted to the user's responsibility and is optional before use**: a capable reasoning model (reasoning + tool-calling + structured output, the model picker's floor) can be selected and used immediately; the certification runner is a deeper per-model audit a user may run for recorded evidence. Docs/UI never describe a surface as certified/live/autonomous without a passing target-specific latest report.

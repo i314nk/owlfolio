@@ -143,15 +143,17 @@ The core design rule is **"code computes, judgment proposes"**:
   policy.
 - **Provider/model choice is the user's responsibility.** Only the
   deterministic mock provider carries a certification report. OpenRouter (the
-  default) and the direct OpenAI/Anthropic/Gemini API adapters run a proven
-  grounded tool loop and are usable with an API key; certification is an
-  **optional deeper audit** a user can run per model, and support labels stay
-  `experimental` until a target-specific report exists.
-- **The tiered model setup is untested.** The model-tiering design (routing
-  different reasoning tiers to different pipeline stages) exists but has not
-  been exercised end-to-end. Nearly all live testing so far ran through
-  OpenRouter with a single routed model; the other providers are experimental
-  and largely unexercised.
+  default) runs a proven grounded tool loop and is usable with one API key;
+  certification is an **optional deeper audit** a user can run per model, and
+  support labels stay `experimental` until a target-specific report exists.
+- **One model runs the whole analysis.** There is no model tiering: the single
+  configured reasoning model runs every stage, so the analysis is only as good
+  as the model you choose. Deterministic work (valuation math, ratio checks,
+  parsing) is pure code and never uses a model.
+- **The local provider (Ollama / vLLM) is UNSTABLE / EXPERIMENTAL / UNTESTED.**
+  It is an OpenAI-compatible endpoint you run yourself; it has not been
+  exercised end-to-end — expect failures. Runs fail closed and are never
+  silently trusted.
 - **Grounding quality depends on the routed model's tool support.** When a
   routed model does not support the multi-step tool loop, the grounded agent
   degrades to a no-tools path: the harness pre-verifies and injects the filing
@@ -298,9 +300,7 @@ tool loop.
 | --- | --- | --- |
 | `mock-provider` | Deterministic test provider (tests/e2e only — demo mode was removed; the app is unconfigured → personal-local) | **Certified** for the audited test slice. |
 | `openrouter` | Default personal-local provider — one `OPENROUTER_API_KEY` routes to many models | Experimental. Proven grounded tool loop; **this is where nearly all live testing has happened**. Model choice is yours. |
-| `openai-api` | Direct OpenAI API (`OPENAI_API_KEY`) | Experimental; usable with a key, largely unexercised. |
-| `anthropic-api` | Direct Anthropic API (`ANTHROPIC_API_KEY`) | Experimental; usable with a key, largely unexercised. |
-| `gemini-developer-api` | Direct Gemini Developer API (`GEMINI_API_KEY`/`GOOGLE_API_KEY`) | Experimental; usable with a key, largely unexercised. Privacy posture caveats apply. |
+| `local` | Local OpenAI-compatible endpoint you run yourself (Ollama / vLLM; `OWLFOLIO_LOCAL_API_BASE_URL`, key optional) | **UNSTABLE / EXPERIMENTAL / UNTESTED** — not exercised end-to-end; expect failures; fail-closed. Data stays on your machine; quality tracks the local model you serve. |
 
 **Certification is the user's responsibility and optional**: pick a capable
 reasoning model (reasoning + tool calling + structured output — the model

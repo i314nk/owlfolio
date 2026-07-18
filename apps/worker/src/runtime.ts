@@ -47,7 +47,6 @@ import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFi
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type CircleGateSettings, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { findAbandonedResearchRuns, resolveRunWatchdogStalenessMs } from '@owlfolio/workflow/researchRunWatchdog'
-import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 import { runFalsifierCheck, runReUnderwrite, type CadenceAsOfData, type CadencePassRow, type LifecycleAction } from '@owlfolio/workflow/lifecycleCadence'
@@ -2326,8 +2325,6 @@ export async function runProcessResearchQueueTask(
       ? groundProposedSourcesDeterministic as unknown as GroundFn
       : groundProposedSources as unknown as GroundFn
   )
-  // model-tiering: the UI-managed env-file role overrides (OWLFOLIO_MODEL_ROLE_*) win over process.env.
-  const modelRoleEnv = await resolveModelRoleEnv()
   const summaries: string[] = [...reaped.summaries]
   let failed = reaped.failed
 
@@ -2411,7 +2408,6 @@ export async function runProcessResearchQueueTask(
           // Lineage version (re-run / auto-version → prior+1) so the new dossier shows the correct vN.
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
-          model_role_env: modelRoleEnv,
           ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
           ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
@@ -2486,8 +2482,6 @@ export async function runProcessDeepDiveQueueTask(
       ? groundProposedSourcesDeterministic as unknown as GroundFn
       : groundProposedSources as unknown as GroundFn
   )
-  // model-tiering: the UI-managed env-file role overrides (OWLFOLIO_MODEL_ROLE_*) win over process.env.
-  const modelRoleEnv = await resolveModelRoleEnv()
   const summaries: string[] = []
   let failed = 0
 
@@ -2510,7 +2504,6 @@ export async function runProcessDeepDiveQueueTask(
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           ...(options.required_return === undefined ? {} : { required_return: options.required_return }),
-          model_role_env: modelRoleEnv,
           ...(options.shariah_enabled === undefined ? {} : { shariah_enabled: options.shariah_enabled }),
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },

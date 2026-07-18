@@ -12,7 +12,6 @@ import { getOnboardingProviderOptions, getOnboardingState } from '../../../lib/o
 import { buildProviderKeysPanelProps } from '../../../lib/providerKeysView'
 import { getOpenRouterModelOptions } from '../../../lib/openRouterModelOptions'
 import { resolveProjectRootFromCwd } from '../../../lib/appConfigStore'
-import { resolveModelIdForProvider } from '../../../lib/workflow'
 import { resolveActiveModeStatus } from '../../../lib/resolveActiveModeStatus'
 import { ProviderKeysCopyScript } from './ProviderKeysCopyScript'
 
@@ -46,7 +45,6 @@ export default async function ProviderKeysSettingsPage() {
     repoIsGitWorkTree,
     processEnv: process.env,
     activeProviderId: state.config.provider.provider_id,
-    activeModel: resolveModelIdForProvider(state.config),
   })
 
   // Echo the same persistent indicator at the top of the fix destination so the current state is

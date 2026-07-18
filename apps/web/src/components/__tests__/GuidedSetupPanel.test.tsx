@@ -7,7 +7,7 @@ import type { ProviderOption } from '../../lib/providerReadiness'
 
 const providerOptions: ProviderOption[] = [
   { provider_id: 'mock-provider', label: 'Mock provider', support_level: 'certified', description: 'Demo', default_model_id: 'mock-buffett-munger-demo' },
-  { provider_id: 'openai-api', provider_surface_id: 'openai-api', label: 'OpenAI (API key)', support_level: 'experimental', description: 'Direct OpenAI API', default_model_id: 'gpt-5.5' },
+  { provider_id: 'local', provider_surface_id: 'local', label: 'Local (Ollama / vLLM) — experimental, untested', support_level: 'experimental', description: 'UNSTABLE / EXPERIMENTAL / UNTESTED: a local OpenAI-compatible endpoint (Ollama or vLLM) you run yourself.', default_model_id: 'llama3.3:70b' },
   { provider_id: 'openrouter', provider_surface_id: 'openrouter-api', label: 'OpenRouter', support_level: 'experimental', description: 'OpenRouter', default_model_id: 'openrouter/auto' },
 ]
 
@@ -34,10 +34,12 @@ describe('GuidedSetupPanel — guided onboarding surface', () => {
     expect(html).not.toContain('Choose a mode')
   })
 
-  it('renders the shared provider toggle + tier-grouped model selection', () => {
+  it('renders the shared provider toggle + model selection', () => {
     const html = renderToStaticMarkup(createElement(GuidedSetupPanel, baseProps()))
     expect(html).toContain('Use OpenRouter')
-    expect(html).toContain('Use OpenAI (API key)')
+    // The experimental local lane is a selectable card, loudly labelled.
+    expect(html).toContain('Use a local model (Ollama / vLLM)')
+    expect(html).toContain('UNSTABLE / EXPERIMENTAL / UNTESTED')
     // The CLI/OAuth lanes (Codex, Claude CLI) were retired — not onboarding connections.
     expect(html).not.toContain('Use ChatGPT/Codex')
     expect(html).not.toContain('Use Claude Code')

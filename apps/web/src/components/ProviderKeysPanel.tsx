@@ -68,59 +68,14 @@ export type ProviderKeyGroupView = {
   keys: ProviderKeyView[]
 }
 
-/** A model the primary provider offers for a tier (curated reasoning model, reasoning-only by construction). */
-export type TierModelOption = {
-  model_id: string
-  note: string
-}
-
-/**
- * One tier row (T1/T2/T3) in the Section B configuration. Picking a model here applies to EVERY
- * registry role mapped to this tier — the selection fans out to those roles' env overrides. The model
- * menu is scoped to the PRIMARY provider: each tier offers only that provider's models that fit the tier.
- */
-export type TierConfigRow = {
-  tier: 'T1' | 'T2' | 'T3'
-  /** What this tier runs (tier-level summary). */
-  description: string
-  /** The registry roles this tier covers — the selection fans out to all of them. */
-  roles: string[]
-  resolved_provider_id: string
-  resolved_model: string
-  resolved_temperature: number
-  /** Where the current resolution comes from: a file override / a process-env value / the default-inherit. */
-  source: 'file' | 'env' | 'default'
-  /** The resolved provider has connected credentials (else the tier's roles run fail-closed). */
-  target_provider_connected: boolean
-  /** The resolved provider passed golden-set qualification. */
-  target_provider_qualified: boolean
-  /** The primary provider's curated models that fit this tier — the dropdown options (empty → inherit). */
-  model_options: TierModelOption[]
-  /** The current override value (provider:model@temp) for prefilling the selector; never a secret. */
-  current_value?: string
-}
-
-export type ProviderRoleConfigView = {
-  registry_version: string
-  /** Editorial guidance paragraphs shown atop the section (the tier philosophy). */
-  guidance: string[]
-  no_model_note: string
-  /** The primary provider all tier menus are scoped to. */
-  active_provider_id: string
-  active_provider_label: string
-  tiers: TierConfigRow[]
-}
-
 export type ProviderKeysPanelProps = {
   envFile: ProviderKeysEnvFile
   onboardingGate: ProviderKeysGate
   loginRows: ProviderLoginRow[]
   llmGroups: ProviderKeyGroupView[]
-  roleConfig: ProviderRoleConfigView
 }
 
 const SET_KEY_ENDPOINT = '/api/onboarding/credentials'
-const MODEL_ROLE_ENDPOINT = '/api/settings/model-roles'
 
 const monoLabelStyle: CSSProperties = {
   color: 'var(--owl-color-quiet)',
@@ -157,13 +112,13 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
     createElement(RouteHeader, {
       kicker: 'Owner’s Manual · Settings',
       title: 'Provider setup',
-      description: 'Connect an LLM provider login or API key and choose models per tier. Keys are stored in a single local env file (server-only, masked on display) and never enter the ledger, logs, page source, or git — the ledger records only that a provider was connected.',
+      description: 'Connect an LLM provider API key and choose the one model that runs the analysis. Keys are stored in a single local env file (server-only, masked on display) and never enter the ledger, logs, page source, or git — the ledger records only that a provider was connected.',
     }),
     createElement('hr', { className: 'owl-rule' }),
     renderEnvFileHeader(props.envFile),
     renderOnboardingGate(props.onboardingGate),
     renderProviderLoginsSection(props.loginRows),
-    renderLlmSection(props.llmGroups, props.roleConfig),
+    renderLlmSection(props.llmGroups),
   )
 }
 
@@ -308,172 +263,23 @@ function renderLoginRow(row: ProviderLoginRow) {
   )
 }
 
-// ── Section B — LLM API keys (collapsible) + tier summary ──────────────────────
+// ── Section B — LLM API keys (collapsible) ───────────────────────────────────
 
-function renderLlmSection(groups: ProviderKeyGroupView[], roleConfig: ProviderRoleConfigView) {
+function renderLlmSection(groups: ProviderKeyGroupView[]) {
   const configuredCount = groups.filter((group) => group.keys.some((key) => key.is_set)).length
   return createElement(
     'section',
     { 'aria-label': 'LLM providers', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
     sectionHeader('Section B', 'LLM providers (API keys)', configuredCount, groups.length, 'configured'),
     createElement('div', { className: 'owl-row-list' }, ...groups.map((group) => renderKeyGroup(group, true))),
-    // Per-tier model overrides are ADVANCED (collapsed): the primary model is chosen in guided setup above,
-    // and every tier inherits it by default. Expand only to pin a different model per tier.
-    createElement(
-      'details',
-      { 'aria-label': 'Advanced per-tier model overrides', style: { display: 'block', marginTop: 'var(--owl-space-2)' } },
-      createElement(
-        'summary',
-        { style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)', cursor: 'pointer' } },
-        'Advanced — per-tier model overrides (optional)',
-      ),
-      createElement('div', { style: { marginTop: 'var(--owl-space-3)' } }, renderModelRoleConfig(roleConfig)),
-    ),
-  )
-}
-
-// ── Per-tier model configuration table (the owner's "how do I configure tiers?" answer) ───────────────
-
-const tierToneByTier: Record<TierConfigRow['tier'], StatusBadgeTone> = {
-  T1: 'success',
-  T2: 'neutral',
-  T3: 'manual',
-}
-
-function sourceLabel(row: TierConfigRow): string {
-  if (row.source === 'file') return 'Pinned'
-  if (row.source === 'env') return 'Env override'
-  return 'Default (inherits run)'
-}
-
-function renderModelRoleConfig(roleConfig: ProviderRoleConfigView) {
-  return createElement(
-    'div',
-    { 'aria-label': 'Per-tier model configuration', style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', display: 'grid', gap: 'var(--owl-space-3)', padding: '0.85rem 0.95rem' } },
-    createElement('p', { style: monoLabelStyle }, `Model tiers · registry ${roleConfig.registry_version}`),
-    // ── Guidance block (the tier philosophy, in the design system's editorial voice) ──
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
-      ...roleConfig.guidance.map((paragraph, index) =>
-        createElement('p', { key: `guidance-${index}`, style: subtleTextStyle }, paragraph),
-      ),
-    ),
-    // The tier menus are scoped to the PRIMARY provider chosen in setup.
+    // SINGLE-MODEL (owner, 2026-07-18): model tiering and per-role overrides were removed. The ONE
+    // model that runs every stage of the analysis is chosen in the guided setup above — the analysis
+    // is only as good as that model.
     createElement(
       'p',
-      { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } },
-      `Primary provider — ${roleConfig.active_provider_label}. Each tier picks one of its models that fits the tier.`,
+      { style: subtleTextStyle },
+      'One model runs the whole analysis — pick it in the guided setup above. Deterministic work (valuation math, Shariah ratio verification, purification arithmetic, scheduling, 13F/EDGAR parsing) is pure code and never uses a model.',
     ),
-    // ── The three tier selectors (T1 / T2 / T3) ──
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
-      ...roleConfig.tiers.map((row) => renderTierConfigRow(row, roleConfig.active_provider_id)),
-    ),
-    createElement('p', { style: subtleTextStyle }, roleConfig.no_model_note),
-  )
-}
-
-function renderTierConfigRow(row: TierConfigRow, activeProviderId: string) {
-  // Honest warning: a tier whose resolved provider has no connected credentials runs fail-closed.
-  const notConnected = !row.target_provider_connected
-
-  return createElement(
-    'article',
-    { key: row.tier, 'aria-label': `${row.tier} tier model`, style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', display: 'grid', gap: 'var(--owl-space-2)', padding: '0.7rem 0.8rem' } },
-    createElement(
-      'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-      createElement(StatusBadge, { tone: tierToneByTier[row.tier] }, row.tier),
-      createElement(StatusBadge, { tone: row.source === 'default' ? 'neutral' : 'success' }, sourceLabel(row)),
-      notConnected
-        ? createElement(StatusBadge, { tone: 'danger' }, 'provider not connected — runs will fail closed')
-        : row.target_provider_qualified
-          ? createElement(StatusBadge, { tone: 'success' }, 'qualified')
-          : createElement(StatusBadge, { tone: 'warning' }, 'not golden-set qualified'),
-    ),
-    createElement('p', { style: subtleTextStyle }, row.description),
-    createElement(
-      'p',
-      { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } },
-      `Covers: ${row.roles.join(', ')}`,
-    ),
-    createElement(
-      'p',
-      { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } },
-      `Now: ${row.resolved_provider_id}/${row.resolved_model} @${row.resolved_temperature}`,
-    ),
-    renderTierSelectorForm(row, activeProviderId),
-  )
-}
-
-const roleInputStyle: CSSProperties = {
-  background: 'var(--owl-color-panel-deep)',
-  border: '1px solid var(--owl-color-border)',
-  borderRadius: '0.4rem',
-  color: 'var(--owl-color-text)',
-  fontFamily: 'var(--owl-font-mono)',
-  fontSize: 'var(--owl-text-sm)',
-  padding: '0.35rem 0.55rem',
-}
-
-// Clear form: restores the default-inherit for every role in this tier (only meaningful when an override exists).
-function renderTierClearForm(tier: string) {
-  return createElement(
-    'form',
-    { action: MODEL_ROLE_ENDPOINT, method: 'post' },
-    createElement('input', { name: 'action', type: 'hidden', value: 'clear' }),
-    createElement('input', { name: 'tier', type: 'hidden', value: tier }),
-    createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit' }, 'Clear'),
-  )
-}
-
-function renderTierSelectorForm(row: TierConfigRow, activeProviderId: string) {
-  // The primary provider has no curated model fitting this tier → it inherits the run's default model.
-  if (row.model_options.length === 0) {
-    return createElement(
-      'div',
-      { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
-      createElement('p', { style: { ...subtleTextStyle, margin: 0 } }, `No curated ${row.tier} model for this provider — inherits the run default.`),
-      row.source === 'default' ? null : renderTierClearForm(row.tier),
-    )
-  }
-
-  // Default the dropdown to the currently-resolved model when it is one of this provider's tier options.
-  const selectedModel = row.model_options.some((option) => option.model_id === row.resolved_model) ? row.resolved_model : ''
-
-  return createElement(
-    'div',
-    { style: { display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-    // Set form: a REAL dropdown of the PRIMARY provider's tier-fitting models (no free-form, no provider
-    // picker). Submits `tier` (the route fans it out to every role in the tier) + the implicit primary provider.
-    createElement(
-      'form',
-      { action: MODEL_ROLE_ENDPOINT, method: 'post', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-      createElement('input', { name: 'action', type: 'hidden', value: 'set' }),
-      createElement('input', { name: 'tier', type: 'hidden', value: row.tier }),
-      createElement('input', { name: 'provider', type: 'hidden', value: activeProviderId }),
-      createElement(
-        'select',
-        { 'aria-label': `${row.tier} model`, name: 'model', defaultValue: selectedModel, style: { ...roleInputStyle, flex: '1 1 12rem' }, required: true },
-        createElement('option', { value: '', disabled: true }, 'Model…'),
-        ...row.model_options.map((option) =>
-          createElement('option', { key: option.model_id, value: option.model_id }, `${option.model_id} — ${option.note}`),
-        ),
-      ),
-      createElement('input', {
-        'aria-label': `${row.tier} temperature`,
-        name: 'temperature',
-        type: 'text',
-        inputMode: 'decimal',
-        autoComplete: 'off',
-        placeholder: `temp (${row.resolved_temperature})`,
-        style: { ...roleInputStyle, width: '6rem' },
-      }),
-      createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit' }, 'Set'),
-    ),
-    row.source === 'default' ? null : renderTierClearForm(row.tier),
   )
 }
 

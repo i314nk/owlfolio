@@ -57,11 +57,7 @@ export type ProviderCatalogEntry = {
    * become investment-grade once certified. This flag NEVER asserts certification by itself.
    */
   investment_grade_candidate?: boolean
-  /** Curation tier (additive, optional): 'frontier' candidate vs broader 'experimental'. */
-  model_tier?: ProviderModelTier
 }
-
-export type ProviderModelTier = 'frontier' | 'experimental'
 
 const mockCapabilities = new MockProvider().capabilities
 const openRouterCapabilities = new OpenRouterProvider({ apiKey: 'catalog-capability-placeholder' }).capabilities
@@ -130,76 +126,31 @@ const catalog: ProviderCatalogEntry[] = [
     role_capabilities: unsupportedRoleCapabilities,
     capabilities: { ...openRouterCapabilities },
     investment_grade_candidate: true,
-    model_tier: 'frontier',
   },
-  // ── Direct OpenAI-compatible API surfaces (key path). Execute via the generalized OpenAI-compatible
-  // adapter (OpenRouterProvider configured per-endpoint). Experimental + fail-closed until a target-specific
-  // certification report exists; never described as certified/live. ──
+  // ── The experimental LOCAL surface (owner, 2026-07-18): an OpenAI-compatible endpoint you run
+  // yourself (Ollama / vLLM), executed via the same generalized adapter. EXPLICITLY UNSTABLE AND
+  // UNTESTED — the owner has not exercised this lane; it is fail-closed and never described as
+  // certified or live. Base URL via OWLFOLIO_LOCAL_API_BASE_URL (defaults to Ollama's
+  // http://127.0.0.1:11434/v1); OWLFOLIO_LOCAL_API_KEY is optional (most local servers need none). ──
   {
-    provider_id: 'openai-api',
-    provider_surface_id: 'openai-api',
-    vendor_id: 'openai',
-    provider_family_id: 'openai',
-    label: 'OpenAI (API key)',
+    provider_id: 'local',
+    provider_surface_id: 'local',
+    vendor_id: 'local',
+    provider_family_id: 'local',
+    label: 'Local (Ollama / vLLM) — experimental, untested',
     support_level: 'experimental',
     visible_in_onboarding: true,
-    description: 'Direct OpenAI API (OPENAI_API_KEY) — distinct from the Codex CLI lane. Experimental and fail-closed until a target-specific certification report exists.',
+    description: 'UNSTABLE / EXPERIMENTAL / UNTESTED: a local OpenAI-compatible endpoint (Ollama or vLLM) you run yourself. This lane has not been tested end-to-end — expect failures; runs fail closed and are never silently trusted. Data stays on your machine, but the quality of every verdict tracks the local model you serve.',
     runtime_kind: 'direct_api',
     auth_mode: 'api_key',
-    default_model_id: 'gpt-5.5',
+    default_model_id: 'llama3.3:70b',
     credential_source_categories: ['env_var'],
-    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
+    billing: { billing_mode: 'built_in_demo', quota_source: 'built_in', quota_status: 'available' },
+    privacy: { data_policy_source: 'built_in_demo', retention_or_zdr_status: 'not_applicable' },
     automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
     workflow_roles: ['research_draft', 'source_bundle_draft'],
     role_capabilities: unsupportedRoleCapabilities,
     capabilities: { ...openRouterCapabilities },
-    investment_grade_candidate: true,
-    model_tier: 'frontier',
-  },
-  {
-    provider_id: 'anthropic-api',
-    provider_surface_id: 'anthropic-api',
-    vendor_id: 'anthropic',
-    provider_family_id: 'anthropic',
-    label: 'Anthropic (Claude API key)',
-    support_level: 'experimental',
-    visible_in_onboarding: true,
-    description: 'Direct Anthropic API (ANTHROPIC_API_KEY) via the OpenAI-compatible surface — distinct from the retired Claude CLI login. Experimental and fail-closed until a target-specific certification report exists.',
-    runtime_kind: 'direct_api',
-    auth_mode: 'api_key',
-    default_model_id: 'claude-sonnet-4-6',
-    credential_source_categories: ['env_var'],
-    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
-    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
-    workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: unsupportedRoleCapabilities,
-    capabilities: { ...openRouterCapabilities },
-    investment_grade_candidate: true,
-    model_tier: 'frontier',
-  },
-  {
-    provider_id: 'gemini-developer-api',
-    provider_surface_id: 'gemini-developer-api',
-    vendor_id: 'google',
-    provider_family_id: 'google',
-    label: 'Gemini (Google API key)',
-    support_level: 'experimental',
-    visible_in_onboarding: true,
-    description: 'Direct Gemini Developer API (GEMINI_API_KEY) via the OpenAI-compatible surface. Experimental and fail-closed; the free-tier privacy posture blocks certified support until verified.',
-    runtime_kind: 'direct_api',
-    auth_mode: 'api_key',
-    default_model_id: 'gemini-3.5-flash',
-    credential_source_categories: ['env_var'],
-    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
-    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
-    workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: unsupportedRoleCapabilities,
-    capabilities: { ...openRouterCapabilities },
-    investment_grade_candidate: true,
-    model_tier: 'frontier',
   },
 ]
 

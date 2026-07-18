@@ -37,7 +37,7 @@ describe('evaluateOnboardingGate (acceptance test 1 — deep-dive refusal)', () 
 
       const store = new SQLiteEventStore(ledgerPath)
       try {
-        await recordProviderConnectedEvent(store, { provider_id: 'openai', env_key_name: 'OPENAI_API_KEY', connected_at: '2026-06-09T00:00:00Z' })
+        await recordProviderConnectedEvent(store, { provider_id: 'openrouter', env_key_name: 'OPENROUTER_API_KEY', connected_at: '2026-06-09T00:00:00Z' })
       } finally {
         store.close()
       }

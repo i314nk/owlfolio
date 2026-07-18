@@ -30,16 +30,23 @@ describe('provider contract freeze', () => {
   it('locks provider support semantics and onboarding visibility', () => {
     const catalog = getProviderCatalog()
 
-    // The CLI/OAuth providers (Codex, Claude CLI, Gemini CLI) were retired; surviving providers are
-    // OpenRouter + the direct API-key providers, all experimental and fail-closed until certified.
+    // PROVIDER CONSOLIDATION (owner, 2026-07-18): OpenRouter is the one real provider; 'local'
+    // (Ollama / vLLM) is the experimental UNTESTED surface; mock-provider is internal test
+    // infrastructure. The direct openai-api/anthropic-api/gemini-developer-api surfaces are removed.
+    expect(catalog.map((provider) => provider.provider_id).sort()).toEqual(['local', 'mock-provider', 'openrouter'])
     expect(catalog.find((provider) => provider.provider_id === 'openrouter')).toMatchObject({
       support_level: 'experimental',
       visible_in_onboarding: true,
     })
-    expect(catalog.find((provider) => provider.provider_id === 'openai-api')).toMatchObject({
+    const local = catalog.find((provider) => provider.provider_id === 'local')
+    expect(local).toMatchObject({
       support_level: 'experimental',
       visible_in_onboarding: true,
     })
+    // The local surface must SAY it is unstable/experimental/untested — never quietly normal.
+    expect(`${local?.label} ${local?.description}`.toLowerCase()).toContain('untested')
+    expect(`${local?.label} ${local?.description}`.toLowerCase()).toContain('experimental')
+    expect(local?.description.toLowerCase()).toContain('unstable')
     expect(catalog.find((provider) => provider.provider_id === 'mock-provider')).toMatchObject({
       support_level: 'certified',
       visible_in_onboarding: true,

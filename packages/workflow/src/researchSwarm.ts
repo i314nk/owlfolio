@@ -1,12 +1,7 @@
 import { z } from 'zod'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { resolveProvider, type Provider } from '@owlfolio/providers'
-import {
-  resolveModelForRole,
-  type ModelRoleId,
-  type ModelRoleOverride,
-} from '@owlfolio/strategies/modelRegistry'
+import { type Provider } from '@owlfolio/providers'
 import {
   sanitizeRoicLike,
   sanitizeReinvestmentRate,
@@ -79,20 +74,10 @@ import { runValuationReasoningPass, type ValuationReasoning } from './valuationR
 import { runShariahGatePhase, type ShariahGatePhaseResult } from './shariahGatePhase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
-  resolveCrossCheck,
-  compareMoatClass,
-  compareShariahSectorStatus,
-  type CrossCheckLayer,
-  type MoatClass,
-  type ShariahSectorStatus,
-} from './dualModelCrossCheck'
-import {
   LaneAgentSchema,
   MoatLaneSchema,
   ManagementLaneSchema,
   DecisionAgentSchema,
-  MoatCrossCheckSchema,
-  ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_PILLAR_PROMPT,
@@ -323,14 +308,6 @@ export type RunStrategyResearchSwarmCommand = {
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
    */
   deep_dive_approval?: 'automatic' | 'review'
-  /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
-  model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
-  /**
-   * model-tiering: the env source the registry reads `OWLFOLIO_MODEL_ROLE_<ROLE>` from. The web/worker
-   * build this from the UI-managed env FILE merged over process.env (file wins), so file-configured
-   * tiers take effect. Omitted = `process.env` (the historical default — resolver behavior unchanged).
-   */
-  model_role_env?: Record<string, string | undefined>
   /**
    * S6 — USER-AUTHORED moat-gate override ("run remaining pillars anyway"): skips the EARLY moat-gate
    * short-circuit so Pillars 3–4 run on a below-gate name. The LATE verdict rails are unchanged (the
@@ -363,13 +340,6 @@ export type RunResearchDeepDivePhaseCommand = {
   risk_free_rate?: number
   /** Phase 4 — the required return for the FCF valuation (defaults to the flat 15% book hurdle). */
   required_return?: number
-  /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
-  model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
-  /**
-   * model-tiering: the env source the registry reads `OWLFOLIO_MODEL_ROLE_<ROLE>` from (env FILE merged
-   * over process.env, file wins). Omitted = `process.env` (historical default).
-   */
-  model_role_env?: Record<string, string | undefined>
   /** Circle-gate hardening knobs (k-sample agreement + evidence floors). Absent → shared defaults. */
   circle_gate?: CircleGateSettings
   /**
@@ -421,63 +391,16 @@ function toLedgerSourceInputs(captured: CapturedSource[], researchCaseId: string
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the provider + model + timeout for a swarm ROLE via the model registry. No hardcoded model
- * name lives in the pipeline — each stage asks the registry. By DEFAULT every role inherits the run's
- * active provider/model (so single-provider Codex/mock runs are unchanged), but a per-role override
- * (command.model_overrides or OWLFOLIO_MODEL_ROLE_<ROLE> env) can pin a role onto a DIFFERENT
- * provider/model — e.g. running red_team or lane_moat on a second model. When a role resolves to a
- * provider_id DIFFERENT from the run's, we instantiate that provider (resolveProvider); otherwise we
- * reuse the run's provider instance (zero behavior change for the default path).
+ * SINGLE-MODEL RESOLUTION (owner, 2026-07-18): model tiering and per-role overrides were removed —
+ * ONE configured reasoning model runs every stage of the analysis, and the analysis is only as good
+ * as that model. The role label survives purely for call-site readability.
  */
 function resolveRoleRuntime(
-  role: ModelRoleId,
+  _role: string,
   runProvider: Provider,
-  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>; model_role_env?: Record<string, string | undefined> },
+  command: { model_id: string },
 ): { provider: Provider; model_id: string } {
-  const resolved = resolveModelForRole(role, {
-    fallbackProviderId: runProvider.provider_id,
-    fallbackModel: command.model_id,
-    ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
-    env: command.model_role_env ?? process.env,
-  })
-  // Reuse the run's provider unless a role pins a genuinely DIFFERENT provider_id (the "different
-  // model" hook the judgment spec left as a TODO — now real).
-  const provider =
-    resolved.provider_id === runProvider.provider_id
-      ? runProvider
-      : resolveProvider({ provider_id: resolved.provider_id as Parameters<typeof resolveProvider>[0]['provider_id'] })
-  return { provider, model_id: resolved.model }
-}
-
-// ---------------------------------------------------------------------------
-// model-tiering-spec — Dual-Model Cross-Check (moat class + Shariah sector status ONLY)
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve a cross-check role to a runtime IFF it pins a DISTINCT provider/model from the run's active
- * one. Returns undefined when the role inherits the run's model (the default — cross-check OFF). This is
- * the registry-driven trigger: configuring a distinct provider/model on `lane_moat_crosscheck` /
- * `lane_shariah_crosscheck` (override or env) turns the cross-check ON for that classification only.
- */
-function resolveCrossCheckRuntime(
-  role: 'lane_moat_crosscheck' | 'lane_shariah_crosscheck',
-  runProvider: Provider,
-  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>; model_role_env?: Record<string, string | undefined> },
-): { provider: Provider; model_id: string } | undefined {
-  const resolved = resolveModelForRole(role, {
-    fallbackProviderId: runProvider.provider_id,
-    fallbackModel: command.model_id,
-    ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
-    env: command.model_role_env ?? process.env,
-  })
-  // Distinct = a different provider OR a different model than the run's active one.
-  const distinct = resolved.provider_id !== runProvider.provider_id || resolved.model !== command.model_id
-  if (!distinct) return undefined
-  const provider =
-    resolved.provider_id === runProvider.provider_id
-      ? runProvider
-      : resolveProvider({ provider_id: resolved.provider_id as Parameters<typeof resolveProvider>[0]['provider_id'] })
-  return { provider, model_id: resolved.model }
+  return { provider: runProvider, model_id: command.model_id }
 }
 
 // ---------------------------------------------------------------------------
@@ -886,9 +809,7 @@ export async function runStrategyResearchSwarm(
     gate_source_ids: gateSourceIds,
     gate_event_id: shariahGate.event_id,
     // model-tiering: forward per-role overrides so the deep-dive lanes + dual-model cross-check honor them.
-    ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
     // Forward the env source so file-configured tiers take effect in the deep-dive phase too.
-    ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
     // Forward the circle-gate hardening knobs (k-sample agreement + evidence floors).
     ...(command.circle_gate === undefined ? {} : { circle_gate: command.circle_gate }),
     // F.2: forward the compliant savings anchor so automatic-mode valuations use the SAME discount
@@ -1720,7 +1641,7 @@ export async function runResearchDeepDivePhase(
     // model-tiering: the highest-stakes lane resolves its OWN registry role (moat → lane_moat);
     // every other lane uses lanes_default. Default = the run's provider/model so single-provider
     // runs are unchanged; an override can pin moat onto a stronger model.
-    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : 'lanes_default'
+    const laneRole = lane === 'moat' ? 'lane_moat' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
     const sourceDiscipline = lane === 'risks'
       ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.${RISKS_RECENCY_NOTE}`
@@ -2647,48 +2568,9 @@ export async function runResearchDeepDivePhase(
   // resolved_moat_class is guaranteed defined by resolveJudgmentTiers (never undefined).
   const primaryMoatClass = judgment.moat!.resolved_moat_class
 
-  // ---- model-tiering-spec: Dual-Model Cross-Check (moat class + Shariah sector status ONLY) ----
-  // OFF by default. When the registry pins a DISTINCT model on lane_moat_crosscheck / lane_shariah_
-  // crosscheck, the harness re-classifies that ONE dimension on the second model and compares:
-  //   agreement → proceed (record crosscheck.agreed=true);
-  //   disagreement → take the CONSERVATIVE answer (lower moat tier / stricter Shariah) and flag
-  //                  requires_human_escalation (appended to open_questions); the conservative answer
-  //                  holds in the meantime. A cross-check timeout DEGRADES (primary holds, gap surfaced).
-  // "Don't extend everywhere — it doubles cost." Reuses the lane timeout/degrade guard.
-  const crossCheckOpenQuestions: string[] = []
-  let moatCrossCheckLayer: CrossCheckLayer | undefined
-  let shariahCrossCheckLayer: CrossCheckLayer | undefined
-
-  const moatCrossCheckRuntime = resolveCrossCheckRuntime('lane_moat_crosscheck', provider, command)
-  let resolvedMoatClass: MoatClass = primaryMoatClass
-  if (moatCrossCheckRuntime !== undefined) {
-    const moatXc = await resolveCrossCheck<MoatClass>({
-      dimension: 'moat_class',
-      primary: primaryMoatClass,
-      primaryModel: synthesisRuntime.model_id,
-      crossCheckModel: moatCrossCheckRuntime.model_id,
-      compare: compareMoatClass,
-      runCrossCheck: async () => {
-        const agent = await runGroundedAgent(moatCrossCheckRuntime.provider, {
-          run_id: `run_${command.research_case_id}_moat_crosscheck`,
-          model_id: moatCrossCheckRuntime.model_id,
-          prompt: `You are an INDEPENDENT moat-classification cross-checker for ${command.ticker}. `
-            + `Classify the durable competitive moat as exactly one of: narrow | moderate | wide | monopoly. `
-            + `Reason ONLY from primary filings and cite at least one real, fetchable source in proposed_sources. `
-            + `Be disciplined — judge from the filings' evidence alone: do NOT inflate the moat from narrative, and equally do NOT manufacture narrowness the filings do not support. Under-crediting a demonstrated moat is as much an error as over-crediting one.`,
-          timeout_ms: AGENT_TIMEOUT_MS,
-          schema_name: 'MoatCrossCheck',
-        }, MoatCrossCheckSchema, deps, { lane: 'moat' })
-        remember(agent.captured)
-        return agent.analysis.moat_class as MoatClass
-      },
-    })
-    resolvedMoatClass = moatXc.value
-    moatCrossCheckLayer = moatXc.crosscheck
-    if (moatXc.escalation_note !== undefined) crossCheckOpenQuestions.push(moatXc.escalation_note)
-    if (moatXc.degraded_note !== undefined) degradedFlags.push(moatXc.degraded_note)
-  }
-  const moatClass = resolvedMoatClass
+  // SINGLE-MODEL (owner, 2026-07-18): the dual-model cross-check machinery was removed with model
+  // tiering — one configured model runs the analysis; nothing re-classifies on a second model.
+  const moatClass = primaryMoatClass
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
   // ---- moat_grounding_unmet: distinguish an UNGROUNDED moat from a genuinely-NARROW one ----
@@ -3047,44 +2929,9 @@ export async function runResearchDeepDivePhase(
   // EDGAR/market-cap/impermissible-income are missing it is not computable and we fall back to the
   // lane's proposed (quick-screen) Shariah verdict. The SECTOR FAIL hard stop is independent of this
   // financial-ratio layer (handled by the quick-screen short-circuit + sector_status below).
-  // Dual-model cross-check for the SHARIAH SECTOR STATUS (the second high-stakes classification). OFF by
-  // default; when a distinct lane_shariah_crosscheck model is configured AND the synthesis supplied a
-  // sector_status, the second model re-classifies the sector and the conservative (stricter) status
-  // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
-  // the harness ratio recompute, not a model classification).
-  // Spec-correct decomposition: the overlay now comes from the always-on Shariah-reasoning pass (via shariahLaneJudgment above), not the lane and not the synthesis schema.
-  let shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
-  const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
-  if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
-    const primarySector = shariahJudgment.sector_status as ShariahSectorStatus
-    const shariahXc = await resolveCrossCheck<ShariahSectorStatus>({
-      dimension: 'shariah_sector_status',
-      primary: primarySector,
-      primaryModel: synthesisRuntime.model_id,
-      crossCheckModel: shariahCrossCheckRuntime.model_id,
-      compare: compareShariahSectorStatus,
-      runCrossCheck: async () => {
-        const agent = await runGroundedAgent(shariahCrossCheckRuntime.provider, {
-          run_id: `run_${command.research_case_id}_shariah_crosscheck`,
-          model_id: shariahCrossCheckRuntime.model_id,
-          prompt: `You are an INDEPENDENT Shariah SECTOR-status cross-checker for ${command.ticker}. `
-            + `Classify the company's PRIMARY-BUSINESS sector permissibility as exactly one of: `
-            + `compliant | conditional | non_compliant. Reason ONLY from filings/segment disclosures and `
-            + `cite at least one real, fetchable source in proposed_sources. Be strict — when in doubt, `
-            + `choose the more conservative (stricter) status.`,
-          timeout_ms: AGENT_TIMEOUT_MS,
-          schema_name: 'ShariahSectorCrossCheck',
-        }, ShariahCrossCheckSchema, deps, { lane: 'shariah' })
-        remember(agent.captured)
-        return agent.analysis.sector_status as ShariahSectorStatus
-      },
-    })
-    shariahCrossCheckLayer = shariahXc.crosscheck
-    if (shariahXc.escalation_note !== undefined) crossCheckOpenQuestions.push(shariahXc.escalation_note)
-    if (shariahXc.degraded_note !== undefined) degradedFlags.push(shariahXc.degraded_note)
-    // Hold the conservative (stricter) sector status; impermissible_income overlay unchanged.
-    shariahJudgment = { ...shariahJudgment, sector_status: shariahXc.value }
-  }
+  // Spec-correct decomposition: the Shariah overlay comes from the always-on Shariah-reasoning pass
+  // (shariahLaneJudgment); the removed dual-model sector cross-check never re-classifies it.
+  const shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
   let shariah_financial:
     | {
         computable: true
@@ -3908,17 +3755,6 @@ export async function runResearchDeepDivePhase(
       // E1: the inversion layer — the case argued against itself (cite-checked objection + the
       // consensus/social-proof read). Persisted on the inversion layer; no answer-or-downgrade machinery.
       inversion: inversionLayer,
-      // model-tiering-spec dual-model cross-check (moat + Shariah sector only). Present only when a
-      // distinct cross-check model was configured for that dimension (off by default). Records the two
-      // models + agreement; disagreement also raised requires_human_escalation in open_questions above.
-      ...((moatCrossCheckLayer !== undefined || shariahCrossCheckLayer !== undefined)
-        ? {
-            dual_model_crosscheck: {
-              ...(moatCrossCheckLayer !== undefined ? { moat_class: moatCrossCheckLayer } : {}),
-              ...(shariahCrossCheckLayer !== undefined ? { shariah_sector_status: shariahCrossCheckLayer } : {}),
-            },
-          }
-        : {}),
     },
     source_ids: allVerified,
     created_at: new Date().toISOString(),
@@ -4045,8 +3881,6 @@ export async function runResearchDeepDivePhase(
       ...(managementVetoReason !== undefined ? [managementVetoReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
-      // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
-      ...crossCheckOpenQuestions,
       ...(inversionOpenQuestion !== undefined ? [inversionOpenQuestion] : []),
     ],
     causation_id: completed.event_id,

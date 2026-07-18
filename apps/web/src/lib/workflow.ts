@@ -83,8 +83,6 @@ import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketD
 import { runPriceRefresh, type PriceRefreshResult, type RunPriceRefreshDeps } from '@owlfolio/workflow/priceRefresh'
 import type { FilingRef, Fundamentals } from '@owlfolio/workflow/secEdgar'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { resolveModelRoleEnv } from './modelRoleEnv'
-import { buildAutoModelRoleOverrides } from './autoTierConfig'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 import { projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import {
@@ -571,10 +569,6 @@ export async function enqueueResearchRun(
           ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
           deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
-          // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect
-          // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
-          model_role_env: await resolveModelRoleEnv(),
-          model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
           circle_gate: resolveCircleGateSettings(state.config),
           // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
           // inline path as the worker paths.
@@ -768,10 +762,6 @@ export async function requestDeepDiveRun(
             source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
             gate_source_ids: pendingRun.gate_source_ids,
             gate_event_id: pendingRun.gate_event_id,
-            // model-tiering: file-configured per-role overrides (PINS) take effect in the deep-dive phase
-            // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
-            model_role_env: await resolveModelRoleEnv(),
-            model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
             circle_gate: resolveCircleGateSettings(state.config),
             // Phase 4: the resume path threads the required return like the inline path (user-set only).
             ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),

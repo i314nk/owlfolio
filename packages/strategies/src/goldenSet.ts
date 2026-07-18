@@ -12,7 +12,7 @@
 // wider real-world margin than the ±10% scoring tolerance (the scorer's tolerance is a fixed band; the
 // confidence tag tells the operator how much to trust a near-miss).
 //
-// Mirrors the versioned-config pattern of valuationParams.ts / modelRegistry.ts (a frozen typed object
+// Mirrors the versioned-config pattern of valuationParams.ts (a frozen typed object
 // + a version field). Changing the golden set — adding a name, restating a reference — is a deliberate,
 // logged act: bump `version`.
 

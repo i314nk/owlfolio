@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest'
 import {
   CURATED_MODEL_CATALOG_VERSION,
   curatedModelsForProvider,
+  curatedRealModelsForProvider,
   getCuratedModelCatalog,
   isCuratedModel,
   type CuratedModel,
 } from '../modelCatalog'
 
-describe('curated reasoning-model catalog', () => {
+describe('curated reasoning-model catalog (tier-free — model tiering removed, owner 2026-07-18)', () => {
   it('is versioned (these lists go stale; the version makes that explicit)', () => {
     expect(typeof CURATED_MODEL_CATALOG_VERSION).toBe('string')
     expect(CURATED_MODEL_CATALOG_VERSION.length).toBeGreaterThan(0)
@@ -23,63 +24,41 @@ describe('curated reasoning-model catalog', () => {
     }
   })
 
-  it('every non-demo curated entry declares at least one valid tier suitability', () => {
-    for (const model of Object.values(getCuratedModelCatalog()).flat()) {
-      if (model.demo_only !== true) {
-        expect(model.tier_suitability.length).toBeGreaterThan(0)
-      }
-      for (const tier of model.tier_suitability) {
-        expect(['T1', 'T2', 'T3']).toContain(tier)
-      }
-    }
+  it('PROVIDER CONSOLIDATION: only mock-provider and openrouter carry curated lists; the removed direct APIs are gone', () => {
+    const catalog = getCuratedModelCatalog()
+    expect(Object.keys(catalog).sort()).toEqual(['mock-provider', 'openrouter'])
+    expect(curatedModelsForProvider('openai-api')).toEqual([])
+    expect(curatedModelsForProvider('anthropic-api')).toEqual([])
+    expect(curatedModelsForProvider('gemini-developer-api')).toEqual([])
+    // The local (Ollama / vLLM) surface has no curated list — model ids vary per install; the
+    // free-form selector input is the entry path.
+    expect(curatedModelsForProvider('local')).toEqual([])
   })
 
-  it('anchors on the repo defaults: direct OpenAI API -> gpt-5.5 (T1/T2)', () => {
-    const models = curatedModelsForProvider('openai-api')
-    const gpt = models.find((m) => m.model_id === 'gpt-5.5')
-    expect(gpt).toBeDefined()
-    expect(gpt?.tier_suitability).toEqual(expect.arrayContaining(['T1', 'T2']))
-  })
-
-  it('direct Anthropic API curated set leads with the frontier reasoning models', () => {
-    const models = curatedModelsForProvider('anthropic-api')
-    const ids = models.map((m) => m.model_id)
-    expect(ids).toContain('claude-opus-4-8')
-    expect(ids).toContain('claude-sonnet-4-6')
-    const opus = models.find((m) => m.model_id === 'claude-opus-4-8')
-    expect(opus?.tier_suitability).toContain('T1')
-  })
-
-  it('openrouter curates the current-generation reasoning candidate menu across every tier (exact pinned ids)', () => {
+  it('openrouter curates the current-generation reasoning candidate menu (exact pinned ids)', () => {
     const routes = curatedModelsForProvider('openrouter')
     expect(routes.length).toBeGreaterThan(0)
-    // Reasoning-only invariant + every tier represented (T1/T2/T3) for the tier selectors.
     expect(routes.every((m) => m.reasoning)).toBe(true)
-    const tiers = new Set(routes.flatMap((m) => m.tier_suitability))
-    expect(tiers.has('T1')).toBe(true)
-    expect(tiers.has('T2')).toBe(true)
-    expect(tiers.has('T3')).toBe(true)
     // Exact pinned ids only — no drifting `~*-latest` aliases under a per-target certification.
     expect(routes.every((m) => !m.model_id.includes('~') && !m.model_id.endsWith('-latest'))).toBe(true)
-    // T1 anchors on the frontier reasoning ids the owner curated.
-    const t1 = routes.filter((m) => m.tier_suitability.includes('T1')).map((m) => m.model_id)
-    expect(t1).toEqual(expect.arrayContaining(['anthropic/claude-opus-4.8', 'openai/gpt-5.5', 'x-ai/grok-4.3']))
+    const ids = routes.map((m) => m.model_id)
+    expect(ids).toEqual(expect.arrayContaining(['anthropic/claude-opus-4.8', 'openai/gpt-5.5', 'x-ai/grok-4.3']))
     // Stale prior-generation ids are dropped.
-    expect(routes.some((m) => m.model_id === 'deepseek/deepseek-r1')).toBe(false)
+    expect(ids).not.toContain('deepseek/deepseek-r1')
   })
 
-  it('mock-provider deterministic demo model is excluded from real-tier suggestions', () => {
+  it('mock-provider deterministic demo model is excluded from real suggestions', () => {
     const mock = curatedModelsForProvider('mock-provider')
     expect(mock.length).toBe(1)
     expect(mock[0]?.demo_only).toBe(true)
-    // Demo-only models carry no real-tier suitability.
-    expect(mock[0]?.tier_suitability.length).toBe(0)
+    expect(curatedRealModelsForProvider('mock-provider')).toEqual([])
+    expect(curatedRealModelsForProvider('openrouter').length).toBeGreaterThan(0)
   })
 
   it('isCuratedModel recognises a known curated model and rejects an uncurated id', () => {
-    expect(isCuratedModel('anthropic-api', 'claude-opus-4-8')).toBe(true)
-    expect(isCuratedModel('anthropic-api', 'some-unverified-model')).toBe(false)
-    expect(isCuratedModel('unknown-provider', 'claude-opus-4-8')).toBe(false)
+    expect(isCuratedModel('openrouter', 'anthropic/claude-opus-4.8')).toBe(true)
+    expect(isCuratedModel('openrouter', 'some-unverified-model')).toBe(false)
+    expect(isCuratedModel('unknown-provider', 'anthropic/claude-opus-4.8')).toBe(false)
   })
 
   it('returns an empty list for a provider with no curated models', () => {

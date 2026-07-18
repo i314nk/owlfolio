@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GuidedConnectionSelect,
   buildConnectionOptions,
-  buildTierGroupedModelOptions,
+  buildCuratedModelOptions,
   providerModeForOption,
   providerSelectionForConnection,
   providerSelectionForOption,
@@ -61,14 +61,14 @@ describe('GuidedConnectionSelect helpers', () => {
     const selected = providerSelectionForOption(
       { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
       {
-        provider_id: 'openai-api',
-        label: 'OpenAI (API key)',
+        provider_id: 'local',
+        label: 'Local (Ollama / vLLM) — experimental, untested',
         support_level: 'experimental',
-        description: 'Experimental provider path',
+        description: 'Experimental local endpoint',
       },
     )
 
-    expect(selected).toEqual({ provider_id: 'openai-api', support_level: 'experimental' })
+    expect(selected).toEqual({ provider_id: 'local', support_level: 'experimental' })
   })
 
   it('renders a SEARCHABLE picker over the full OpenRouter catalog when live models are provided', () => {
@@ -94,26 +94,22 @@ describe('GuidedConnectionSelect helpers', () => {
     expect(html).toContain('experimental')
   })
 
-  it('falls back to the curated tier select for OpenRouter when no live models are available (fail-closed)', () => {
+  it('falls back to the curated select for OpenRouter when no live models are available (fail-closed)', () => {
     const html = renderToStaticMarkup(renderModelSelection(openRouterConnection(), undefined, () => {}, []))
     expect(html).not.toContain('owl-openrouter-live-models')
-    // The curated tier-grouped <select> remains.
+    // The curated FLAT <select> remains (model tiering removed — no optgroups).
     expect(html).toContain('Model (pick one)')
     expect(html).toContain('anthropic/claude-opus-4.8')
+    expect(html).not.toContain('<optgroup')
   })
 
-  it('groups the OpenRouter model dropdown by tier, reading the curated catalog (not hardcoded)', () => {
-    const groups = buildTierGroupedModelOptions('openrouter')
-    const labels = groups.map((group) => group.label)
-
-    expect(labels).toEqual(['Tier 1', 'Tier 2', 'Tier 3'])
-    // A T1 frontier model appears in Tier 1.
-    expect(groups[0]?.models.map((model) => model.model_id)).toContain('anthropic/claude-opus-4.8')
-    // GPT-5.5 is suited to T1 AND T2, so it appears under both groups (each tier in tier_suitability).
-    const gptInT1 = groups.find((group) => group.tier === 'T1')?.models.some((model) => model.model_id === 'openai/gpt-5.5')
-    const gptInT2 = groups.find((group) => group.tier === 'T2')?.models.some((model) => model.model_id === 'openai/gpt-5.5')
-    expect(gptInT1).toBe(true)
-    expect(gptInT2).toBe(true)
+  it('builds a FLAT curated model menu from the catalog (model tiering removed — not hardcoded)', () => {
+    const models = buildCuratedModelOptions('openrouter')
+    const ids = models.map((model) => model.model_id)
+    expect(ids).toContain('anthropic/claude-opus-4.8')
+    expect(ids).toContain('openai/gpt-5.5')
+    // Each curated model appears exactly once — no per-tier duplication.
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('seeds a curated default model id when selecting a choose-provider connection (OpenRouter)', () => {
@@ -135,20 +131,40 @@ describe('GuidedConnectionSelect helpers', () => {
     expect(options.some((option) => option.title === 'Use Claude Code')).toBe(false)
   })
 
-  it('offers the direct-API providers (Anthropic/OpenAI/Gemini) as selectable cards when present', () => {
-    const withDirectApi: ProviderOption[] = [
+  it('offers the experimental LOCAL card (Ollama / vLLM) carrying the catalog UNSTABLE wording', () => {
+    const withLocal: ProviderOption[] = [
       ...providerOptions,
-      { provider_id: 'anthropic-api', label: 'Anthropic (Claude API key)', support_level: 'experimental', description: 'Direct Anthropic API', default_model_id: 'claude-sonnet-4-6' },
-      { provider_id: 'openai-api', label: 'OpenAI (API key)', support_level: 'experimental', description: 'Direct OpenAI API', default_model_id: 'gpt-5.5' },
-      { provider_id: 'gemini-developer-api', label: 'Gemini (Google API key)', support_level: 'experimental', description: 'Direct Gemini API', default_model_id: 'gemini-3.5-flash' },
+      {
+        provider_id: 'local',
+        label: 'Local (Ollama / vLLM) — experimental, untested',
+        support_level: 'experimental',
+        description: 'UNSTABLE / EXPERIMENTAL / UNTESTED: a local OpenAI-compatible endpoint (Ollama or vLLM) you run yourself.',
+        default_model_id: 'llama3.3:70b',
+      },
     ]
-    const keys = buildConnectionOptions(withDirectApi).map((option) => option.key)
-    expect(keys).toContain('anthropic-api')
-    expect(keys).toContain('openai-api')
-    expect(keys).toContain('gemini-developer-api')
-    // All three are 'choose' cards (curated multi-model lists), not fixed-model.
-    const anthropic = buildConnectionOptions(withDirectApi).find((option) => option.key === 'anthropic-api')
-    expect(anthropic?.modelChoice).toBe('choose')
+    const options = buildConnectionOptions(withLocal)
+    const local = options.find((option) => option.key === 'local')
+    expect(local?.modelChoice).toBe('choose')
+    // The card copy is the catalog description verbatim — the warning cannot drift away.
+    expect(local?.description).toContain('UNSTABLE / EXPERIMENTAL / UNTESTED')
+    // The retired direct-API providers are never offered, even if a stale option list includes them.
+    expect(options.map((option) => option.key).sort()).toEqual(['local', 'openrouter'])
+  })
+
+  it('renders the free-form model input for the LOCAL connection (no curated list)', () => {
+    const withLocal: ProviderOption[] = [{
+      provider_id: 'local',
+      label: 'Local (Ollama / vLLM) — experimental, untested',
+      support_level: 'experimental',
+      description: 'UNSTABLE / EXPERIMENTAL / UNTESTED: a local OpenAI-compatible endpoint.',
+      default_model_id: 'llama3.3:70b',
+    }]
+    const local = buildConnectionOptions(withLocal).find((option) => option.key === 'local')!
+    const html = renderToStaticMarkup(renderModelSelection(local, undefined, () => {}, []))
+    expect(html).toContain('Enter the local model id')
+    expect(html).toContain('Set model')
+    expect(html).toContain('llama3.3:70b')
+    expect(html).toContain('UNSTABLE / EXPERIMENTAL / UNTESTED')
   })
 
   it('preserves an explicit model choice when re-selecting the same connection', () => {

@@ -69,13 +69,12 @@ describe('provider status model', () => {
     const rows = await buildProviderStatusRows({
       env: {
         OPENROUTER_API_KEY: 'test-key',
-        OPENAI_API_KEY: 'test-key',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
 
     // Surviving providers stay experimental — never auto-promoted just because a key makes them ready.
-    for (const providerId of ['openrouter', 'openai-api'] as const) {
+    for (const providerId of ['openrouter', 'local'] as const) {
       expect(rows.find((row) => row.provider_id === providerId)).toMatchObject({
         provider_id: providerId,
         readiness_state: 'experimental',
@@ -92,19 +91,17 @@ describe('provider status model', () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-provider-status-surfaces-'))
     const rows = await buildProviderStatusRows({
       env: {
-        OPENAI_API_KEY: 'secret-openai-key',
         OWLFOLIO_PROJECT_DIR: projectDir,
       } as any,
     })
 
-    const openAiApi = rows.find((row) => row.provider_id === 'openai-api') as any
+    const localRow = rows.find((row) => row.provider_id === 'local') as any
     const openRouter = rows.find((row) => row.provider_id === 'openrouter') as any
 
-    expect(openAiApi).toMatchObject({
-      provider_surface_id: 'openai-api',
+    expect(localRow).toMatchObject({
+      provider_surface_id: 'local',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
-      retention_or_zdr_status: 'not_verified',
       workflow_role: 'research_draft',
     })
     expect(openRouter).toMatchObject({
@@ -117,8 +114,8 @@ describe('provider status model', () => {
       model_role: 'Meta-aggregator candidate',
     })
 
-    expect(openAiApi.provider_surface_id).not.toBe(openRouter.provider_surface_id)
-    for (const row of [openAiApi, openRouter]) {
+    expect(localRow.provider_surface_id).not.toBe(openRouter.provider_surface_id)
+    for (const row of [localRow, openRouter]) {
       expect(row.status_rows.map((statusRow: { label: string }) => statusRow.label)).toEqual(expect.arrayContaining([
         'Surface',
         'Auth mode',
@@ -143,8 +140,8 @@ describe('provider status model', () => {
       },
     })
 
-    // Missing credentials do NOT bump support level — surviving providers stay experimental + not-ready.
-    for (const providerId of ['openai-api', 'openrouter'] as const) {
+    // Missing credentials do NOT bump support level — the keyed provider stays experimental + not-ready.
+    for (const providerId of ['openrouter'] as const) {
       expect(rows.find((row) => row.provider_id === providerId)).toMatchObject({
         readiness_state: 'unready',
         effective_support_level: 'experimental',
@@ -212,23 +209,23 @@ describe('provider status model', () => {
 
   it('fails closed when a completed certification report marks a credential-present provider unsupported', async () => {
     const projectDir = await writeReportFixture({
-      ...unsupportedCompletedReport('openai-api'),
+      ...unsupportedCompletedReport('openrouter'),
       target: {
-        ...unsupportedCompletedReport('openai-api').target,
+        ...unsupportedCompletedReport('openrouter').target,
         auth_mode: 'api_key',
       },
     })
 
     const rows = await buildProviderStatusRows({
       env: {
-        ANTHROPIC_API_KEY: 'credential-file-exists-but-live-certification-failed',
+        OPENROUTER_API_KEY: 'credential-file-exists-but-live-certification-failed',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const claude = rows.find((row) => row.provider_id === 'openai-api')
+    const claude = rows.find((row) => row.provider_id === 'openrouter')
 
     expect(claude).toMatchObject({
-      provider_id: 'openai-api',
+      provider_id: 'openrouter',
       readiness_state: 'unready',
       is_ready: false,
       auth_source: 'certification report',
@@ -245,10 +242,10 @@ describe('provider status model', () => {
 
   it('fails closed when latest certification requires reauth or is quota-limited even if support is otherwise certified', async () => {
     const reauthReport: CertificationReport = {
-      ...unsupportedCompletedReport('openai-api'),
+      ...unsupportedCompletedReport('openrouter'),
       certification_report_id: 'cert_claude_reauth_required',
       target: {
-        ...unsupportedCompletedReport('openai-api').target,
+        ...unsupportedCompletedReport('openrouter').target,
         auth_mode: 'api_key',
       },
       run_status: 'reauth-required',
@@ -260,11 +257,11 @@ describe('provider status model', () => {
 
     const rows = await buildProviderStatusRows({
       env: {
-        ANTHROPIC_API_KEY: 'credential-present-but-reauth-required',
+        OPENROUTER_API_KEY: 'credential-present-but-reauth-required',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const claude = rows.find((row) => row.provider_id === 'openai-api')
+    const claude = rows.find((row) => row.provider_id === 'openrouter')
 
     expect(claude).toMatchObject({
       readiness_state: 'unready',
@@ -293,7 +290,7 @@ describe('provider status model', () => {
       summary: 'Certification is quota limited.',
     })
     const quotaRows = await buildProviderStatusRows({
-      env: { OPENAI_API_KEY: 'credential-present-but-quota-limited', OWLFOLIO_PROJECT_DIR: quotaProjectDir },
+      env: { OPENROUTER_API_KEY: 'credential-present-but-quota-limited', OWLFOLIO_PROJECT_DIR: quotaProjectDir },
     })
     const openai = quotaRows.find((row) => row.provider_id === 'openrouter')
     expect(openai).toMatchObject({
@@ -335,7 +332,7 @@ describe('provider status model', () => {
 
   it('displays explicit not-configured certification artifacts for unavailable real providers', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
-      provider_id: 'openai-api',
+      provider_id: 'openrouter',
       generated_at: '2026-06-01T00:00:00.000Z',
       capabilities: {
         'text-generation': 'native',
@@ -350,14 +347,14 @@ describe('provider status model', () => {
 
     const rows = await buildProviderStatusRows({
       env: {
-        OPENAI_API_KEY: 'credential-file-exists-but-live-certification-failed',
+        OPENROUTER_API_KEY: 'credential-file-exists-but-live-certification-failed',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const openaiApi = rows.find((row) => row.provider_id === 'openai-api')
+    const openaiApi = rows.find((row) => row.provider_id === 'openrouter')
 
     expect(openaiApi).toMatchObject({
-      provider_id: 'openai-api',
+      provider_id: 'openrouter',
       readiness_state: 'unready',
       is_ready: false,
       auth_source: 'certification report',
@@ -370,7 +367,7 @@ describe('provider status model', () => {
       },
     })
     expect((openaiApi as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual(expect.arrayContaining([
-      ['Surface', 'openai-api'],
+      ['Surface', 'openrouter-api'],
       ['Auth mode', 'api_key'],
       ['Role certification', 'research_draft: unsupported'],
       ['Catalog support', 'experimental'],
@@ -466,49 +463,19 @@ describe('model-tiering — golden-set qualification on the provider status rows
   })
 })
 
-describe('model-tiering — buildModelRegistrySection', () => {
-  it('maps each role to a resolved provider/model + tier with low temperature, inheriting the active model by default', async () => {
-    const { buildModelRegistrySection } = await import('../providerStatus')
-    const section = buildModelRegistrySection({ activeProviderId: 'mock-provider', activeModel: 'mock-buffett-munger-demo', env: {} })
-    expect(section.version).toMatch(/model-registry/)
-    const synthesis = section.roles.find((r) => r.role === 'synthesis')
-    expect(synthesis?.tier).toBe('T1')
-    expect(synthesis?.provider_id).toBe('mock-provider')
-    expect(synthesis?.model).toBe('mock-buffett-munger-demo')
-    expect(synthesis?.overridden).toBe(false)
-    expect(synthesis!.temperature).toBeLessThanOrEqual(0.3)
-    // Every role's temperature stays in the low band (0–0.3).
-    expect(section.roles.every((r) => r.temperature >= 0 && r.temperature <= 0.3)).toBe(true)
-    // Tiers cover the high-stakes T1 lanes + the T2/T3 roles.
-    expect(section.roles.find((r) => r.role === 'lane_moat')?.tier).toBe('T1')
-    expect(section.roles.find((r) => r.role === 'red_team')?.tier).toBe('T2')
-    expect(section.roles.find((r) => r.role === 'monitors')?.tier).toBe('T3')
-    expect(section.no_model_note).toContain('No model, ever')
-  })
+// (The model-registry/tier suite was removed with model tiering — owner, 2026-07-18.)
 
-  it('flags a role overridden onto a different model via env', async () => {
-    const { buildModelRegistrySection } = await import('../providerStatus')
-    const section = buildModelRegistrySection({
-      activeProviderId: 'mock-provider',
-      activeModel: 'mock-buffett-munger-demo',
-      env: { OWLFOLIO_MODEL_ROLE_LANE_MOAT: 'other-model' },
-    })
-    const moat = section.roles.find((r) => r.role === 'lane_moat')
-    expect(moat?.model).toBe('other-model')
-    expect(moat?.overridden).toBe(true)
-  })
-})
 
-function unsupportedCompletedReport(providerId: 'mock-provider' | 'openai-api' | 'openrouter'): CertificationReport {
+function unsupportedCompletedReport(providerId: 'mock-provider' | 'local' | 'openrouter'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,
     target: {
-      provider_surface_id: providerId === 'openai-api' ? 'openai-api' : providerId === 'openrouter' ? 'openrouter-api' : 'mock-provider',
-      vendor_id: providerId === 'openai-api' ? 'openai' : providerId === 'openrouter' ? 'openrouter' : 'mock',
+      provider_surface_id: providerId === 'local' ? 'local' : providerId === 'openrouter' ? 'openrouter-api' : 'mock-provider',
+      vendor_id: providerId === 'local' ? 'local' : providerId === 'openrouter' ? 'openrouter' : 'mock',
       runtime_kind: providerId === 'mock-provider' ? 'built_in' : 'direct_api',
       auth_mode: providerId === 'mock-provider' ? 'built_in_demo' : 'api_key',
-      model_id: providerId === 'openai-api' ? 'gpt-5.5' : providerId === 'openrouter' ? 'openrouter/auto' : 'mock-research-v2',
+      model_id: providerId === 'local' ? 'llama3.3:70b' : providerId === 'openrouter' ? 'openrouter/auto' : 'mock-research-v2',
       workflow_role: 'research_draft',
       schema_version: 1,
     },

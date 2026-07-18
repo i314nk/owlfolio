@@ -108,17 +108,15 @@ Projection rules matter as much as event writes:
 
 Provider support is evidence-bounded. The catalog in `packages/providers/src/providerCatalog.ts` is not enough by itself; latest certification reports under `data/provider-certifications/*.latest.json` determine effective support labels in the UI and docs.
 
-Current alpha support (**update 2026-06-29**: the whole CLI/OAuth lane — Codex CLI, Claude CLI, Gemini CLI — was retired; surviving providers share one function-calling grounded tool loop):
+Current alpha support (**PROVIDER CONSOLIDATION, owner 2026-07-18**: OpenRouter is the one real provider; the direct API-key providers and the CLI/OAuth lane are removed; model tiering is removed — one configured model runs every stage of the analysis):
 
 | Provider id | Adapter path | Effective support |
 | --- | --- | --- |
 | `mock-provider` | Deterministic in-process provider | Certified for demo/test/e2e; not real research intelligence. |
 | `openrouter` | OpenAI-compatible meta-aggregator (`OpenRouterProvider`); the default personal-local provider | Experimental. Proven grounded tool loop; usable with a key — model choice/certification is the user's responsibility. |
-| `openai-api` | Direct OpenAI API (OpenAI-compatible adapter) | Experimental; usable with a key. |
-| `anthropic-api` | Direct Anthropic API (OpenAI-compatible adapter) | Experimental; usable with a key. |
-| `gemini-developer-api` | Direct Gemini Developer API candidate | Experimental; usable with a key. Privacy posture caveats apply. |
+| `local` | Local OpenAI-compatible endpoint you run yourself (Ollama / vLLM), same generalized adapter | **UNSTABLE / EXPERIMENTAL / UNTESTED** — not exercised end-to-end; expect failures; fail-closed. |
 
-The three direct API-key providers are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's `runToolLoop`. Native/provider-side web search is disabled by construction — the harness executor is the only egress.
+Both real surfaces are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's `runToolLoop`. Native/provider-side web search is disabled by construction — the harness executor is the only egress.
 
 Readiness inputs (keys live in the local env file `OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`):
 

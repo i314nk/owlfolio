@@ -40,9 +40,8 @@ export function assessEnvKeyRuntimeState(name: string, processEnv: EnvLike, file
 export function providerEnvKeyNames(providerId: string): string[] {
   switch (providerId) {
     case 'openrouter': return ['OPENROUTER_API_KEY']
-    case 'openai-api': return ['OPENAI_API_KEY']
-    case 'anthropic-api': return ['ANTHROPIC_API_KEY']
-    case 'gemini-developer-api': return ['GEMINI_API_KEY', 'GOOGLE_API_KEY']
+    // The experimental local surface needs no key (most local servers run unauthenticated); the
+    // optional OWLFOLIO_LOCAL_API_KEY never gates readiness, so it is not listed here.
     default: return []
   }
 }

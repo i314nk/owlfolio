@@ -877,13 +877,13 @@ describe('workflow helpers', () => {
   })
 
   it('defaults a provider without an explicit model id to its curated catalog default model', () => {
-    // openai-api → gpt-5.5 (the catalog default for the direct OpenAI API surface)
+    // local → llama3.3:70b (the catalog default for the experimental local surface)
     expect(resolveModelIdForProvider({
       provider: {
-        provider_id: 'openai-api',
+        provider_id: 'local',
         support_level: 'experimental',
       },
-    })).toBe('gpt-5.5')
+    })).toBe('llama3.3:70b')
     // openrouter → openrouter/auto (its own catalog default), not a hard-coded fallback
     expect(resolveModelIdForProvider({
       provider: {

@@ -2,14 +2,14 @@
 
 import { createElement, useState, type CSSProperties } from 'react'
 
-import { curatedRealTierModelsForProvider, type CuratedModel, type ModelTierSuitability } from '@owlfolio/providers/modelCatalog'
+import { curatedRealModelsForProvider, type CuratedModel } from '@owlfolio/providers/modelCatalog'
 import type { OpenRouterCatalogModel } from '@owlfolio/providers/openRouterModels'
-import type { AppConfig, ProviderId } from '@owlfolio/shared'
+import type { AppConfig } from '@owlfolio/shared'
 
 import type { ProviderOption } from '../lib/providerReadiness'
 
 /**
- * Shared, reusable provider/connection toggle + tier-grouped model dropdown.
+ * Shared, reusable provider/connection toggle + curated model dropdown.
  *
  * EXTRACTED from the onboarding wizard (commit 93ad5a4) so the wizard AND the
  * `/settings/providers` guided-setup surface render the SAME options from a single
@@ -22,7 +22,7 @@ import type { ProviderOption } from '../lib/providerReadiness'
  */
 
 export type ConnectionOption = {
-  /** Stable card id: 'openrouter' | a direct-API provider id. */
+  /** Stable card id: 'openrouter' | 'local'. */
   key: string
   provider: ProviderOption
   mode: AppConfig['mode']
@@ -31,18 +31,10 @@ export type ConnectionOption = {
   description: string
   /**
    * 'fixed': single hard-wired model (demo mock) — no chooser.
-   * 'choose': the user picks ONE model from the tier-grouped dropdown.
+   * 'choose': the user picks ONE model (curated dropdown, or a free-form id where no curated list exists).
    */
   modelChoice: 'fixed' | 'choose'
 }
-
-const TIER_GROUP_LABELS: Record<ModelTierSuitability, string> = {
-  T1: 'Tier 1',
-  T2: 'Tier 2',
-  T3: 'Tier 3',
-}
-
-const TIER_ORDER: ModelTierSuitability[] = ['T1', 'T2', 'T3']
 
 const connectionCardBaseStyle: CSSProperties = {
   background: 'var(--owl-color-panel)',
@@ -114,45 +106,24 @@ export function buildConnectionOptions(providerOptions: ProviderOption[]): Conne
     })
   }
 
-  // Direct-API providers: each is a real OpenAI-compatible provider selected with its own API key. They
-  // offer a curated multi-model list, so each is a 'choose' card (the user pins one model below).
-  for (const directApi of DIRECT_API_CONNECTIONS) {
-    const provider = providerOptions.find((option) => option.provider_id === directApi.provider_id)
-    if (provider !== undefined) {
-      options.push({
-        key: directApi.provider_id,
-        provider,
-        mode: 'personal-local',
-        title: directApi.title,
-        badge: 'API key',
-        description: directApi.description,
-        modelChoice: 'choose',
-      })
-    }
+  // The experimental LOCAL surface (owner, 2026-07-18): an OpenAI-compatible endpoint the user runs
+  // themselves (Ollama / vLLM). The card carries the catalog's UNSTABLE/EXPERIMENTAL/UNTESTED wording
+  // verbatim — this lane is deliberately never presented as a quietly-normal alternative.
+  const localProvider = providerOptions.find((option) => option.provider_id === 'local')
+  if (localProvider !== undefined) {
+    options.push({
+      key: 'local',
+      provider: localProvider,
+      mode: 'personal-local',
+      title: 'Use a local model (Ollama / vLLM)',
+      badge: 'Experimental',
+      description: localProvider.description,
+      modelChoice: 'choose',
+    })
   }
 
   return options
 }
-
-// Direct-API connection cards (real OpenAI-compatible providers keyed by their own API key). Kept honest:
-// these stay experimental until target-specific certification exists — research quality is the model you pick.
-const DIRECT_API_CONNECTIONS: { provider_id: ProviderId; title: string; description: string }[] = [
-  {
-    provider_id: 'anthropic-api',
-    title: 'Use Anthropic (Claude)',
-    description: 'An Anthropic API key drives Claude models directly. Pick one model below; readiness needs ANTHROPIC_API_KEY.',
-  },
-  {
-    provider_id: 'openai-api',
-    title: 'Use OpenAI (API key)',
-    description: 'An OpenAI API key drives GPT models directly. Pick one model below; readiness needs OPENAI_API_KEY.',
-  },
-  {
-    provider_id: 'gemini-developer-api',
-    title: 'Use Gemini (Google)',
-    description: 'A Gemini Developer API key drives Google models directly. Pick one model below; readiness needs GEMINI_API_KEY.',
-  },
-]
 
 export function isConnectionSelected(option: ConnectionOption, providerId: AppConfig['provider']['provider_id']): boolean {
   return option.provider.provider_id === providerId
@@ -171,13 +142,14 @@ export function providerModeForOption(
 }
 
 /**
- * Default model id for a connection: a `choose` connection (OpenRouter / Claude Code) pins the first
- * curated real-tier model so the stored model_id is always a curated/runnable id (never the bare
- * `openrouter/auto` catalog default); a `fixed` connection uses the catalog default (Codex gpt-5.5).
+ * Default model id for a connection: a `choose` connection with a curated list (OpenRouter) pins the
+ * first curated real model so the stored model_id is always a curated/runnable id (never the bare
+ * `openrouter/auto` catalog default); otherwise (fixed demo mock, or the uncurated local surface) the
+ * catalog's default_model_id is used.
  */
 export function defaultModelForConnection(option: ConnectionOption): string | undefined {
   if (option.modelChoice === 'choose') {
-    const curated = curatedRealTierModelsForProvider(option.provider.provider_id)
+    const curated = curatedRealModelsForProvider(option.provider.provider_id)
     if (curated.length > 0) {
       return curated[0]!.model_id
     }
@@ -227,21 +199,12 @@ export function providerSelectionForOption(
 }
 
 /**
- * Tier-grouped model menu data for the `<select>`. GROUPING RULE: read the curated reasoning menu via
- * `curatedRealTierModelsForProvider(provider_id)` (never hardcoded here) and place EACH model under EVERY
- * tier in its `tier_suitability` — so a model suited to T1+T2 shows under both Tier 1 and Tier 2, and ALL
- * curated options remain visible/selectable. The tier grouping is purely organizational; the chosen value
- * is a single concrete `model_id`.
+ * Curated model menu data for the `<select>` — a FLAT list read via `curatedRealModelsForProvider`
+ * (never hardcoded here). Model tiering was removed (owner, 2026-07-18): ONE configured model runs
+ * every stage of the analysis, so the menu is just the curated reasoning candidates.
  */
-export function buildTierGroupedModelOptions(providerId: string): { tier: ModelTierSuitability; label: string; models: CuratedModel[] }[] {
-  const curated = curatedRealTierModelsForProvider(providerId)
-  return TIER_ORDER
-    .map((tier) => ({
-      tier,
-      label: TIER_GROUP_LABELS[tier],
-      models: curated.filter((model) => model.tier_suitability.includes(tier)),
-    }))
-    .filter((group) => group.models.length > 0)
+export function buildCuratedModelOptions(providerId: string): CuratedModel[] {
+  return curatedRealModelsForProvider(providerId)
 }
 
 export type GuidedConnectionSelectProps = {
@@ -265,9 +228,9 @@ export type GuidedConnectionSelectProps = {
 }
 
 /**
- * The shared provider toggle + tier-grouped model dropdown. Renders the connection cards (Demo / Codex /
- * OpenRouter / Claude Code) and, for the selected connection, either a fixed-model note or a tier-grouped
- * model `<select>`.
+ * The shared provider toggle + model dropdown. Renders the connection cards (OpenRouter / Local) and,
+ * for the selected connection, a fixed-model note, a curated model `<select>`, or a free-form model
+ * input (the local surface has no curated list — model ids vary per install).
  */
 export function GuidedConnectionSelect({
   connectionOptions,
@@ -338,6 +301,16 @@ export function renderModelSelection(
     })
   }
 
+  // The local surface has NO curated model list (installed model ids vary per machine), so the model
+  // is entered free-form; the catalog default (an Ollama-style id) is only a seed suggestion.
+  if (selectedConnection.provider.provider_id === 'local') {
+    return createElement(LocalModelPicker, {
+      provider: selectedConnection.provider,
+      selectedModelId,
+      onSelectModel,
+    })
+  }
+
   if (selectedConnection.modelChoice === 'fixed') {
     const fixedModelId = selectedConnection.provider.default_model_id
     if (fixedModelId === undefined) {
@@ -351,8 +324,8 @@ export function renderModelSelection(
     )
   }
 
-  const groups = buildTierGroupedModelOptions(selectedConnection.provider.provider_id)
-  if (groups.length === 0) {
+  const models = buildCuratedModelOptions(selectedConnection.provider.provider_id)
+  if (models.length === 0) {
     return null
   }
 
@@ -374,14 +347,10 @@ export function renderModelSelection(
         },
         value: selectedModelId ?? '',
       },
-      ...groups.map((group) => createElement(
-        'optgroup',
-        { key: group.tier, label: group.label },
-        ...group.models.map((model) => createElement(
-          'option',
-          { key: `${group.tier}:${model.model_id}`, value: model.model_id },
-          `${model.model_id} — ${model.note}`,
-        )),
+      ...models.map((model) => createElement(
+        'option',
+        { key: model.model_id, value: model.model_id },
+        `${model.model_id} — ${model.note}`,
       )),
     ),
     ),
@@ -414,7 +383,7 @@ function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveM
   liveModels: OpenRouterCatalogModel[]
 }) {
   const datalistId = 'owl-openrouter-live-models'
-  const curated = curatedRealTierModelsForProvider('openrouter')
+  const curated = curatedRealModelsForProvider('openrouter')
   const curatedIds = new Set(curated.map((model) => model.model_id))
   const liveOnly = liveModels.filter((model) => !curatedIds.has(model.id))
 
@@ -459,7 +428,7 @@ function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveM
       ...curated.map((model) => createElement(
         'option',
         { key: `curated:${model.model_id}`, value: model.model_id },
-        `${model.model_id} — recommended · ${model.tier_suitability.join('/')}`,
+        `${model.model_id} — recommended · ${model.note}`,
       )),
       ...liveOnly.map((model) => createElement(
         'option',
@@ -480,6 +449,67 @@ function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveM
       'span',
       { style: modelHintStyle },
       `Searching OpenRouter's reasoning models the harness can drive (${liveModels.length} — reasoning + tool-calling + structured output; non-reasoning and incompatible models are filtered out). Curated picks are recommended; any other model is your call — it runs experimental until you decide it fits the job.`,
+    ),
+  )
+}
+
+/**
+ * Free-form model input for the experimental LOCAL surface (Ollama / vLLM). There is no curated list —
+ * installed model ids vary per machine — so the user types the id their local server actually serves
+ * and commits it with an explicit Set button (same commit-on-click contract as the OpenRouter picker).
+ */
+function LocalModelPicker({ provider, selectedModelId, onSelectModel }: {
+  provider: ProviderOption
+  selectedModelId: string | undefined
+  onSelectModel: (provider: ProviderOption, modelId: string) => void
+}) {
+  const [pendingModel, setPendingModel] = useState(selectedModelId ?? '')
+  const trimmed = pendingModel.trim()
+  const isCurrent = trimmed === (selectedModelId ?? '')
+  const canSet = trimmed.length > 0 && !isCurrent
+
+  return createElement(
+    'label',
+    { style: { display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '520px' } },
+    createElement('span', { style: modelLabelStyle }, 'Model (the id your local server serves)'),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+      createElement('input', {
+        type: 'text',
+        'aria-label': 'Enter the local model id',
+        className: 'owl-select owl-focusable',
+        placeholder: `e.g. ${provider.default_model_id ?? 'llama3.3:70b'}`,
+        value: pendingModel,
+        onChange: (event: Event) => setPendingModel((event.target as HTMLInputElement).value),
+        style: { flex: '1 1 16rem' },
+      }),
+      createElement('button', {
+        type: 'button',
+        className: 'owl-button owl-button-secondary owl-focusable',
+        'aria-label': 'Set the local model',
+        disabled: !canSet,
+        onClick: () => {
+          if (canSet) {
+            onSelectModel(provider, trimmed)
+          }
+        },
+        style: { flex: '0 0 auto' },
+      }, 'Set model'),
+    ),
+    createElement(
+      'span',
+      { style: modelValueStyle },
+      selectedModelId === undefined || selectedModelId.length === 0
+        ? 'No model set yet — type the model id your local server serves, then click Set model.'
+        : isCurrent
+          ? `Active model: ${selectedModelId}`
+          : `Active model: ${selectedModelId} — click Set model to switch to “${trimmed}”.`,
+    ),
+    createElement(
+      'span',
+      { style: modelHintStyle },
+      'UNSTABLE / EXPERIMENTAL / UNTESTED: this lane has not been tested end-to-end — expect failures; runs fail closed. The model id must match one your Ollama / vLLM server actually serves, and the analysis is only as good as that model.',
     ),
   )
 }

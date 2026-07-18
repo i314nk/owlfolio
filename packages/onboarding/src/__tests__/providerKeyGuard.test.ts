@@ -27,11 +27,10 @@ describe('assessEnvKeyRuntimeState', () => {
 })
 
 describe('providerEnvKeyNames', () => {
-  it('maps surviving providers to their key names', () => {
+  it('maps surviving providers to their key names (PROVIDER CONSOLIDATION: openrouter + local only)', () => {
     expect(providerEnvKeyNames('openrouter')).toEqual(['OPENROUTER_API_KEY'])
-    expect(providerEnvKeyNames('openai-api')).toEqual(['OPENAI_API_KEY'])
-    expect(providerEnvKeyNames('anthropic-api')).toEqual(['ANTHROPIC_API_KEY'])
-    expect(providerEnvKeyNames('gemini-developer-api')).toEqual(['GEMINI_API_KEY', 'GOOGLE_API_KEY'])
+    // The local surface needs no key to be runnable; its optional key never gates readiness.
+    expect(providerEnvKeyNames('local')).toEqual([])
     expect(providerEnvKeyNames('mock-provider')).toEqual([])
   })
 })
@@ -116,12 +115,15 @@ describe('preflightProviderKeyGuard', () => {
     expect(probe).not.toHaveBeenCalled()
   })
 
-  it('gemini dual keys: either active key satisfies the guard', async () => {
+  it('the keyless local surface passes the guard without any credential', async () => {
+    const probe = vi.fn(async () => 'valid' as const)
     const result = await preflightProviderKeyGuard({
-      providerId: 'gemini-developer-api',
-      processEnv: { GOOGLE_API_KEY: 'g' },
-      fileEnv: { GOOGLE_API_KEY: 'g' },
+      providerId: 'local',
+      processEnv: {},
+      fileEnv: {},
+      validate: probe,
     })
     expect(result.ok).toBe(true)
+    expect(probe).not.toHaveBeenCalled()
   })
 })

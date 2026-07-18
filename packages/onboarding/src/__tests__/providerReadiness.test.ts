@@ -16,43 +16,31 @@ describe('providerReadiness', () => {
     expect(readiness.status_label).not.toMatch(/\bready\b/i)
   })
 
-  it('reports a direct API-key provider as ready (experimental) when its key is configured', async () => {
-    const anthropic = await getProviderReadiness('anthropic-api', { ANTHROPIC_API_KEY: 'test-key' })
-    expect(anthropic).toMatchObject({
-      provider_id: 'anthropic-api',
-      provider_surface_id: 'anthropic-api',
+  it('reports the LOCAL surface as ready-by-default but loudly unstable/experimental/untested', async () => {
+    const local = await getProviderReadiness('local', {})
+    expect(local).toMatchObject({
+      provider_id: 'local',
+      provider_surface_id: 'local',
       is_ready: true,
       support_level: 'experimental',
-      auth_source: 'ANTHROPIC_API_KEY',
     })
+    expect(local.status_label).toContain('UNSTABLE / EXPERIMENTAL / UNTESTED')
+    expect(local.status_label).toContain('http://127.0.0.1:11434/v1')
+    expect(local.status_label.toLowerCase()).toContain('fail closed')
 
-    const openai = await getProviderReadiness('openai-api', { OPENAI_API_KEY: 'test-key' })
-    expect(openai).toMatchObject({ provider_id: 'openai-api', is_ready: true, auth_source: 'OPENAI_API_KEY' })
-
-    const gemini = await getProviderReadiness('gemini-developer-api', { GOOGLE_API_KEY: 'test-key' })
-    expect(gemini).toMatchObject({ provider_id: 'gemini-developer-api', is_ready: true, auth_source: 'GEMINI_API_KEY' })
-  })
-
-  it('reports a direct API-key provider as experimental and not ready without its key, leaking no secrets', async () => {
-    const readiness = await getProviderReadiness('anthropic-api', { BROWSER_COOKIE: 'secret-browser-cookie' } as Record<string, string | undefined>)
-    expect(readiness).toMatchObject({
-      provider_id: 'anthropic-api',
-      is_ready: false,
-      support_level: 'experimental',
-      auth_source: 'missing',
-    })
-    expect(readiness.status_label).toMatch(/missing/i)
-    expect(JSON.stringify(readiness)).not.toContain('secret-browser-cookie')
+    const custom = await getProviderReadiness('local', { OWLFOLIO_LOCAL_API_BASE_URL: 'http://127.0.0.1:8000/v1' })
+    expect(custom.status_label).toContain('http://127.0.0.1:8000/v1')
+    expect(custom.auth_source).toBe('OWLFOLIO_LOCAL_API_BASE_URL')
   })
 
   it('lists real provider options in onboarding order, excluding the internal mock provider', () => {
     const options = getProviderOptions()
 
-    // The CLI/OAuth lanes (Codex, Claude CLI, Gemini CLI) were retired; surviving providers are OpenRouter
-    // + the direct API-key providers. The mock provider is internal (e2e/unit/cert) and is never offered.
-    expect(options.map((provider) => provider.provider_id)).toEqual(['openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
-    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['openrouter-api', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
-    expect(options.map((provider) => provider.support_level)).toEqual(['experimental', 'experimental', 'experimental', 'experimental'])
+    // PROVIDER CONSOLIDATION (owner, 2026-07-18): OpenRouter is the one real provider; 'local'
+    // (Ollama / vLLM) is the experimental untested surface. The mock provider is internal and never offered.
+    expect(options.map((provider) => provider.provider_id)).toEqual(['openrouter', 'local'])
+    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['openrouter-api', 'local'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['experimental', 'experimental'])
   })
 
   it('never offers the mock provider in the picker, even under the test harness env', () => {

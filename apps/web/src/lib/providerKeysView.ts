@@ -1,7 +1,5 @@
-import { getProviderCatalog, curatedRealTierModelsForProvider } from '@owlfolio/providers'
+import { getProviderCatalog } from '@owlfolio/providers'
 import type { ProviderId } from '@owlfolio/shared'
-import { modelRoleIds, resolveModelForRole, type ModelRoleId } from '@owlfolio/strategies/modelRegistry'
-import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
 import { assessEnvKeyRuntimeState } from '@owlfolio/onboarding'
 import {
@@ -11,8 +9,6 @@ import {
   resolveEnvKeyFilePath,
   type EnvKeyOptions,
 } from './envKeys'
-import { modelRoleEnvKeyForRole, readModelRoleOverridesFromEnvFile } from './modelRoleEnv'
-import { MODEL_REGISTRY } from '@owlfolio/strategies/modelRegistry'
 import { evaluateOnboardingGate } from './onboardingGate'
 import {
   LLM_API_KEY_GROUPS,
@@ -20,44 +16,13 @@ import {
   oauthLoginExpiryView,
   type LlmKeyGroup,
 } from './providerKeys'
-import { resolveProviderCertificationReportDir } from './providerStatus'
 import { getProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
 import type {
   ProviderKeyGroupView,
   ProviderKeyView,
   ProviderKeysPanelProps,
   ProviderLoginRow,
-  ProviderRoleConfigView,
-  TierConfigRow,
 } from '../components/ProviderKeysPanel'
-
-// Each registry role's tier + a one-line "what this role does" (the spec's tier table, condensed). Kept
-// here (next to the role-config builder that consumes it) so the panel renders honest per-role guidance.
-const MODEL_ROLE_TIER_INFO: Record<ModelRoleId, { tier: 'T1' | 'T2' | 'T3'; description: string }> = {
-  synthesis: { tier: 'T1', description: 'Frontier synthesis — long-context reasoning + disciplined citation; errors here poison verdicts.' },
-  lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
-  lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
-  lanes_default: { tier: 'T1', description: 'Deep-dive lanes — source-backed specialist findings.' },
-  red_team: { tier: 'T2', description: 'Mid — the Munger inversion pass; a different model catches shared-narrative error.' },
-  monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
-  entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },
-  lane_moat_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the moat.' },
-  lane_shariah_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the Shariah sector.' },
-}
-
-const ROLE_CONFIG_GUIDANCE: string[] = [
-  'Tier philosophy: T1 (frontier) runs synthesis and the moat/Shariah lanes; T2 (mid) runs the adversarial red team; T3 (cheap/local) runs the monitors and entity resolution. T0 work (valuation math, ratio checks, accounting) is deterministic code — never a model.',
-  'Pick one model per tier. Each tier lists the models that fit it for the provider you choose (for OpenRouter, the vendor models that fit the tier). Your choice applies to every swarm role in that tier; Clear restores the default-inherit (the run’s provider/model). Selections live in the local env file (~/.owlfolio/.env) as OWLFOLIO_MODEL_ROLE_<ROLE> entries — swap them anytime.',
-  'Qualification note: a provider should pass the golden-set qualification before you rely on it for production research. A tier pointed at a provider with no connected credentials runs fail-closed.',
-]
-
-const TIER_DESCRIPTION: Record<'T1' | 'T2' | 'T3', string> = {
-  T1: 'Frontier — synthesis and the moat/Shariah classification lanes. The highest-stakes reasoning.',
-  T2: 'Mid — the Munger inversion pass (the case argued against itself).',
-  T3: 'Cheap / local — high-volume monitors and near-deterministic entity/ticker resolution.',
-}
-
-const TIER_ORDER: ReadonlyArray<'T1' | 'T2' | 'T3'> = ['T1', 'T2', 'T3']
 
 export type BuildProviderKeysPanelArgs = {
   ledgerPath: string | undefined
@@ -71,9 +36,6 @@ export type BuildProviderKeysPanelArgs = {
   repoIsGitWorkTree?: boolean
   processEnv?: ProviderReadinessEnv & Record<string, string | undefined>
   activeProviderId: string
-  activeModel: string
-  /** cwd used to locate the provider-qualification report dir (defaults to process.cwd()). */
-  cwd?: string
 }
 
 /** The auth-method label shown on a Section A login row. */
@@ -106,15 +68,6 @@ export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelAr
   // longer surfaced as onboarding — they are pipeline concerns with env defaults, still settable via env.)
   const llmGroups = await buildKeyGroupViews(LLM_API_KEY_GROUPS, envKeyOptions, true, processEnv)
 
-  // Section B: per-tier model configuration (replaces the old read-only summary).
-  const roleConfig = await buildProviderRoleConfigView({
-    activeProviderId: args.activeProviderId,
-    activeModel: args.activeModel,
-    envKeyOptions,
-    processEnv: effectiveEnv,
-    ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
-  })
-
   // Section A: provider login rows (OAuth / CLI / subscription).
   const loginRows = await buildLoginRows(effectiveEnv)
 
@@ -135,102 +88,7 @@ export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelAr
     configuredProviderReady,
   })
 
-  return { envFile, onboardingGate, loginRows, llmGroups, roleConfig }
-}
-
-/**
- * Build the per-tier model-configuration view (Section B): for each registry role, its tier + what it
- * does, its CURRENT resolution (provider/model/temp) and the SOURCE of that resolution (file override /
- * process env / default-inherit), plus an honest connected/qualified marker for the role's target
- * provider. Defaults inherit the run's provider/model; a file override (the selector writes one) wins.
- */
-export async function buildProviderRoleConfigView(args: {
-  activeProviderId: string
-  activeModel: string
-  envKeyOptions: EnvKeyOptions
-  processEnv: ProviderReadinessEnv & Record<string, string | undefined>
-  cwd?: string
-}): Promise<ProviderRoleConfigView> {
-  // The env the run paths actually resolve against: the env FILE's role overrides merged over process.env.
-  const fileOverrides = await readModelRoleOverridesFromEnvFile(args.envKeyOptions)
-  const mergedEnv: Record<string, string | undefined> = { ...args.processEnv, ...fileOverrides }
-
-  // The catalog providers a role can target — honestly marked connected (credentials present) and
-  // qualified (golden-set). Reuses the same readiness/qualification data the rest of the page trusts.
-  const qualificationDir = resolveProviderCertificationReportDir({
-    ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
-    env: args.processEnv,
-  })
-  // Readiness/qualification for each catalog provider that can run a research draft — used only to mark a
-  // tier's RESOLVED provider connected/qualified (the badge), never to offer a per-tier provider picker.
-  const statusByProvider = new Map<string, { connected: boolean; qualified: boolean }>()
-  await Promise.all(
-    getProviderCatalog()
-      .filter((provider) => provider.workflow_roles.includes('research_draft'))
-      .map(async (provider) => {
-        const readiness = await getProviderReadiness(provider.provider_id, args.processEnv)
-        const qualified = await isModelQualified(provider.provider_id, { dir: qualificationDir })
-        statusByProvider.set(provider.provider_id, {
-          connected: readiness.is_ready,
-          qualified: qualified.has_report && qualified.qualified,
-        })
-      }),
-  )
-
-  // The PRIMARY provider drives the per-tier model menus: each tier offers ONLY that provider's curated
-  // models that fit the tier (for OpenRouter, the vendor models that fit). No per-tier provider picker.
-  const activeProvider = getProviderCatalog().find((provider) => provider.provider_id === args.activeProviderId)
-  const activeProviderLabel = activeProvider?.label ?? args.activeProviderId
-  const activeModels = curatedRealTierModelsForProvider(args.activeProviderId)
-
-  // One row per TIER (T1/T2/T3). All roles in a tier are set together, so a representative role (the
-  // first mapped to the tier) carries the resolved provider/model/source the row displays + prefills.
-  const tiers: TierConfigRow[] = TIER_ORDER.map((tier) => {
-    const tierRoles = modelRoleIds.filter((role) => MODEL_ROLE_TIER_INFO[role].tier === tier)
-    const representative = tierRoles[0] ?? modelRoleIds[0]!
-    const resolved = resolveModelForRole(representative, {
-      fallbackProviderId: args.activeProviderId,
-      fallbackModel: args.activeModel,
-      env: mergedEnv,
-    })
-    const envKeyName = modelRoleEnvKeyForRole(representative)
-    // SOURCE: a key present in the env FILE wins (the selector wrote it); else a process-env value; else
-    // the registry default (which inherits the run's provider/model).
-    const source: TierConfigRow['source'] = fileOverrides[envKeyName] !== undefined
-      ? 'file'
-      : args.processEnv[envKeyName] !== undefined
-        ? 'env'
-        : 'default'
-    const resolvedStatus = statusByProvider.get(resolved.provider_id)
-    return {
-      tier,
-      description: TIER_DESCRIPTION[tier],
-      roles: tierRoles,
-      resolved_provider_id: resolved.provider_id,
-      resolved_model: resolved.model,
-      resolved_temperature: resolved.temperature,
-      source,
-      target_provider_connected: resolvedStatus?.connected ?? false,
-      target_provider_qualified: resolvedStatus?.qualified ?? false,
-      // The PRIMARY provider's curated models that fit this tier — the dropdown options.
-      model_options: activeModels
-        .filter((model) => model.tier_suitability.includes(tier))
-        .map((model) => ({ model_id: model.model_id, note: model.note })),
-      // The current value (so the selector can prefill); never a secret — it's a provider:model@temp string.
-      ...(mergedEnv[envKeyName] === undefined ? {} : { current_value: mergedEnv[envKeyName] }),
-    }
-  })
-
-  return {
-    registry_version: MODEL_REGISTRY.version,
-    guidance: ROLE_CONFIG_GUIDANCE,
-    no_model_note:
-      'T0 — No model, ever: valuation math, Shariah ratio verification, purification arithmetic, accounting, '
-      + 'scheduling, 13F/EDGAR parsing, and Magic Formula ranking are deterministic by constitution (pure code).',
-    active_provider_id: args.activeProviderId,
-    active_provider_label: activeProviderLabel,
-    tiers,
-  }
+  return { envFile, onboardingGate, loginRows, llmGroups }
 }
 
 async function buildKeyGroupViews(

@@ -12,7 +12,7 @@ import {
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
-import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
+import { curatedRealModelsForProvider } from '@owlfolio/providers/modelCatalog'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
@@ -412,7 +412,7 @@ function ShariahTab(): ReactNode {
 // Recommended models, rendered LIVE from the curated OpenRouter catalog (never hard-coded here) so
 // the Learn copy stays in sync as the owner curates the shortlist. Flat — model tiering is removed.
 function recommendedModels(): ReactNode {
-  const curated = curatedRealTierModelsForProvider('openrouter')
+  const curated = curatedRealModelsForProvider('openrouter')
   const ids = [...new Set(curated.map((model) => model.model_id))]
   return createElement(
     'p',
