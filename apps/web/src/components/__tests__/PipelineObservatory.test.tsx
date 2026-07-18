@@ -232,7 +232,7 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('data-testid="archive-all-runs-button"')
   })
 
-  it('links every run row (and every failed row) to its per-run worker-log page instead of an inline pane', () => {
+  it('carries no in-app log view (removed by owner decision) — no pane, no per-run log links', () => {
     const withFailure: PipelineProjection = {
       ...pipeline,
       failed_runs: [
@@ -240,11 +240,7 @@ describe('PipelineObservatory', () => {
       ],
     }
     const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: withFailure, mode: 'personal-local' }))
-    // Active/done runs…
-    expect(html).toContain('href="/pipeline/run-log/rc-msft"')
-    // …and failures alike.
-    expect(html).toContain('href="/pipeline/run-log/rc-dead"')
-    // The always-visible diagnostics pane is gone.
+    expect(html).not.toContain('/pipeline/run-log/')
     expect(html).not.toContain('Worker log')
   })
 

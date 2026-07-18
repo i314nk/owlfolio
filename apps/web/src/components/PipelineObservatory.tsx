@@ -362,7 +362,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
         createElement(
           'tr',
           null,
-          ...['Ticker', 'Started', 'Stage', 'Status', 'Sources', 'Logs'].map((heading) =>
+          ...['Ticker', 'Started', 'Stage', 'Status', 'Sources'].map((heading) =>
             createElement('th', { key: heading, style: thStyle }, heading),
           ),
         ),
@@ -396,15 +396,6 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
             createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-muted)' } }, run.stage_label),
             createElement('td', { style: tdStyle }, runChip(run)),
             createElement('td', { style: tdStyle }, sourceCountBadge(run.source_count)),
-            createElement(
-              'td',
-              { style: tdStyle },
-              createElement(
-                'a',
-                { className: 'owl-focusable', href: `/pipeline/run-log/${encodeURIComponent(run.research_case_id)}`, style: { ...monoMeta, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' } },
-                dt('pp_log_link'),
-              ),
-            ),
           )
         }),
       ),
@@ -483,11 +474,6 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
                   /^rc[_-]/i.test(run.ticker)
                     ? null
                     : createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
-                  createElement(
-                    'a',
-                    { className: 'owl-focusable', href: `/pipeline/run-log/${encodeURIComponent(run.case_id)}`, style: { ...monoMeta, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' } },
-                    dt('pp_log_link'),
-                  ),
                 ),
               ),
             ),
