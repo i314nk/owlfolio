@@ -107,6 +107,19 @@ describe('generic audit activity', () => {
     expect(events[0]?.context_explanation).toContain('Before → after payload is present')
   })
 
+  it('summarizes a live-run progress breadcrumb honestly (observability, not a decision)', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({
+        event_id: 'evt_progress_1',
+        event_type: 'research_run_progress_recorded',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_msft_001',
+        payload: { research_case_id: 'rc_msft_001', lane: 'moat', message: 'read_source sec_10k §7 → verified', ticker: 'MSFT' },
+      }),
+    ]))
+    expect(events[0]?.event_summary).toBe('Run progress — moat · read_source sec_10k §7 → verified')
+  })
+
   it('filters by event type, actor, entity search, and reverses time ordering', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
       event({ event_id: 'evt_early_msft', aggregate_id: 'rc_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-05-30T08:00:00.000Z' }),
@@ -250,5 +263,28 @@ describe('generic audit activity', () => {
     expect(html).not.toContain('#047857')
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#f0fdf4')
+  })
+
+  it('renders the page chrome in Arabic when locale is ar (ledger data and row internals stay as recorded)', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_ar_1', aggregate_id: 'rc_ar', payload: { ticker: 'MSFT' } }),
+    ]))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, locale: 'ar' }))
+    // Header, stats, and filter chrome follow the locale…
+    expect(html).toContain('نشاط التدقيق')
+    expect(html).toContain('أحداث السجل')
+    expect(html).toContain('ابحث في السجل')
+    expect(html).not.toContain('Audit activity')
+    expect(html).not.toContain('Search the record')
+    // …while ledger data and row internals (technical vocabulary) stay as recorded.
+    expect(html).toContain('MSFT')
+    expect(html).toContain('Raw ledger event JSON')
+  })
+
+  it('defaults the page chrome to English when no locale is given', async () => {
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events: [] }))
+    expect(html).toContain('Audit activity')
+    expect(html).toContain('No ledger events recorded yet.')
+    expect(html).not.toContain('نشاط التدقيق')
   })
 })

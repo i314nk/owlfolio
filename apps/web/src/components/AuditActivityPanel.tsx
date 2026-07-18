@@ -1,5 +1,7 @@
 import { createElement, type CSSProperties } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import {
   deriveAuditActivityView,
   type ActorCategory,
@@ -7,7 +9,14 @@ import {
   type AuditActivityFilters,
   type AuditCaseGroup,
 } from '../lib/audit'
+import { t, type MessageKey } from '../lib/i18n'
 import { RouteHeader } from './designSystem'
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call. Page
+// chrome follows the locale; ledger data and the row internals (technical vocabulary, ids, raw
+// payloads) stay as recorded.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 // ── Inline styles for surfaces that have no shared class yet ──────────────────
 // The page leans on the shared editorial vocabulary (owl-section-card,
@@ -213,6 +222,8 @@ const ACTOR_BADGE_STYLES: Record<ActorCategory, CSSProperties> = {
 type AuditActivityPanelProps = {
   events: AuditActivityEvent[]
   filters?: AuditActivityFilters
+  /** i18n: the page chrome language (ledger data stays as recorded). */
+  locale?: OwlLocale
 }
 
 /**
@@ -223,17 +234,17 @@ type AuditActivityPanelProps = {
  * fiduciary ledger. Leads with the summary, keeps the powerful filters but
  * presents them cleanly, then renders events grouped by research case.
  */
-export function AuditActivityPanel({ events, filters = {} }: AuditActivityPanelProps) {
-  const ledger = 'Personal local ledger event stream'
+export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: AuditActivityPanelProps) {
+  panelLocale = locale
   const view = deriveAuditActivityView(events, filters)
 
   return createElement(
     'section',
-    { 'aria-label': 'Audit activity', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    { 'aria-label': dt('au_title'), style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: 'The immutable record',
-      title: 'Audit activity',
-      description: `${ledger}. Trace every decision and its grounded evidence — stable event IDs and raw ledger payloads, preserved exactly as written.`,
+      kicker: dt('au_kicker'),
+      title: dt('au_title'),
+      description: dt('au_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
     createElement(AuditLedgerLine, { events, filterOptions: view.filterOptions, shownCount: view.events.length }),
@@ -243,7 +254,7 @@ export function AuditActivityPanel({ events, filters = {} }: AuditActivityPanelP
       ? createElement(
         'p',
         { className: 'owl-body' },
-        events.length === 0 ? 'No ledger events recorded yet.' : 'No ledger events match the current filters.',
+        events.length === 0 ? dt('au_empty_none') : dt('au_empty_filtered'),
       )
       : createElement(AuditGroupedView, { caseGroups: view.caseGroups, ungroupedEvents: view.ungroupedEvents }),
   )
@@ -260,11 +271,11 @@ function AuditLedgerLine({ events, filterOptions, shownCount }: {
   const caseCount = new Set(events.map((event) => event.correlation_id).filter((id): id is string => id !== undefined)).size
 
   const stats: { label: string; value: string }[] = [
-    { label: 'Ledger events', value: hasEvents ? countsText(events.length) : '—' },
-    { label: 'Shown', value: hasEvents ? countsText(shownCount) : '—' },
-    { label: 'Research cases', value: hasEvents ? countsText(caseCount) : '—' },
-    { label: 'Event types', value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
-    { label: 'Actors', value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
+    { label: dt('au_stat_events'), value: hasEvents ? countsText(events.length) : '—' },
+    { label: dt('au_stat_shown'), value: hasEvents ? countsText(shownCount) : '—' },
+    { label: dt('au_stat_cases'), value: hasEvents ? countsText(caseCount) : '—' },
+    { label: dt('au_stat_types'), value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
+    { label: dt('au_stat_actors'), value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
   ]
 
   return createElement(
@@ -288,36 +299,36 @@ function AuditActivityFiltersForm({ filters, filterOptions }: {
   return createElement(
     'section',
     { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Search the record'),
-    createElement('h2', { className: 'owl-section-title' }, 'Filter the ledger trace'),
+    createElement('p', { className: 'owl-section-accent' }, dt('au_filter_accent')),
+    createElement('h2', { className: 'owl-section-title' }, dt('au_filter_title')),
     createElement(
       'form',
       { action: '/audit', method: 'get', style: filterFormStyle },
-      filterInput('Entity / ticker / text', 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID'),
-      filterInput('Search raw ledger evidence', 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field'),
-      filterInput('Event ID', 'event_id', filters.eventId ?? '', 'evt_...'),
-      filterInput('Correlation ID', 'correlation_id', filters.correlationId ?? '', 'corr_...'),
-      filterInput('Source ID', 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
-      filterSelect('Raw event type', 'event_type', filters.eventType ?? '', filterOptions.eventTypes, 'All event types'),
-      filterSelect('Actor', 'actor', filters.actor ?? '', filterOptions.actors, 'All actors'),
-      filterInput('Date from', 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
-      filterInput('Date to', 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
-      filterSelect('Time ordering', 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], 'Ascending'),
+      filterInput(dt('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID'),
+      filterInput(dt('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field'),
+      filterInput(dt('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
+      filterInput(dt('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
+      filterInput(dt('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
+      filterSelect(dt('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, dt('au_all_types')),
+      filterSelect(dt('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, dt('au_all_actors')),
+      filterInput(dt('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
+      filterInput(dt('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
+      filterSelect(dt('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], dt('au_order_asc')),
       createElement(
         'details',
         { style: { gridColumn: '1 / -1' } },
-        createElement('summary', { style: advancedSummaryStyle }, 'Advanced'),
+        createElement('summary', { style: advancedSummaryStyle }, dt('au_advanced')),
         createElement(
           'div',
           { style: { marginTop: '0.6rem', maxWidth: '260px' } },
-          filterSelect('Schema version', 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, 'All schema versions'),
+          filterSelect(dt('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, dt('au_all_schema')),
         ),
       ),
       createElement(
         'div',
         { style: filterActionsStyle },
-        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, 'Apply filters'),
-        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, 'Clear'),
+        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, dt('au_apply')),
+        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, dt('au_clear')),
       ),
     ),
   )
@@ -331,7 +342,7 @@ function ActiveAuditFilters({ activeFilters }: { activeFilters: string[] }) {
   return createElement(
     'section',
     { 'aria-label': 'Active audit filters', style: { display: 'grid', gap: '0.5rem' } },
-    createElement('p', { style: detailTermStyle }, 'Active audit filters'),
+    createElement('p', { style: detailTermStyle }, dt('au_active')),
     createElement(
       'div',
       { style: activeFiltersStyle },
@@ -372,9 +383,9 @@ function AuditCaseGroupSection({ group }: { group: AuditCaseGroup }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
-        createElement('span', { className: 'owl-section-accent' }, 'Research case'),
+        createElement('span', { className: 'owl-section-accent' }, dt('au_group_case')),
         createElement('span', { className: 'owl-section-title' }, group.ticker),
-        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? 'event' : 'events'} · ${dateStr}`),
+        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? dt('au_ev_one') : dt('au_ev_many')} · ${dateStr}`),
       ),
       createElement('span', { style: { ...timestampStyle, fontSize: 'var(--owl-text-2xs)' } }, group.correlation_id),
     ),
@@ -396,10 +407,10 @@ function AuditOtherGroupSection({ events }: { events: AuditActivityEvent[] }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline' } },
-        createElement('span', { className: 'owl-section-accent' }, 'Other'),
-        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, 'System & uncorrelated'),
+        createElement('span', { className: 'owl-section-accent' }, dt('au_group_other')),
+        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, dt('au_group_other_title')),
       ),
-      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? 'event' : 'events'}`),
+      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? dt('au_ev_one') : dt('au_ev_many')}`),
     ),
     createElement(
       'ol',

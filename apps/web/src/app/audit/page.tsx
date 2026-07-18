@@ -1,4 +1,5 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveLocale } from '@owlfolio/shared'
 
 import { AuditActivityPanel } from '../../components/AuditActivityPanel'
 import { AuditSearchFocusBridge } from '../../components/AuditSearchFocusBridge'
@@ -29,7 +30,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         </a>
       </p>
       <AuditSearchFocusBridge focusSearchInput={focusSearchInput} />
-      <AuditActivityPanel events={events} filters={filters} />
+      <AuditActivityPanel events={events} filters={filters} locale={resolveLocale(state.config.language)} />
     </main>
   )
 }

@@ -351,6 +351,13 @@ function formatDisplayTimestamp(isoString: string): string {
 function auditSummarizeEvent(event: LedgerEventEnvelope<unknown>, entityLabel: string, aggregateLabel: string): string {
   const payload = isRecord(event.payload) ? event.payload : undefined
 
+  // Live-run breadcrumbs (2026-07-18): worker observability, never a decision — say so plainly.
+  if (event.event_type === 'research_run_progress_recorded' && payload !== undefined) {
+    const lane = typeof payload.lane === 'string' ? payload.lane : 'run'
+    const message = typeof payload.message === 'string' ? payload.message : 'progress'
+    return `Run progress — ${lane} · ${message}`
+  }
+
   if (event.event_type === 'buffett_munger_analysis_drafted' && payload !== undefined) {
     const verdict = typeof payload.investment_verdict === 'string' ? payload.investment_verdict : undefined
     const compliance = typeof payload.strategy_compliance === 'string' ? payload.strategy_compliance : undefined
