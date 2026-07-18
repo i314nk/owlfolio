@@ -31,6 +31,7 @@ import { resolveAppConfigPath } from './appConfigStore'
 import { closeRunLog, noteSpawnFailure, openRunLog } from './runLogs'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
+import { resolveLocale } from '@owlfolio/shared/appConfig'
 import { mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared/appConfig'
 import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
 
@@ -569,6 +570,8 @@ export async function enqueueResearchRun(
           ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
           deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
+          // Task #88: an Arabic app language asks the run for the Arabic prose rendering (fail-open).
+          ...(resolveLocale(state.config.language) === 'ar' ? { prose_locale: 'ar' as const } : {}),
           circle_gate: resolveCircleGateSettings(state.config),
           // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
           // inline path as the worker paths.
@@ -762,6 +765,7 @@ export async function requestDeepDiveRun(
             source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
             gate_source_ids: pendingRun.gate_source_ids,
             gate_event_id: pendingRun.gate_event_id,
+            ...(resolveLocale(state.config.language) === 'ar' ? { prose_locale: 'ar' as const } : {}),
             circle_gate: resolveCircleGateSettings(state.config),
             // Phase 4: the resume path threads the required return like the inline path (user-set only).
             ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
