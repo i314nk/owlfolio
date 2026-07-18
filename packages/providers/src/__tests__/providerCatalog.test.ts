@@ -25,23 +25,23 @@ function surfaceEntry(surfaceId: string) {
 describe('provider catalog support semantics', () => {
   it('does not advertise capabilities above the resolved adapter implementation', () => {
     expect(catalogEntry('mock-provider').capabilities).toEqual(new MockProvider().capabilities)
-    // OpenRouter + the direct API-key providers all run the generalized OpenAI-compatible adapter.
+    // OpenRouter + the experimental local surface both run the generalized OpenAI-compatible adapter.
     const openRouterCapabilities = new OpenRouterProvider({ apiKey: 'x' }).capabilities
     expect(catalogEntry('openrouter').capabilities).toEqual(openRouterCapabilities)
-    expect(catalogEntry('openai-api').capabilities).toEqual(openRouterCapabilities)
+    expect(catalogEntry('local').capabilities).toEqual(openRouterCapabilities)
   })
 
-  it('keeps the API-key providers experimental until certification proves full workflow parity', () => {
+  it('keeps the real providers experimental until certification proves full workflow parity', () => {
     expect(catalogEntry('mock-provider')).toMatchObject({ support_level: 'certified' })
     expect(catalogEntry('openrouter')).toMatchObject({ support_level: 'experimental' })
-    expect(catalogEntry('openai-api')).toMatchObject({ support_level: 'experimental' })
+    expect(catalogEntry('local')).toMatchObject({ support_level: 'experimental' })
   })
 
   it('freezes distinct provider family and certifiable surface identities', () => {
-    expect(surfaceEntry('openai-api')).toMatchObject({
-      provider_id: 'openai-api',
-      provider_surface_id: 'openai-api',
-      vendor_id: 'openai',
+    expect(surfaceEntry('local')).toMatchObject({
+      provider_id: 'local',
+      provider_surface_id: 'local',
+      vendor_id: 'local',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       support_level: 'experimental',
@@ -77,11 +77,11 @@ describe('provider catalog support semantics', () => {
 
   })
 
-  it('offers mock + OpenRouter + the direct API-key providers (Anthropic/OpenAI/Gemini); CLI/OAuth lanes retired', () => {
-    // The CLI/OAuth providers (Codex, Claude CLI, Gemini CLI) were retired. Surviving providers: OpenRouter
-    // (one key, all models) + the direct OpenAI-compatible API-key providers via the generalized adapter.
+  it('offers mock + OpenRouter + the experimental local surface only (PROVIDER CONSOLIDATION)', () => {
+    // PROVIDER CONSOLIDATION (owner, 2026-07-18): OpenRouter is the one real provider; 'local'
+    // (Ollama / vLLM) is the experimental UNTESTED surface; the direct API-key providers are removed.
     const ids = getProviderCatalog().map((entry) => entry.provider_id).sort()
-    expect(ids).toEqual(['anthropic-api', 'gemini-developer-api', 'mock-provider', 'openai-api', 'openrouter'])
+    expect(ids).toEqual(['local', 'mock-provider', 'openrouter'])
   })
 
   it('keeps OpenRouter the meta-provider as an experimental/fail-closed entry surfaced in onboarding', () => {
@@ -91,7 +91,6 @@ describe('provider catalog support semantics', () => {
       support_level: 'experimental',
       visible_in_onboarding: true,
       investment_grade_candidate: true,
-      model_tier: 'frontier',
     })
     expect(catalogEntry('openrouter').description).toContain('per-model certification still required')
 
@@ -135,7 +134,7 @@ describe('isInvestmentGradeSuitable gate', () => {
   })
 
   it('keeps every candidate provider non-suitable today (no certified reports exist)', () => {
-    for (const providerId of ['openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'] as const) {
+    for (const providerId of ['openrouter', 'local'] as const) {
       const entry = getProviderCatalog().find((candidate) => candidate.provider_id === providerId)
       expect(entry).toBeDefined()
       expect(isInvestmentGradeSuitable(entry!, undefined)).toBe(false)

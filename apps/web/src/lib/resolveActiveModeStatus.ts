@@ -3,7 +3,6 @@ import type { AppConfig } from '@owlfolio/shared'
 import { selectActiveModeStatus, type ActiveModeStatus } from './activeModeStatus'
 import { isUnconfiguredForUser } from './modeView'
 import { getProviderReadinessSnapshot } from './onboarding'
-import { evaluateOnboardingGate } from './onboardingGate'
 import { resolveModelIdForProvider } from './workflow'
 
 /**
@@ -32,7 +31,6 @@ export async function resolveActiveModeStatus(
     return selectActiveModeStatus({
       mode: 'unconfigured',
       providerConnected: false,
-      capitalSet: false,
       providerId: config.provider.provider_id,
       modelId: resolveModelIdForProvider(config),
     })
@@ -42,7 +40,6 @@ export async function resolveActiveModeStatus(
     return selectActiveModeStatus({
       mode: config.mode,
       providerConnected: false,
-      capitalSet: false,
       providerId: config.provider.provider_id,
       modelId: resolveModelIdForProvider(config),
     })
@@ -63,16 +60,9 @@ export async function resolveActiveModeStatus(
     providerConnected = false
   }
 
-  const gate = await evaluateOnboardingGate({
-    ledgerPath: config.ledger_path,
-    configuredProviderReady: providerConnected,
-  })
-  const capitalSet = !gate.missing_items.some((item) => item.id === 'investable_capital')
-
   return selectActiveModeStatus({
     mode: config.mode,
     providerConnected,
-    capitalSet,
     providerId: config.provider.provider_id,
     modelId: resolveModelIdForProvider(config),
   })

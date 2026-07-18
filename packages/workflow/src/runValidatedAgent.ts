@@ -102,6 +102,8 @@ export type RunValidatedAgentOptions<T extends WithProposedSources> = {
   fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
   /** Already-grounded sources the loop may READ via read_source (threaded to the executor). */
   readCorpus?: ReadonlyMap<string, CapturedSource>
+  /** Live-run observability breadcrumbs, threaded to the grounded tool executor. */
+  onProgress?: (message: string) => void
 }
 
 function buildBounce<T>(basePrompt: string, missing: RequiredFieldCheck<T>[], reason: string): string {
@@ -145,6 +147,7 @@ export async function runValidatedAgent<T extends WithProposedSources>(
         ...deps,
         ...(options.fetchFundamentals === undefined ? {} : { fetchFundamentals: options.fetchFundamentals }),
         ...(options.readCorpus === undefined ? {} : { readCorpus: options.readCorpus }),
+        ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
       }
       const { degraded_no_tools: _degraded, ...rest } = await runGroundedAgentWithTools(provider, req, schema, loopDeps, groundOpts)
       void _degraded

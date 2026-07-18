@@ -38,6 +38,7 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
     next_recommended_action: 'Open latest research case',
     approval_queue: [],
     recent_activity: [],
+    duties_due: [],
     monitor_alerts: [],
     discovery_signals: [],
     primary_action: { href: '/research/rc_cost_001', label: 'Open latest research case' },
@@ -553,6 +554,38 @@ describe('CommandCenter', () => {
   })
 
 
+  it('renders a due DUTY nudge on the attention rail (owner, 2026-07-18: the alert IS the schedule)', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, {
+      dashboard: makeDashboard({
+        duties_due: [
+          {
+            id: 'discovery_13f',
+            headline: 'A 13F discovery harvest is due',
+            detail: 'Your weekly discovery rhythm — never run yet. Run the harvest to pick up the tracked superinvestors\u2019 latest filings.',
+            href: '/discovery',
+            action_label: 'Run discovery',
+          },
+          {
+            id: 'thesis_check_in',
+            headline: 'The quarterly thesis check-in is due',
+            detail: '3 decided names have a recorded thesis and last run 120 days ago.',
+            href: '/portfolio',
+            action_label: 'Open the board',
+          },
+        ],
+      }),
+    }))
+
+    expect(html).toContain('Duty due')
+    expect(html).toContain('You run it')
+    expect(html).toContain('A 13F discovery harvest is due')
+    expect(html).toContain('href="/discovery"')
+    expect(html).toContain('The quarterly thesis check-in is due')
+    expect(html).toContain('data-testid="duty-due-discovery_13f"')
+    // Duties are nudges, never auto-runs — no "No alerts" empty line when one is due.
+    expect(html).not.toContain('No alerts — the agent is watching.')
+  })
+
   it('renders the "Needs your attention" rail with a monitor alert and a discovery signal as observations/drafts', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
@@ -608,8 +641,8 @@ describe('CommandCenter', () => {
     const learnPageSource = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
 
     expect(learnPageSource).toContain('Learn')
-    // eyebrow is user-facing "How it works", not internal "Operator documentation"
-    expect(learnPageSource).toContain('How it works')
+    // eyebrow is user-facing "How it works" (now via the dictionary), not internal "Operator documentation"
+    expect(learnPageSource).toContain("t(locale, 'ln_kicker')")
     // The Learn page is now a tabbed brief documenting the harness specs.
     expect(learnPageSource).toContain('LearnTabs')
     // The provider readiness section retains the #providers anchor (onboarding deep-links here).

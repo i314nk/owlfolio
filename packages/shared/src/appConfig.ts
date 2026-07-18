@@ -6,7 +6,10 @@
 export const owlfolioModeValues = ['unconfigured', 'personal-local'] as const
 export type OwlfolioMode = (typeof owlfolioModeValues)[number]
 
-export const providerIdValues = ['mock-provider', 'openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'] as const
+// PROVIDER CONSOLIDATION (owner, 2026-07-18): OpenRouter is the ONE real provider; 'local' is the
+// experimental, UNTESTED Ollama/vLLM OpenAI-compatible endpoint; 'mock-provider' is internal test
+// infrastructure only. The direct openai-api / anthropic-api / gemini-developer-api surfaces were removed.
+export const providerIdValues = ['mock-provider', 'openrouter', 'local'] as const
 export type ProviderId = (typeof providerIdValues)[number]
 
 export const providerSupportLevelValues = ['certified', 'experimental', 'unsupported'] as const

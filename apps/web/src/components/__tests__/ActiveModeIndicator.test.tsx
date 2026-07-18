@@ -52,21 +52,6 @@ describe('ActiveModeIndicator', () => {
     expect(html).toContain('href="/settings/providers"')
   })
 
-  it('renders capital-not-set as a clickable fix link', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActiveModeIndicator, {
-        status: {
-          kind: 'capital-not-set',
-          label: 'Personal-local · capital not set',
-          href: '/settings/providers',
-        },
-      }),
-    )
-
-    expect(html).toContain('Personal-local · capital not set')
-    expect(html).toContain('href="/settings/providers"')
-  })
-
   it('upgrades to the grouped model switcher when modelSwitcher is provided', () => {
     const html = renderToStaticMarkup(
       createElement(ActiveModeIndicator, {
@@ -77,7 +62,7 @@ describe('ActiveModeIndicator', () => {
       active_model_capability: 'unverified' as const,
           providers: [
             { provider_id: 'openrouter', label: 'OpenRouter', support_level: 'experimental', models: [{ model_id: 'anthropic/claude-opus-4.8' }, { model_id: 'openai/gpt-5.5' }] },
-            { provider_id: 'anthropic-api', label: 'Anthropic', support_level: 'experimental', models: [{ model_id: 'claude-sonnet-4-6' }] },
+            { provider_id: 'local', label: 'Local (Ollama / vLLM)', support_level: 'experimental', models: [{ model_id: 'llama3.3:70b' }] },
           ],
         },
       }),
@@ -86,9 +71,9 @@ describe('ActiveModeIndicator', () => {
     // It renders a real <select> with one optgroup per connected provider, listing each provider's models.
     expect(html).toContain('aria-label="Active provider and model"')
     expect(html).toContain('<optgroup label="OpenRouter"')
-    expect(html).toContain('<optgroup label="Anthropic"')
+    expect(html).toContain('<optgroup label="Local (Ollama / vLLM)"')
     expect(html).toContain('openai/gpt-5.5')
-    expect(html).toContain('claude-sonnet-4-6')
+    expect(html).toContain('llama3.3:70b')
     // The active model is the selected option.
     expect(html).toMatch(/<option[^>]*selected[^>]*>anthropic\/claude-opus-4\.8<\/option>/)
   })

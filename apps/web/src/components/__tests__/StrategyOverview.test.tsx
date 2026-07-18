@@ -123,9 +123,9 @@ describe('StrategyOverview', () => {
     expect(html.toLowerCase()).toContain('state-independent')
     // Replaces the stale "separate watchlist/holdings monitors" framing.
     expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
-    // Honesty: deteriorating watched name has no prune action yet (later phase).
+    // Honesty: deteriorating watched name flagged; pruning is the SHIPPED human-authored Remove.
     expect(html.toLowerCase()).toContain('deteriorating')
-    expect(html.toLowerCase()).toContain('no prune action yet')
+    expect(html.toLowerCase()).not.toContain('no prune action yet')
     // Exit provenance — sold vs screened out are opposite.
     expect(html.toLowerCase()).toContain('screened out')
   })
@@ -140,9 +140,10 @@ describe('StrategyOverview', () => {
     expect(html).toContain('never agent-inferred')
     expect(html).toContain('edgar sic')
     expect(html).toContain('permissive by default')
-    // Size is the deferred Pabrai-Principle-5 axis, shipped permissive.
-    expect(html).toContain('pabrai principle 5')
-    expect(html).toContain('deferred')
+    // No roadmap language: deferred/later-phase promises are gone (owner, 2026-07-18).
+    expect(html).not.toContain('deferred')
+    expect(html).not.toContain('later phase')
+    expect(html).not.toContain('later slice')
     // Cheapness counts only on an already-wonderful business.
     expect(html).toContain('already-wonderful')
     // The admit judgment splits uncertainty vs permanent-loss risk + an independent bear case.
@@ -151,8 +152,9 @@ describe('StrategyOverview', () => {
     // Admit is human-decided with a signed thesis + a computed buy-below.
     expect(html).toContain('signed thesis')
     expect(html).toContain('computed')
-    // NO OVERCLAIM: the admit-recommendation panel does NOT exist yet.
-    expect(html).toContain('does not yet present an admit-recommendation panel')
+    // No roadmap language — the honest-scope caveat states what IS, without deferred promises.
+    expect(html).toContain('admit is human-decided')
+    expect(html).not.toContain('admit-recommendation panel')
   })
 
   it('renders the two zones + the truck base (owner-locked: no weight table, no ladder)', () => {
@@ -170,5 +172,18 @@ describe('StrategyOverview', () => {
     expect(html).not.toContain('conviction ×')
     expect(html).toContain('The SIZE IS YOURS')
     expect(html).toContain('act boldly — load up the truck')
+  })
+
+  it('REBRAND: the kicker carries the display name, never the old internal strategy name', () => {
+    const html = render()
+    expect(html).toContain('Buffett 4-Pillar')
+    expect(html).not.toContain('Buffett-Munger Quality Compounder')
+  })
+
+  it('SCALE-DOWN: the ladders read as the pullback-review monitor policy, not an entry prescription', () => {
+    const html = render()
+    // No confirmation flow exists in the open-holding form — the copy must not claim one.
+    expect(html).not.toContain('you confirm it in the T1 ledger entry')
+    expect(html).toContain('pullback-review')
   })
 })

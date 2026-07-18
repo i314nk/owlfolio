@@ -9,12 +9,6 @@ import {
 } from '@owlfolio/providers'
 import { getProviderCatalog, isInvestmentGradeSuitable, type ProviderCatalogEntry, type ProviderWorkflowRole } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
-import {
-  MODEL_REGISTRY,
-  modelRoleIds,
-  resolveModelForRole,
-  type ModelRoleId,
-} from '@owlfolio/strategies/modelRegistry'
 import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
 import { getProviderReadiness, type ProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
@@ -49,77 +43,7 @@ export type ProviderQualificationSummary = {
   generated_at?: string
 }
 
-// model-tiering-spec tiers (T1 frontier / T2 mid / T3 cheap-local / T0 no-model-ever).
-export type ModelTier = 'T0' | 'T1' | 'T2' | 'T3'
-
-export type ModelRegistryRoleRow = {
-  role: ModelRoleId
-  tier: ModelTier
-  provider_id: string
-  model: string
-  temperature: number
-  /** true when a config/env override pinned this role onto a DIFFERENT provider/model than the run's. */
-  overridden: boolean
-  description: string
-}
-
-export type ModelRegistrySection = {
-  version: string
-  roles: ModelRegistryRoleRow[]
-  /** The T0 "no model, ever" note — deterministic-by-constitution components have no registry row. */
-  no_model_note: string
-}
-
-// Each registry role's tier + a one-line "why this tier" (the spec's tier table, condensed). The
-// cross-check roles are T1 extensions (a second frontier model for the highest-stakes classification).
-const MODEL_ROLE_TIERS: Record<ModelRoleId, { tier: ModelTier; description: string }> = {
-  synthesis: { tier: 'T1', description: 'Frontier synthesis — long-context reasoning + disciplined citation; errors here poison verdicts.' },
-  lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
-  lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
-  lanes_default: { tier: 'T1', description: 'Deep-dive lanes (T1/T2) — source-backed specialist findings.' },
-  red_team: { tier: 'T2', description: 'Mid — adversarial cross-check; a different model catches shared-narrative error.' },
-  monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
-  entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },
-  lane_moat_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the moat.' },
-  lane_shariah_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the Shariah sector.' },
-}
-
-/**
- * Build the "Model registry & tiers" section for /providers: each role → its resolved provider/model
- * (against the active run's provider/model) + tier + low-temperature note. Defaults pin nothing, so a
- * role resolves to the active provider/model unless an override is configured — surfaced honestly.
- */
-export function buildModelRegistrySection(args: {
-  activeProviderId: string
-  activeModel: string
-  env?: Record<string, string | undefined>
-} = { activeProviderId: 'mock-provider', activeModel: 'mock-buffett-munger-demo' }): ModelRegistrySection {
-  const roles: ModelRegistryRoleRow[] = modelRoleIds.map((role) => {
-    const resolved = resolveModelForRole(role, {
-      fallbackProviderId: args.activeProviderId,
-      fallbackModel: args.activeModel,
-      ...(args.env === undefined ? {} : { env: args.env }),
-    })
-    const tier = MODEL_ROLE_TIERS[role]
-    return {
-      role,
-      tier: tier.tier,
-      provider_id: resolved.provider_id,
-      model: resolved.model,
-      temperature: resolved.temperature,
-      overridden: resolved.overridden,
-      description: tier.description,
-    }
-  })
-  return {
-    version: MODEL_REGISTRY.version,
-    roles,
-    no_model_note:
-      'T0 — No model, ever: valuation math, Shariah ratio verification, purification arithmetic, '
-      + 'accounting, scheduling, 13F/EDGAR parsing, and Magic Formula ranking are deterministic by '
-      + 'constitution (pure code) — they have no registry row.',
-  }
-}
+// (The model-registry/tier section was removed with model tiering — owner, 2026-07-18.)
 
 export type ProviderStatusDetail = {
   label: string
@@ -193,25 +117,11 @@ const roleMatrix: Record<ProviderId, { model_role: string; limitations: string[]
       'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
     ],
   },
-  'openai-api': {
-    model_role: 'Direct OpenAI API candidate',
+  local: {
+    model_role: 'Experimental local endpoint (Ollama / vLLM)',
     limitations: [
-      'Direct OpenAI API (OpenAI-compatible adapter); distinct from the Codex CLI surface and not certified by it.',
-      'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
-    ],
-  },
-  'anthropic-api': {
-    model_role: 'Direct Anthropic API candidate',
-    limitations: [
-      'Direct Anthropic API (OpenAI-compatible adapter); distinct from the retired Claude CLI login.',
-      'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
-    ],
-  },
-  'gemini-developer-api': {
-    model_role: 'Direct Gemini Developer API candidate',
-    limitations: [
-      'Direct Gemini Developer API (OpenAI-compatible adapter); the free-tier privacy posture blocks certified support until verified.',
-      'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
+      'UNSTABLE / EXPERIMENTAL / UNTESTED: this lane has not been exercised end-to-end — expect failures; runs fail closed.',
+      'The analysis is only as good as the local model you serve; nothing here is certified for investment or Shariah outputs.',
     ],
   },
 }

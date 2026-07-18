@@ -24,16 +24,6 @@ function makeDataSafety(overrides: Partial<DataSafetyViewModel> = {}): DataSafet
       { pattern: '.env*', reason: 'secret-bearing environment files are never copied into backup archives' },
       { pattern: 'Provider auth homes', reason: 'credential/session homes are excluded from investment-state backups' },
     ],
-    restore: {
-      status: 'proposal-only',
-      restore_root_label: 'operator-selected restore root',
-      counts: { files: 7, ledgers: 2, source_bundles: 1, provider_reports: 3 },
-      path_rewrites: [
-        { field: 'ledger_path', from_label: 'data/personal-ledger.sqlite', to_label: 'restore-root/runtime/data/personal-ledger.sqlite' },
-        { field: 'source_ledger_path', from_label: 'data/source-ledger', to_label: 'restore-root/runtime/data/source-ledger' },
-      ],
-      verification_status: 'Dry-run verification proposal only; an operator must run the restore archive and verification commands from the runbook.',
-    },
     ...overrides,
   }
 }
@@ -53,10 +43,28 @@ describe('DataSafetyPanel', () => {
     expect(html).toContain('Personal ledger')
     expect(html).toContain('Provider certification metadata')
     expect(html).toContain('.env*')
-    expect(html).toContain('Restore is dry-run/proposal only')
-    expect(html).toContain('ledger_path')
-    expect(html).toContain('restore-root/runtime/data/personal-ledger.sqlite')
-    expect(html).toContain('operator must run the restore archive and verification commands')
+    // TRIM (owner, 2026-07-18): the speculative restore dry-run plan is gone — restore is a plain
+    // manual instruction (copy the files back; the app never restores automatically).
+    expect(html).toContain('Restore is manual — copy the files back')
+    expect(html).toContain('never restores automatically')
+    // The REAL ops tooling is named (not a vague runbook): manifest + dry-run + verify commands.
+    expect(html).toContain('ops:backup:manifest')
+    expect(html).not.toContain('dry-run/proposal')
+    expect(html).not.toContain('restore-root/')
+    // The back link goes home — `/settings` is not a route (the old link was dead).
+    expect(html).toContain('href="/"')
+    expect(html).not.toContain('href="/settings"')
+    // SCALE-DOWN: the sensitive-data note no longer lists the removed accounting/purification books.
+    expect(html).not.toContain('accounting, and purification context')
+  })
+
+  it('i18n: the page chrome follows the locale; off-English shows the english-content note', () => {
+    const html = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'ar' }))
+    expect(html).toContain('أمان البيانات')
+    expect(html).toContain('english-content-note')
+    const en = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), locale: 'en' }))
+    expect(en).toContain('Data Safety')
+    expect(en).not.toContain('english-content-note')
   })
 
   it('SAFETY: hides the destructive bulk-reset control unless explicitly gated on', () => {
@@ -81,15 +89,6 @@ describe('DataSafetyPanel', () => {
         excluded_categories: [
           { pattern: 'Provider auth homes', reason: 'credential/session homes are excluded from investment-state backups' },
         ],
-        restore: {
-          status: 'proposal-only',
-          restore_root_label: 'operator-selected restore root',
-          counts: { files: 1, ledgers: 1, source_bundles: 0, provider_reports: 0 },
-          path_rewrites: [
-            { field: 'ledger_path', from_label: 'data/personal-ledger.sqlite', to_label: 'restore-root/runtime/data/personal-ledger.sqlite' },
-          ],
-          verification_status: 'Dry-run verification proposal only; an operator must run the restore archive and verification commands from the runbook.',
-        },
       }),
     }))
 
@@ -146,7 +145,6 @@ describe('buildDataSafetyViewModelFromManifest', () => {
     const rendered = JSON.stringify(viewModel)
 
     expect(rendered).toContain('allowlisted personal ledger path')
-    expect(rendered).toContain('configured ledger_path')
     expect(rendered).toContain('Provider auth homes and CLI credential files')
     expect(rendered).not.toContain('/home/alice/.codex/auth.json')
     expect(rendered).not.toContain('/home/alice/.gemini/oauth_creds.json')

@@ -7,7 +7,7 @@ type AppConfig = {
   version: 1
   mode: 'unconfigured' | 'personal-local'
   provider: {
-    provider_id: 'mock-provider' | 'openrouter' | 'openai-api' | 'anthropic-api' | 'gemini-developer-api'
+    provider_id: 'mock-provider' | 'openrouter' | 'local'
     support_level: 'certified' | 'experimental' | 'unsupported'
     model_id?: string
   }

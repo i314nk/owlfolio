@@ -39,6 +39,37 @@ export type AuditActivityFilters = {
   schemaVersion?: string
   sourceId?: string
   timeOrder?: 'asc' | 'desc'
+  /** 'decisions' (default) = the curated decision trail; 'full' = every ledger event. */
+  view?: 'decisions' | 'full'
+}
+
+// ── The decision trail (owner-approved 2026-07-18) ────────────────────────────
+// The audit page DEFAULTS to what carries fiduciary weight: every USER-authored transition, plus
+// the decision-grade milestones below (gates, verdicts, failures, reviews). Machinery events
+// (progress breadcrumbs, price snapshots, harvests, task lifecycle, provider runs, source
+// captures) stay in the LEDGER untouched and are one click away via view=full — a curated VIEW,
+// never a curated record. Any targeted filter (event id / correlation / source / type / raw query)
+// bypasses the curation so causation/source trace links always resolve.
+const DECISION_GRADE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'shariah_gate_judged',
+  'shariah_gate_decision_recorded',
+  'circle_competence_judged',
+  'quick_screen_drafted', // legacy (pre-restructure) gate
+  'decision_drafted',
+  'strategy_decision_drafted',
+  'buffett_munger_analysis_drafted',
+  'valuation_judgment_drafted',
+  'admit_judgment_recorded',
+  'research_case_re_review_recorded',
+  'research_run_failed',
+  'position_post_mortem_recorded',
+  'holding_sell_review_drafted',
+  'holding_shariah_grace_started',
+  'deep_dive_approval_pending',
+])
+
+function isDecisionGradeEvent(event: AuditActivityEvent): boolean {
+  return event.actor_category === 'user' || DECISION_GRADE_EVENT_TYPES.has(event.event_type)
 }
 
 export type AuditActivityFilterOptions = {
@@ -58,6 +89,8 @@ export type AuditCaseGroup = {
 
 export type AuditActivityView = {
   activeFilters: string[]
+  /** The view actually applied: 'decisions' (curated default) or 'full' (explicit or targeted lookup). */
+  effectiveView: 'decisions' | 'full'
   events: AuditActivityEvent[]
   caseGroups: AuditCaseGroup[]
   ungroupedEvents: AuditActivityEvent[]
@@ -124,7 +157,14 @@ export function deriveAuditActivityView(
   const schemaVersion = normalizeFilter(filters.schemaVersion)
   const sourceId = normalizeFilter(filters.sourceId)
 
+  // Targeted lookups always search the FULL record — a causation/source trace link must resolve
+  // even when its target is a machinery event the decision trail hides.
+  const targeted = eventId !== undefined || correlationId !== undefined || sourceId !== undefined
+    || eventType !== undefined || query !== undefined
+  const effectiveView: 'decisions' | 'full' = filters.view === 'full' || targeted ? 'full' : 'decisions'
+
   const filteredEvents = events
+    .filter((event) => effectiveView === 'full' || isDecisionGradeEvent(event))
     .filter((event) => eventId === undefined || includesCaseInsensitive(event.event_id, eventId))
     .filter((event) => correlationId === undefined || includesCaseInsensitive(event.correlation_id ?? '', correlationId))
     .filter((event) => sourceId === undefined || event.source_ids.some((source) => includesCaseInsensitive(source, sourceId)))
@@ -139,7 +179,7 @@ export function deriveAuditActivityView(
 
   const { caseGroups, ungroupedEvents } = groupEventsByCorrelation(filteredEvents)
 
-  return { activeFilters: activeFilterLabels(filters), events: filteredEvents, caseGroups, ungroupedEvents, filterOptions }
+  return { activeFilters: activeFilterLabels(filters), effectiveView, events: filteredEvents, caseGroups, ungroupedEvents, filterOptions }
 }
 
 export function groupEventsByCorrelation(events: AuditActivityEvent[]): {
@@ -350,6 +390,13 @@ function formatDisplayTimestamp(isoString: string): string {
 
 function auditSummarizeEvent(event: LedgerEventEnvelope<unknown>, entityLabel: string, aggregateLabel: string): string {
   const payload = isRecord(event.payload) ? event.payload : undefined
+
+  // Live-run breadcrumbs (2026-07-18): worker observability, never a decision — say so plainly.
+  if (event.event_type === 'research_run_progress_recorded' && payload !== undefined) {
+    const lane = typeof payload.lane === 'string' ? payload.lane : 'run'
+    const message = typeof payload.message === 'string' ? payload.message : 'progress'
+    return `Run progress — ${lane} · ${message}`
+  }
 
   if (event.event_type === 'buffett_munger_analysis_drafted' && payload !== undefined) {
     const verdict = typeof payload.investment_verdict === 'string' ? payload.investment_verdict : undefined

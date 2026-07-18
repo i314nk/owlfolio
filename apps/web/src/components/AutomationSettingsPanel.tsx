@@ -5,6 +5,7 @@ import { createElement, type CSSProperties, useCallback, useState } from 'react'
 import type {
   AutomationCadenceDiscovery,
   AutomationCadencePriceRefresh,
+  AutomationCadenceThesisReview,
   AutomationCadencePurification,
   AutomationCadenceWatchlist,
   AutomationSettings,
@@ -424,7 +425,7 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           ControlRow,
           {
             label: 'Superinvestors (13F discovery)',
-            helper: 'Harvest the tracked superinvestors\u2019 quarterly 13F filings for new candidate ideas.',
+            helper: 'Harvest the tracked superinvestors\u2019 quarterly 13F filings for new candidate ideas. When a harvest is overdue for the chosen cadence, the command center shows a \u201cduty due\u201d nudge.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {
@@ -550,20 +551,30 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           }),
         ),
 
-        // REVIEW RETIRED + 10-K cadence (2026-07-14/15): this switch drives the quarterly grounded
-        // check-in (re_review_check) — the task's cadence is fixed quarterly (the 10-Q rhythm), so no
-        // decorative cadence select. The ANNUAL full re-analysis needs no cadence knob either: a
-        // detected new 10-K raises the one-click re-run prompt on the boards.
+        // CHECK-IN CADENCE WIRED (owner, 2026-07-18): the select drives the re_review_check task's
+        // schedule (monthly or the quarterly 10-Q default) AND the command-center "duty due" window.
+        // The ANNUAL full re-analysis keeps its own fixed 10-K rhythm — no cadence knob; a detected
+        // new 10-K raises the one-click re-run prompt on the boards.
         createElement(
           ControlRow,
           {
             label: 'Thesis check-in (vs new filings)',
-            helper: 'The quarterly grounded check-in: diffs filings NEW since each decision against the recorded thesis (INTACT / WEAKENED / BROKEN). A BROKEN thesis on a held name escalates a full re-analysis draft; a detected new annual report raises the one-click full re-run prompt on the boards.',
-            workerNote: 'Runs quarterly when the local worker runs (also on demand from any board row).',
+            helper: 'The grounded check-in: diffs filings NEW since each decision against the recorded thesis (INTACT / WEAKENED / BROKEN). A BROKEN thesis on a held name escalates a full re-analysis draft; a detected new annual report raises the one-click full re-run prompt on the boards. When a check-in is overdue for the chosen cadence, the command center shows a \u201cduty due\u201d nudge.',
+            workerNote: 'Cadence takes effect when the local worker runs (also on demand from any board row).',
           },
           createElement(Toggle, {
             enabled: pendingSettings.thesis_review.enabled,
             onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, enabled: v }),
+          }),
+          createElement(ControlSelect<AutomationCadenceThesisReview>, {
+            label: 'Thesis check-in cadence',
+            value: pendingSettings.thesis_review.cadence,
+            options: [
+              { value: 'off', label: 'Off' },
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'quarterly', label: 'Quarterly (the 10-Q rhythm)' },
+            ],
+            onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, cadence: v }),
           }),
         ),
 

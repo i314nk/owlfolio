@@ -107,6 +107,89 @@ describe('generic audit activity', () => {
     expect(events[0]?.context_explanation).toContain('Before → after payload is present')
   })
 
+  it('summarizes a live-run progress breadcrumb honestly (observability, not a decision)', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({
+        event_id: 'evt_progress_1',
+        event_type: 'research_run_progress_recorded',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_msft_001',
+        payload: { research_case_id: 'rc_msft_001', lane: 'moat', message: 'read_source sec_10k §7 → verified', ticker: 'MSFT' },
+      }),
+    ]))
+    expect(events[0]?.event_summary).toBe('Run progress — moat · read_source sec_10k §7 → verified')
+  })
+
+  it('defaults to the decision trail: user transitions + decision-grade milestones stay, machinery drops', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+      event({ event_id: 'evt_gate', event_type: 'shariah_gate_judged', actor_type: 'provider' }),
+      event({ event_id: 'evt_fail', event_type: 'research_run_failed', actor_type: 'worker' }),
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+      event({ event_id: 'evt_price', event_type: 'price_snapshot_recorded', actor_type: 'worker' }),
+    ]))
+
+    const view = deriveAuditActivityView(events)
+    expect(view.effectiveView).toBe('decisions')
+    expect(view.events.map((e) => e.event_id).sort()).toEqual(['evt_fail', 'evt_gate', 'evt_user_open'])
+  })
+
+  it('a targeted filter (event id / type / source / query) bypasses the curation so trace links always resolve', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+    ]))
+
+    const byId = deriveAuditActivityView(events, { eventId: 'evt_progress' })
+    expect(byId.effectiveView).toBe('full')
+    expect(byId.events).toHaveLength(1)
+
+    const byType = deriveAuditActivityView(events, { eventType: 'research_run_progress_recorded' })
+    expect(byType.events).toHaveLength(1)
+  })
+
+  it('view=full shows every event, exactly as written', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+      event({ event_id: 'evt_progress', event_type: 'research_run_progress_recorded', actor_type: 'worker', payload: { lane: 'moat', message: 'x' } }),
+    ]))
+
+    const view = deriveAuditActivityView(events, { view: 'full' })
+    expect(view.effectiveView).toBe('full')
+    expect(view.events).toHaveLength(2)
+  })
+
+  it('renders the view toggle: decision-trail note with a full-record link by default, and the way back in full mode', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+    ]))
+
+    const decisionsHtml = renderToStaticMarkup(createElement(AuditActivityPanel, { events }))
+    expect(decisionsHtml).toContain('Decision trail')
+    expect(decisionsHtml).toContain('href="/audit?view=full"')
+
+    const fullHtml = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { view: 'full' } }))
+    expect(fullHtml).toContain('Full record')
+    expect(fullHtml).toContain('href="/audit"')
+  })
+
+  it('presents a compact sticky search bar: search fields up front, technical filters behind Advanced, chips inside', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_user_open', event_type: 'holding_opened', actor_type: 'user' }),
+    ]))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { entity: 'MSFT' } }))
+
+    // The bar follows the scroll…
+    expect(html).toContain('position:sticky')
+    // …the two search fields and actions stay up front (outside any details)…
+    expect(html).toMatch(/name="q"[\s\S]*?<details/)
+    // …while the technical filters live behind the Advanced toggle.
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="actor"/)
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="event_id"/)
+    expect(html).toMatch(/<details[^>]*>(?:(?!<\/details>)[\s\S])*name="schema_version"/)
+    // Active-filter chips ride inside the sticky bar (visible while scrolled deep).
+    expect(html).toMatch(/position:sticky(?:(?!<\/section>)[\s\S])*Active audit filters/)
+  })
+
   it('filters by event type, actor, entity search, and reverses time ordering', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
       event({ event_id: 'evt_early_msft', aggregate_id: 'rc_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-05-30T08:00:00.000Z' }),
@@ -250,5 +333,28 @@ describe('generic audit activity', () => {
     expect(html).not.toContain('#047857')
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#f0fdf4')
+  })
+
+  it('renders the page chrome in Arabic when locale is ar (ledger data and row internals stay as recorded)', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_ar_1', aggregate_id: 'rc_ar', payload: { ticker: 'MSFT' } }),
+    ]))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, locale: 'ar' }))
+    // Header, stats, and filter chrome follow the locale…
+    expect(html).toContain('نشاط التدقيق')
+    expect(html).toContain('أحداث السجل')
+    expect(html).toContain('ابحث في السجل')
+    expect(html).not.toContain('Audit activity')
+    expect(html).not.toContain('Search the record')
+    // …while ledger data and row internals (technical vocabulary) stay as recorded.
+    expect(html).toContain('MSFT')
+    expect(html).toContain('Raw ledger event JSON')
+  })
+
+  it('defaults the page chrome to English when no locale is given', async () => {
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events: [] }))
+    expect(html).toContain('Audit activity')
+    expect(html).toContain('No ledger events recorded yet.')
+    expect(html).not.toContain('نشاط التدقيق')
   })
 })

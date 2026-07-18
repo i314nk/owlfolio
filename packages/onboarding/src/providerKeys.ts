@@ -1,4 +1,3 @@
-import { buildModelRegistrySection, type ModelRegistrySection } from './providerStatus'
 
 /**
  * Catalogs + pure logic for the `/settings/providers` keys page (Sections B/C),
@@ -25,29 +24,11 @@ export type LlmKeyGroup = {
   keys: EnvKeyEntry[]
 }
 
-// The surviving providers are OpenRouter + the direct API-key providers (Anthropic/OpenAI/Gemini); the
-// CLI/OAuth lanes (Codex, Claude CLI, Gemini CLI) were retired. These key groups drive the direct providers.
-// Each group's id is recorded as the provider_connected `provider_id` (via llmGroupIdForEnvKey) and is part
-// of the frontier-LLM gate set.
+// PROVIDER CONSOLIDATION (owner, 2026-07-18): OpenRouter is the one real provider; 'local'
+// (Ollama / vLLM) is the experimental UNTESTED surface. The direct Anthropic/OpenAI/Gemini API-key
+// groups were removed with their providers. Each group's id is recorded as the provider_connected
+// `provider_id` (via llmGroupIdForEnvKey) and is part of the frontier-LLM gate set.
 export const LLM_API_KEY_GROUPS: LlmKeyGroup[] = [
-  {
-    id: 'anthropic',
-    label: 'Anthropic',
-    get_key_url: 'https://console.anthropic.com/settings/keys',
-    keys: [{ name: 'ANTHROPIC_API_KEY', description: 'Anthropic API key — drives the direct Anthropic (Claude API) provider.' }],
-  },
-  {
-    id: 'openai',
-    label: 'OpenAI',
-    get_key_url: 'https://platform.openai.com/api-keys',
-    keys: [{ name: 'OPENAI_API_KEY', description: 'OpenAI API key — drives the direct OpenAI API provider.' }],
-  },
-  {
-    id: 'gemini',
-    label: 'Gemini (Google)',
-    get_key_url: 'https://aistudio.google.com/apikey',
-    keys: [{ name: 'GEMINI_API_KEY', description: 'Google Gemini Developer API key — drives the direct Gemini provider.' }],
-  },
   {
     id: 'openrouter',
     label: 'OpenRouter',
@@ -55,12 +36,12 @@ export const LLM_API_KEY_GROUPS: LlmKeyGroup[] = [
     keys: [{ name: 'OPENROUTER_API_KEY', description: 'OpenRouter meta-aggregator key — the single API key that routes to every curated model (per-routed-model certification still required).' }],
   },
   {
-    id: 'local-other',
-    label: 'Local / Other (OpenAI-compatible)',
-    get_key_url: 'https://owlfolio.local/docs/providers',
+    id: 'local',
+    label: 'Local (Ollama / vLLM) — experimental, untested',
+    get_key_url: 'https://ollama.com/download',
     keys: [
-      { name: 'OWLFOLIO_LOCAL_LLM_BASE_URL', description: 'Base URL for a local/self-hosted OpenAI-compatible endpoint (e.g. Ollama, vLLM).', advanced: true },
-      { name: 'OWLFOLIO_LOCAL_LLM_API_KEY', description: 'Optional API key for the local/self-hosted endpoint.', advanced: true },
+      { name: 'OWLFOLIO_LOCAL_API_BASE_URL', description: 'UNSTABLE / EXPERIMENTAL / UNTESTED: base URL of the local OpenAI-compatible endpoint you run yourself (defaults to Ollama http://127.0.0.1:11434/v1).', advanced: true },
+      { name: 'OWLFOLIO_LOCAL_API_KEY', description: 'Optional API key for the local endpoint (most local servers need none).', advanced: true },
     ],
   },
 ]
@@ -133,36 +114,7 @@ export function llmRegistrySelectability(setKeys: Record<string, boolean>): Reco
 
 // ── Section B header — the model-registry tier-assignment summary ─────────────
 
-export type TierAssignmentLine = {
-  role: string
-  tier: 'T0' | 'T1' | 'T2' | 'T3'
-  provider_id: string
-  model: string
-}
-
-export type TierAssignmentSummary = {
-  registry_version: string
-  lines: TierAssignmentLine[]
-  no_model_note: string
-}
-
-/** Build the tier-assignment summary read from modelRegistry.ts (via providerStatus). */
-export function buildTierAssignmentSummary(args: { activeProviderId: string; activeModel: string }): TierAssignmentSummary {
-  const section: ModelRegistrySection = buildModelRegistrySection({
-    activeProviderId: args.activeProviderId,
-    activeModel: args.activeModel,
-  })
-  return {
-    registry_version: section.version,
-    no_model_note: section.no_model_note,
-    lines: section.roles.map((role) => ({
-      role: role.role,
-      tier: role.tier,
-      provider_id: role.provider_id,
-      model: role.model,
-    })),
-  }
-}
+// (The tier-assignment summary was removed with model tiering — owner, 2026-07-18.)
 
 // ── Section A — OAuth login expiry view (acceptance test 5) ────────────────────
 

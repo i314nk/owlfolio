@@ -1,5 +1,7 @@
 import { createElement, type CSSProperties } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import {
   deriveAuditActivityView,
   type ActorCategory,
@@ -7,7 +9,14 @@ import {
   type AuditActivityFilters,
   type AuditCaseGroup,
 } from '../lib/audit'
+import { t, type MessageKey } from '../lib/i18n'
 import { RouteHeader } from './designSystem'
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call. Page
+// chrome follows the locale; ledger data and the row internals (technical vocabulary, ids, raw
+// payloads) stay as recorded.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 // ── Inline styles for surfaces that have no shared class yet ──────────────────
 // The page leans on the shared editorial vocabulary (owl-section-card,
@@ -43,15 +52,6 @@ const controlStyle: CSSProperties = {
   minWidth: 0,
   padding: '0.55rem 0.65rem',
   width: '100%',
-}
-
-const filterActionsStyle: CSSProperties = {
-  alignItems: 'center',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '0.65rem',
-  gridColumn: '1 / -1',
-  marginTop: '0.2rem',
 }
 
 const activeFiltersStyle: CSSProperties = {
@@ -213,6 +213,8 @@ const ACTOR_BADGE_STYLES: Record<ActorCategory, CSSProperties> = {
 type AuditActivityPanelProps = {
   events: AuditActivityEvent[]
   filters?: AuditActivityFilters
+  /** i18n: the page chrome language (ledger data stays as recorded). */
+  locale?: OwlLocale
 }
 
 /**
@@ -223,27 +225,36 @@ type AuditActivityPanelProps = {
  * fiduciary ledger. Leads with the summary, keeps the powerful filters but
  * presents them cleanly, then renders events grouped by research case.
  */
-export function AuditActivityPanel({ events, filters = {} }: AuditActivityPanelProps) {
-  const ledger = 'Personal local ledger event stream'
+export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: AuditActivityPanelProps) {
+  panelLocale = locale
   const view = deriveAuditActivityView(events, filters)
 
   return createElement(
     'section',
-    { 'aria-label': 'Audit activity', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    { 'aria-label': dt('au_title'), style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: 'The immutable record',
-      title: 'Audit activity',
-      description: `${ledger}. Trace every decision and its grounded evidence — stable event IDs and raw ledger payloads, preserved exactly as written.`,
+      kicker: dt('au_kicker'),
+      title: dt('au_title'),
+      description: dt('au_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
     createElement(AuditLedgerLine, { events, filterOptions: view.filterOptions, shownCount: view.events.length }),
-    createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
-    createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),
+    // The view toggle: the curated decision trail is the default; the full record is one click away
+    // (a curated VIEW, never a curated ledger).
+    createElement(
+      'p',
+      { className: 'owl-row-helper', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', margin: 0 } },
+      view.effectiveView === 'decisions' ? dt('au_view_decisions_note') : dt('au_view_full_note'),
+      view.effectiveView === 'decisions'
+        ? createElement('a', { className: 'owl-focusable', href: '/audit?view=full', style: traceLinkStyle }, dt('au_view_full_link'))
+        : createElement('a', { className: 'owl-focusable', href: '/audit', style: traceLinkStyle }, dt('au_view_decisions_link')),
+    ),
+    createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions, activeFilters: view.activeFilters }),
     view.events.length === 0
       ? createElement(
         'p',
         { className: 'owl-body' },
-        events.length === 0 ? 'No ledger events recorded yet.' : 'No ledger events match the current filters.',
+        events.length === 0 ? dt('au_empty_none') : dt('au_empty_filtered'),
       )
       : createElement(AuditGroupedView, { caseGroups: view.caseGroups, ungroupedEvents: view.ungroupedEvents }),
   )
@@ -260,11 +271,11 @@ function AuditLedgerLine({ events, filterOptions, shownCount }: {
   const caseCount = new Set(events.map((event) => event.correlation_id).filter((id): id is string => id !== undefined)).size
 
   const stats: { label: string; value: string }[] = [
-    { label: 'Ledger events', value: hasEvents ? countsText(events.length) : '—' },
-    { label: 'Shown', value: hasEvents ? countsText(shownCount) : '—' },
-    { label: 'Research cases', value: hasEvents ? countsText(caseCount) : '—' },
-    { label: 'Event types', value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
-    { label: 'Actors', value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
+    { label: dt('au_stat_events'), value: hasEvents ? countsText(events.length) : '—' },
+    { label: dt('au_stat_shown'), value: hasEvents ? countsText(shownCount) : '—' },
+    { label: dt('au_stat_cases'), value: hasEvents ? countsText(caseCount) : '—' },
+    { label: dt('au_stat_types'), value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
+    { label: dt('au_stat_actors'), value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
   ]
 
   return createElement(
@@ -281,45 +292,61 @@ function AuditLedgerLine({ events, filterOptions, shownCount }: {
 
 // ── The filters — present the power cleanly ───────────────────────────────────
 
-function AuditActivityFiltersForm({ filters, filterOptions }: {
+/**
+ * The filter bar (polish, owner-requested 2026-07-18): a COMPACT sticky card that follows the
+ * scroll — the two search fields + actions always at hand, the technical filters (ids, type,
+ * actor, dates, schema) behind one Advanced toggle, and the active-filter chips riding along so
+ * the reader always knows what the trail is filtered on. Pure CSS sticky, no client JS.
+ */
+function AuditActivityFiltersForm({ filters, filterOptions, activeFilters }: {
   filters: AuditActivityFilters
   filterOptions: ReturnType<typeof deriveAuditActivityView>['filterOptions']
+  activeFilters: string[]
 }) {
+  // Open the technical filters when any of them is active — a filtered view must show its controls.
+  const advancedActive = [filters.eventId, filters.correlationId, filters.sourceId, filters.eventType, filters.actor, filters.dateFrom, filters.dateTo, filters.schemaVersion]
+    .some((value) => value !== undefined && value !== '')
+
   return createElement(
     'section',
-    { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Search the record'),
-    createElement('h2', { className: 'owl-section-title' }, 'Filter the ledger trace'),
+    {
+      className: 'owl-section-card',
+      style: { gap: 'var(--owl-space-2)', position: 'sticky', top: '0.6rem', zIndex: 20 },
+    },
+    createElement('p', { className: 'owl-section-accent' }, dt('au_filter_accent')),
     createElement(
       'form',
-      { action: '/audit', method: 'get', style: filterFormStyle },
-      filterInput('Entity / ticker / text', 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID'),
-      filterInput('Search raw ledger evidence', 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field'),
-      filterInput('Event ID', 'event_id', filters.eventId ?? '', 'evt_...'),
-      filterInput('Correlation ID', 'correlation_id', filters.correlationId ?? '', 'corr_...'),
-      filterInput('Source ID', 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
-      filterSelect('Raw event type', 'event_type', filters.eventType ?? '', filterOptions.eventTypes, 'All event types'),
-      filterSelect('Actor', 'actor', filters.actor ?? '', filterOptions.actors, 'All actors'),
-      filterInput('Date from', 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
-      filterInput('Date to', 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
-      filterSelect('Time ordering', 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], 'Ascending'),
-      createElement(
-        'details',
-        { style: { gridColumn: '1 / -1' } },
-        createElement('summary', { style: advancedSummaryStyle }, 'Advanced'),
-        createElement(
-          'div',
-          { style: { marginTop: '0.6rem', maxWidth: '260px' } },
-          filterSelect('Schema version', 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, 'All schema versions'),
-        ),
-      ),
+      { action: '/audit', method: 'get', style: { display: 'grid', gap: '0.7rem', margin: 0 } },
+      // Primary row: the two searches + actions, always visible.
       createElement(
         'div',
-        { style: filterActionsStyle },
-        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, 'Apply filters'),
-        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, 'Clear'),
+        { style: { alignItems: 'flex-end', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+        filterInput(dt('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field', undefined, { flex: '2 1 240px' }),
+        filterInput(dt('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID', undefined, { flex: '1 1 180px' }),
+        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, dt('au_apply')),
+        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, dt('au_clear')),
+      ),
+      // The technical filters, one toggle away (open whenever one is active).
+      createElement(
+        'details',
+        advancedActive ? { open: true } : {},
+        createElement('summary', { style: advancedSummaryStyle }, dt('au_advanced')),
+        createElement(
+          'div',
+          { style: { ...filterFormStyle, marginTop: '0.6rem' } },
+          filterInput(dt('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
+          filterInput(dt('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
+          filterInput(dt('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
+          filterSelect(dt('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, dt('au_all_types')),
+          filterSelect(dt('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, dt('au_all_actors')),
+          filterInput(dt('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
+          filterInput(dt('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
+          filterSelect(dt('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], dt('au_order_asc')),
+          filterSelect(dt('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, dt('au_all_schema')),
+        ),
       ),
     ),
+    createElement(ActiveAuditFilters, { activeFilters }),
   )
 }
 
@@ -331,7 +358,7 @@ function ActiveAuditFilters({ activeFilters }: { activeFilters: string[] }) {
   return createElement(
     'section',
     { 'aria-label': 'Active audit filters', style: { display: 'grid', gap: '0.5rem' } },
-    createElement('p', { style: detailTermStyle }, 'Active audit filters'),
+    createElement('p', { style: detailTermStyle }, dt('au_active')),
     createElement(
       'div',
       { style: activeFiltersStyle },
@@ -372,9 +399,9 @@ function AuditCaseGroupSection({ group }: { group: AuditCaseGroup }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
-        createElement('span', { className: 'owl-section-accent' }, 'Research case'),
+        createElement('span', { className: 'owl-section-accent' }, dt('au_group_case')),
         createElement('span', { className: 'owl-section-title' }, group.ticker),
-        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? 'event' : 'events'} · ${dateStr}`),
+        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? dt('au_ev_one') : dt('au_ev_many')} · ${dateStr}`),
       ),
       createElement('span', { style: { ...timestampStyle, fontSize: 'var(--owl-text-2xs)' } }, group.correlation_id),
     ),
@@ -396,10 +423,10 @@ function AuditOtherGroupSection({ events }: { events: AuditActivityEvent[] }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline' } },
-        createElement('span', { className: 'owl-section-accent' }, 'Other'),
-        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, 'System & uncorrelated'),
+        createElement('span', { className: 'owl-section-accent' }, dt('au_group_other')),
+        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, dt('au_group_other_title')),
       ),
-      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? 'event' : 'events'}`),
+      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? dt('au_ev_one') : dt('au_ev_many')}`),
     ),
     createElement(
       'ol',
@@ -590,10 +617,10 @@ function detail(term: string, value: string) {
   )
 }
 
-function filterInput(label: string, name: string, value: string, placeholder: string, type?: string) {
+function filterInput(label: string, name: string, value: string, placeholder: string, type?: string, layout?: CSSProperties) {
   return createElement(
     'label',
-    { style: filterLabelStyle },
+    { style: layout === undefined ? filterLabelStyle : { ...filterLabelStyle, ...layout } },
     label,
     createElement('input', {
       defaultValue: value,

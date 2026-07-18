@@ -5,6 +5,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import { fcfIntrinsicValuePerShare } from '@owlfolio/strategies/bookValuation'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { strategyDisplayName } from '../lib/strategyDisplay'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import {
   SIZING_PARAMS,
@@ -13,8 +14,6 @@ import {
   type TrancheTrigger,
 } from '@owlfolio/strategies/sizingParams'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
-import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
-
 
 import { RouteHeader, OwlValuationChip } from './designSystem'
 
@@ -321,23 +320,6 @@ function LadderTable(ladderId: LadderId): ReactNode {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-// The hygiene-checklist prompts, rendered LIVE from CHECKLIST_PARAMS — never a hardcoded copy of the
-// prompts — so the copy stays in sync as the owner extends the list. This LISTS the prompts; it never
-// renders a count/progress/score (a count is a score in disguise).
-function ChecklistPromptColumn({ category, heading }: { category: ChecklistCategory; heading: string }): ReactNode {
-  const items = CHECKLIST_PARAMS.items.filter((item) => item.category === category)
-  return createElement(
-    'div',
-    { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem' } },
-    createElement('p', { style: { ...microLabel } }, heading),
-    createElement(
-      'ul',
-      { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
-      ...items.map((item) => createElement('li', { key: item.id }, item.prompt)),
-    ),
-  )
-}
-
 export function StrategyOverview(): ReactNode {
   return createElement(
     'main',
@@ -350,7 +332,8 @@ export function StrategyOverview(): ReactNode {
 
     // 1. Letterhead — serif title + gold mono kicker + hairline rule
     createElement(RouteHeader, {
-      kicker: `${strategy.name} · v${strategy.version}`,
+      // REBRAND: the display name, never the contract's internal name (which stays persisted).
+      kicker: `${strategyDisplayName(strategy.id)} · v${strategy.version}`,
       title: 'The strategy',
       description:
         'The method your agent follows, end to end: a concentrated, quality-value, Shariah-aware discipline in the Buffett 4-Pillar tradition. One principle holds it together — a strict division of labour. Grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
@@ -404,14 +387,6 @@ export function StrategyOverview(): ReactNode {
           createElement(
             'li',
             null,
-            createElement('span', { style: goldText }, 'Size — the Pabrai Principle 5 axis, deferred.'),
-            ' A size boundary (favouring the small, under-followed names where mispricing concentrates) is part of the model but ',
-            createElement('span', { style: goldText }, 'shipped permissive / deferred'),
-            ' — it does not yet constrain admission.',
-          ),
-          createElement(
-            'li',
-            null,
             createElement('span', { style: goldText }, 'Cheapness counts only on an already-wonderful business.'),
             ' Price is never the entry reason. Cheapness is considered only after a business has passed the quality gate (≥ wide moat, honest growth, safe balance sheet, Shariah-clean) — a cheap business that fails the gate is still a PASS.',
           ),
@@ -437,7 +412,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Honest scope: the circle is permissive by default, the size axis is deferred, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
+          'Honest scope: the circle is permissive by default until you narrow it, the buy threshold is computed (IV × 0.70 — the human still signs off), and admit is human-decided with your own signed thesis.',
         ),
       ),
     }),
@@ -631,15 +606,15 @@ export function StrategyOverview(): ReactNode {
     // 7b. Tranche ladders (position-sizing-spec §2–§4) — both ladders + re-anchoring + time-completion
     Section({
       eyebrow: 'Tranche ladders',
-      title: 'How a position is laddered in',
+      title: 'Pullback-review rungs — tranches buy information',
       lead: createElement(
         'span',
         null,
-        'Tranches buy information, not just price. Entry is laddered across rungs, each beyond T1 gated by a thesis re-check. The harness suggests a ladder from the regime temperature at T1 (temperature ≤ ',
+        'Tranches buy information, not just price. The ladders below are the worker’s pullback-review policy — the rungs at which a falling price on a held name triggers a thesis re-check BEFORE you consider adding (regime temperature ≤ ',
         createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD)),
         ' → normal; ≥ ',
         createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD + 1)),
-        ' → cold); you confirm it in the T1 ledger entry and it is fixed for that position thereafter. Fractions and triggers below are read from the live sizing config.',
+        ' → cold). They prescribe nothing and execute nothing — the size and every buy are yours. Fractions and triggers below are read from the live sizing config.',
       ),
       children: createElement(
         'div',
@@ -709,7 +684,7 @@ export function StrategyOverview(): ReactNode {
           headings: ['State', 'Means', 'Cadence action (state-branched)'],
           rows: [
             [createElement('span', { style: goldText }, 'candidate'), 'In research, not yet user-confirmed to the watchlist', 'Advance or screen out (research re-run)'],
-            [createElement('span', { style: goldText }, 'watched'), 'User-confirmed, tracked for a buy window', createElement('span', null, 'Buy-window / staleness observation; a tripped falsifier flags it ', createElement('span', { style: rejected }, 'deteriorating'), ' (no prune action yet — later phase)')],
+            [createElement('span', { style: goldText }, 'watched'), 'User-confirmed, tracked for a buy window', createElement('span', null, 'Buy-window / staleness observation; a tripped falsifier flags it ', createElement('span', { style: rejected }, 'deteriorating'), ' — pruning it is your call via the watchlist’s Remove')],
             [createElement('span', { style: goldText }, 'held'), 'An open holding (explicit user entry)', 'Tranche / concentration / Shariah-grace re-check'],
             [createElement('span', { style: goldText }, 'exited'), 'No live entity — sold, or screened out', 'Post-mortem; re-discovery keeps prior-exit history'],
           ],
@@ -717,7 +692,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, margin: 0 } },
-          'Sold and screened-out are opposite kinds of exit and are kept distinct. Position sizing on the watched→held step and a prune action for deteriorating watched names are later phases — the lifecycle view shows those gaps rather than hiding them.',
+          'Sold and screened-out are opposite kinds of exit and are kept distinct. The size is yours — the scale-down keeps no capital books — and pruning a deteriorating watched name is the human-authored Remove on the watchlist, recorded with your reason.',
         ),
       ),
     }),
@@ -733,7 +708,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'sell decision'),
         ' on-demand — worst case first, then a verdict. It is bounded by the recommendation and never trades: the ',
         createElement('span', { style: goldText }, 'close is human-authored'),
-        ', and there is no auto-sell. A sale needs one of four real reasons; a falling price alone is never one of them.',
+        ', and there is no auto-sell. A sale needs a real, recorded reason — one of the four triggers below, a released minimum-hold guard, or an unresolvable Shariah breach (the close form records exactly these); a falling price alone is never one of them.',
       ),
       children: createElement(
         'div',
@@ -770,41 +745,6 @@ export function StrategyOverview(): ReactNode {
           'p',
           { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
           'The sell decision is advisory and bounded by the recommendation — it leads with the concrete worst case (the downside floor + its net-cash-vs-stressed-book basis = a reliability signal), runs the four triggers + the minimum-hold guard + the bias guards, and stops there. The exit is always authored and signed by you; the harness never closes a holding.',
-        ),
-      ),
-    }),
-
-    // 7e. Quality & bias hygiene checklists — prompt lists + marshaled evidence (the sign-off
-    // completion-blocks were retired with review-and-promote and the holding-review retirement).
-    Section({
-      eyebrow: 'Quality & bias hygiene',
-      title: 'Two checklists that frame the question — they never score it',
-      lead: createElement(
-        'span',
-        null,
-        'Two hygiene checklists ride the workflow as ',
-        createElement('span', { style: goldText }, 'prompts, not gates'),
-        ': each names a known failure mode so you address it before committing, but nothing ',
-        createElement('span', { style: goldText }, 'scores, tallies, or pass/fails'),
-        ' your answers, and a "risk present" answer never auto-rejects. The ',
-        createElement('span', { style: goldText }, 'business'),
-        ' list is agent-marshaled: the harness attaches grounded evidence beside each item on the admit checkpoint. The ',
-        createElement('span', { style: goldText }, 'cognitive'),
-        ' list is human-only — the agent never pre-fills your reasoning checks. There is no checklist ceremony at sign-off (review-and-promote: the promote itself is the human commitment); the lists live here and on the Learn page as the standing discipline, read live from the versioned checklist config and growing as the owner adds failure modes from experience.',
-      ),
-      children: createElement(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
-        createElement(
-          'div',
-          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
-          createElement(ChecklistPromptColumn, { category: 'business', heading: 'Business failure modes' }),
-          createElement(ChecklistPromptColumn, { category: 'cognitive', heading: 'Cognitive biases' }),
-        ),
-        createElement(
-          'p',
-          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Decision-neutral by construction: the checklist names the questions worth answering — it does not auto-reject, score, or rank. The human plus the existing hard gates make the decision.',
         ),
       ),
     }),

@@ -144,6 +144,16 @@ describe('/api/research/start', () => {
     })
   })
 
+  it('rejects a research-case-id-shaped ticker (the failed-run restart artifact) with a clear 400', async () => {
+    const response = await POST(new Request('http://localhost/api/research/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ticker: 'rc_adbe_1783102782375' }),
+    }))
+    expect(response.status).toBe(400)
+    expect(JSON.stringify(await response.json())).toContain('research-case id')
+  })
+
   it('returns a clean 400 JSON error when research is requested with an unready provider', async () => {
     const response = await POST(new Request('http://localhost/api/research/start', {
       method: 'POST',

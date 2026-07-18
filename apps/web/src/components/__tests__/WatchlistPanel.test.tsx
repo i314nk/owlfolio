@@ -241,3 +241,73 @@ describe('WatchlistPanel re-review launch', () => {
     expect(html).toContain('Check-in vs new filings')
   })
 })
+
+describe('WatchlistPanel thesis honesty', () => {
+  it('replaces a model-placeholder thesis with the honest fallback (same guard as the research library)', () => {
+    const html = render([
+      item({
+        watchlist_item_id: 'w_placeholder',
+        ticker: 'GOOG',
+        thesis_summary: 'Will formulate after reading source material',
+        verdict: { state: 'WATCH', proposed_buy_below: 100 },
+      }),
+    ])
+    expect(html).not.toContain('Will formulate')
+    expect(html).toContain('No thesis recorded')
+  })
+
+  it('keeps a real thesis untouched', () => {
+    const html = render([
+      item({
+        watchlist_item_id: 'w_real',
+        ticker: 'MSFT',
+        thesis_summary: 'Microsoft is a compounding fortress anchored by enterprise switching costs.',
+        verdict: { state: 'WATCH', proposed_buy_below: 100 },
+      }),
+    ])
+    expect(html).toContain('Microsoft is a compounding fortress')
+    expect(html).not.toContain('No thesis recorded')
+  })
+})
+
+describe('WatchlistPanel i18n', () => {
+  it('renders the page chrome in Arabic when locale is ar (row data stays as recorded)', () => {
+    const html = renderToStaticMarkup(createElement(WatchlistPanel, {
+      locale: 'ar',
+      mode: 'personal-local',
+      items: [
+        item({ watchlist_item_id: 'w_ar', ticker: 'COST', verdict: { state: 'WATCH', proposed_buy_below: 100, market_price_per_share: 130, distance_to_buy_pct: 30 } }),
+      ],
+    }))
+    // Header, stats, and band chrome follow the locale…
+    expect(html).toContain('قائمة المراقبة')
+    expect(html).toContain('بانتظار قرارك')
+    expect(html).toContain('فوق المنطقة — انتظار')
+    expect(html).not.toContain('Above the zone — waiting')
+    expect(html).not.toContain('Candidates tracked')
+    // …while row data does not.
+    expect(html).toContain('COST')
+    expect(html).toContain('buy ≤ $100.00')
+  })
+
+  it('renders the Arabic empty state, including the held-elsewhere variant', () => {
+    const emptyHtml = renderToStaticMarkup(createElement(WatchlistPanel, { locale: 'ar', mode: 'personal-local', items: [] }))
+    expect(emptyHtml).toContain('لا مرشحين متابَعين بعد')
+    expect(emptyHtml).not.toContain('No candidates tracked yet')
+
+    const heldHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
+      locale: 'ar',
+      mode: 'personal-local',
+      items: [item({ watchlist_item_id: 'w_held', ticker: 'KO', holding_id: 'h_ko' })],
+    }))
+    expect(heldHtml).toContain('المحفظة')
+    expect(heldHtml).not.toContain('on the portfolio')
+  })
+
+  it('defaults the page chrome to English when no locale is given', () => {
+    const html = render([])
+    expect(html).toContain('Watchlist desk')
+    expect(html).toContain('No candidates tracked yet')
+    expect(html).not.toContain('قائمة المراقبة')
+  })
+})

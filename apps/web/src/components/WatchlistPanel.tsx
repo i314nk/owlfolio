@@ -1,10 +1,14 @@
 import { createElement, Fragment } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
 import { OwlButtonLink, OwlValuationChip, RouteHeader } from './designSystem'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { StatusBadge } from './StatusBadge'
+import { t, type MessageKey } from '../lib/i18n'
+import { recordedThesis } from '../lib/thesisDisplay'
 import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { titleCaseEntityName } from '../lib/entityName'
 
@@ -15,7 +19,13 @@ export type WatchlistPanelProps = {
   alerts?: MonitorAlert[]
   /** SCREENING TOGGLE (owner, 2026-07-15): false hides the purification-rate surfaces. */
   shariahEnabled?: boolean
+  /** i18n: the page chrome language (row data stays as recorded). */
+  locale?: OwlLocale
 }
+
+// i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
   urgent: 'danger',
@@ -40,23 +50,11 @@ type ZoneBand = 'LOAD_UP' | 'BUY_ZONE' | 'ABOVE_ZONE' | 'UNCLASSIFIED'
 
 const BAND_ORDER: ZoneBand[] = ['LOAD_UP', 'BUY_ZONE', 'ABOVE_ZONE', 'UNCLASSIFIED']
 
-const BAND_META: Record<ZoneBand, { title: string; note: string }> = {
-  LOAD_UP: {
-    title: 'In the load-up zone',
-    note: '"Once you find a margin of safety, load up the truck." A ≥50% margin on a gate-clean case. Observation only — you author every buy.',
-  },
-  BUY_ZONE: {
-    title: 'In the buy zone',
-    note: 'Price at or below the computed buy threshold (a ≥30% margin of safety). Observation only — you author every buy.',
-  },
-  ABOVE_ZONE: {
-    title: 'Above the zone — waiting',
-    note: 'Tracked while the price sits above the computed buy threshold; nearest to the zone first. Patience is the position.',
-  },
-  UNCLASSIFIED: {
-    title: 'Tracked (no verdict yet)',
-    note: 'No computed thresholds yet — run or re-run the case to place it on the board.',
-  },
+const BAND_META: Record<ZoneBand, { title: MessageKey; note: MessageKey }> = {
+  LOAD_UP: { title: 'wl_band_load_up', note: 'wl_band_load_up_note' },
+  BUY_ZONE: { title: 'wl_band_buy_zone', note: 'wl_band_buy_zone_note' },
+  ABOVE_ZONE: { title: 'wl_band_above_zone', note: 'wl_band_above_zone_note' },
+  UNCLASSIFIED: { title: 'wl_band_unclassified', note: 'wl_band_unclassified_note' },
 }
 
 function bandFor(item: AppWatchlistItem): ZoneBand {
@@ -77,7 +75,8 @@ function zoneSort(a: AppWatchlistItem, b: AppWatchlistItem): number {
   return da - db
 }
 
-export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], shariahEnabled = true }: WatchlistPanelProps) {
+export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], shariahEnabled = true, locale = 'en' }: WatchlistPanelProps) {
+  panelLocale = locale
   // ONE HOME PER NAME (owner, 2026-07-14): a HELD name lives on the portfolio — it leaves the
   // watchlist board while its holding is open (the item itself survives in the ledger and returns
   // to plain watching when the holding closes).
@@ -92,9 +91,9 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], sh
     return [
       createElement(
         'section',
-        { key: `band-${band}`, 'aria-label': `${meta.title} candidates`, 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-        createElement('p', { className: 'owl-section-accent' }, `${meta.title} · ${bandItems.length}`),
-        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, meta.note),
+        { key: `band-${band}`, 'aria-label': dt(meta.title), 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+        createElement('p', { className: 'owl-section-accent' }, `${dt(meta.title)} · ${bandItems.length}`),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt(meta.note)),
         ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alertMatchesItem(alert, item)), band, shariahEnabled)),
       ),
     ]
@@ -104,9 +103,9 @@ export function WatchlistPanel({ items, mode = 'personal-local', alerts = [], sh
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: 'Watchlist desk',
-      title: 'Watchlist',
-      description: 'Provider-proposed candidates — nothing enters your portfolio without your explicit confirmation.',
+      kicker: dt('wl_kicker'),
+      title: dt('wl_title'),
+      description: dt('wl_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
     createLedgerLine(watching, heldCount),
@@ -175,16 +174,16 @@ function createLedgerLine(items: AppWatchlistItem[], heldCount: number) {
   const gateClear = items.filter((item) => item.shariah_gate_allowed === true).length
 
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: '', label: 'Candidates tracked', value: String(items.length) },
+    { figureClass: '', label: dt('wl_stat_tracked'), value: String(items.length) },
     {
       figureClass: awaiting > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald',
-      label: 'Awaiting your decision',
+      label: dt('wl_stat_awaiting'),
       value: String(awaiting),
     },
-    { figureClass: 'owl-ledger-figure-emerald', label: 'Confirmed by you', value: String(confirmed) },
-    { figureClass: 'owl-ledger-figure-emerald', label: 'Shariah gate clear', value: String(gateClear) },
+    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_confirmed'), value: String(confirmed) },
+    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_gate_clear'), value: String(gateClear) },
     // Held names live on the PORTFOLIO — one home per name.
-    { figureClass: 'owl-ledger-figure-emerald', label: 'Held — see portfolio', value: String(heldCount) },
+    { figureClass: 'owl-ledger-figure-emerald', label: dt('wl_stat_held'), value: String(heldCount) },
   ]
 
   return createElement(
@@ -203,14 +202,16 @@ function createEmptyState(heldCount = 0) {
   return createElement(
     'section',
     { 'aria-label': 'Empty watchlist', className: 'owl-section-card' },
-    createElement('p', { className: 'owl-section-accent' }, 'Watchlist desk'),
-    createElement('h2', { className: 'owl-section-title' }, 'No candidates tracked yet'),
+    createElement('p', { className: 'owl-section-accent' }, dt('wl_kicker')),
+    createElement('h2', { className: 'owl-section-title' }, dt('wl_empty_title')),
     createElement(
       'p',
       { className: 'owl-body', style: { margin: 0 } },
       heldCount > 0
-        ? `No names in the watching state — ${heldCount} held ${heldCount === 1 ? 'name lives' : 'names live'} on the portfolio.`
-        : 'No watchlist items yet. Create a research case first.',
+        ? heldCount === 1
+          ? dt('wl_empty_held_one')
+          : dt('wl_empty_held_many').replace('{count}', String(heldCount))
+        : dt('wl_empty_body'),
     ),
   )
 }
@@ -418,9 +419,11 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
 
 /** The board shows only the opening of the thesis; the linked dossier carries the full narrative. */
 function clampThesis(thesis: string | undefined): string {
-  if (thesis === undefined || thesis.length === 0) return 'No thesis recorded'
-  if (thesis.length <= 420) return thesis
-  return `${thesis.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
+  // Blank or model-placeholder summaries ("Will formulate…") read as unrecorded, same as the library.
+  const recorded = recordedThesis(thesis)
+  if (recorded === undefined) return 'No thesis recorded'
+  if (recorded.length <= 420) return recorded
+  return `${recorded.slice(0, 420).trimEnd()}… (full analysis in the dossier)`
 }
 
 

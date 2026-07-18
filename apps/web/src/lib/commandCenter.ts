@@ -13,8 +13,13 @@ import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings } from '@owlfolio/shared'
+import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
+import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 
 import { isUnconfiguredForUser } from './modeView'
+import { resolveDutiesDue, type DutyDue } from './dutiesDue'
 import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
 export type PipelineCounts = {
@@ -55,6 +60,8 @@ export type AppCommandCenter = {
   monitor_alerts: MonitorAlert[]
   /** The strongest unconverted 13F discovery signals (CLUSTER_BUY first). */
   discovery_signals: CommandCenterDiscoverySignal[]
+  /** Cadence duties whose time has come (13F harvest / quarterly check-in / annual re-analysis). */
+  duties_due: DutyDue[]
   primary_action: CommandCenterAction
   secondary_action?: CommandCenterAction
 }
@@ -101,6 +108,27 @@ export type SetupAwareCommandCenterInput = {
   env?: { readonly [key: string]: string | undefined }
 }
 
+/** The stages that carry a recorded decision — the quarterly check-in's re-review targets. */
+const DECIDED_STAGES = new Set(['decision_drafted', 'watchlist', 'holding', 'rejected', 'pass'])
+
+/**
+ * The cadence-duty nudges: the alpha has no autonomous scheduler, so the command center tells the
+ * user when a configured rhythm (13F harvest / quarterly check-in / annual re-analysis) has lapsed.
+ */
+function buildDutiesDue(events: LedgerEventEnvelope<unknown>[], config: AppConfig): DutyDue[] {
+  return resolveDutiesDue({
+    now: new Date(),
+    automation: mergeAutomationSettings(config.automation),
+    tasks: projectScheduledTasks(events).map((task) => ({
+      task_kind: task.task_kind,
+      last_completed_at: task.last_completed_at,
+    })),
+    decided_case_count: projectResearchCases(events)
+      .filter((c) => c.superseded !== true && DECIDED_STAGES.has(c.stage)).length,
+    open_holding_count: projectHoldings(events).length,
+  })
+}
+
 export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store, env }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
   // EXPLICIT unconfigured branch (two-state mode model). An unconfigured app has made no mode choice and
   // has no ledger — it must steer to setup, never claim an initialized ledger. Checked FIRST so it can
@@ -125,6 +153,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       recent_activity: [{ event_id: 'placeholder:not-set-up-yet', label: 'Not set up yet' }],
       monitor_alerts: [],
       discovery_signals: [],
+      duties_due: [],
       primary_action: { href: '/settings/providers', label: 'Continue setup' },
       secondary_action: { href: '/settings/providers', label: 'Review provider readiness' },
     }
@@ -150,6 +179,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
       monitor_alerts: [],
       discovery_signals: [],
+      duties_due: [],
       primary_action: { href: '/settings/providers', label: 'Continue setup' },
     }
   }
@@ -179,6 +209,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         : summary.recent_activity,
       monitor_alerts: projectMonitorAlerts(events),
       discovery_signals: buildDiscoverySignals(events),
+      duties_due: buildDutiesDue(events, config),
       primary_action: summary.approval_queue[0] !== undefined
         ? { href: summary.approval_queue[0].href, label: 'Review the highest-priority decision' }
         : summary.pipeline_counts.research_cases === 0
@@ -231,11 +262,7 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
       return 'Mock provider'
     case 'openrouter':
       return 'OpenRouter'
-    case 'openai-api':
-      return 'OpenAI (API key)'
-    case 'anthropic-api':
-      return 'Anthropic (Claude API key)'
-    case 'gemini-developer-api':
-      return 'Gemini (Google API key)'
+    case 'local':
+      return 'Local (Ollama / vLLM)'
   }
 }

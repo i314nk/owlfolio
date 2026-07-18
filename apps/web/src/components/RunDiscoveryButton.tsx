@@ -67,7 +67,7 @@ export function RunDiscoveryButton(
       const body = await response.json().catch(() => ({}))
       if (response.ok) {
         router.refresh()
-        setNote('Discovery started — refreshing…')
+        setNote(body.already_running === true ? 'Discovery is already running — refreshing…' : 'Discovery started — refreshing…')
       } else {
         setError(
           typeof body.error === 'string' && body.error.length > 0

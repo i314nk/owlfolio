@@ -4,7 +4,7 @@ import { initWorkflow } from './helpers'
 
 /**
  * Guided-setup surface tests. These previously drove the onboarding WIZARD (/onboarding). They now assert
- * the `/settings/providers` GuidedSetupPanel surface — the shared toggle + tier-grouped model dropdown +
+ * the `/settings/providers` GuidedSetupPanel surface — the shared toggle + model picker +
  * readiness that the wizard delegated to — so the wizard can be deleted in a follow-up slice. The actual
  * onboarding INIT for downstream flows is now programmatic via `initWorkflow` (POST /api/testing/init),
  * not a UI dance.
@@ -36,40 +36,40 @@ test('the provider toggle offers the real providers, and never the internal mock
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
 
-  // The connection options render as toggle buttons: OpenRouter + the three direct-API providers
-  // (Anthropic / OpenAI / Gemini), each keyed by its own API key. The internal mock provider (and the
-  // retired "Try demo mode" card) are NOT offered — demo mode was removed.
+  // PROVIDER CONSOLIDATION (owner, 2026-07-18): the connection options are OpenRouter + the
+  // experimental LOCAL surface (Ollama / vLLM) ONLY. The internal mock provider (and the retired
+  // "Try demo mode" card) are NOT offered, and the direct API-key providers are gone.
   await expect(selection.getByRole('button', { name: /try demo mode/i })).toHaveCount(0)
   await expect(selection.getByRole('button', { name: /use openrouter/i })).toBeVisible()
-  await expect(selection.getByRole('button', { name: /use anthropic \(claude\)/i })).toBeVisible()
-  await expect(selection.getByRole('button', { name: /use openai \(api key\)/i })).toBeVisible()
-  await expect(selection.getByRole('button', { name: /use gemini \(google\)/i })).toBeVisible()
+  await expect(selection.getByRole('button', { name: /use a local model \(ollama \/ vllm\)/i })).toBeVisible()
+  await expect(selection.getByRole('button', { name: /use anthropic/i })).toHaveCount(0)
+  await expect(selection.getByRole('button', { name: /use openai/i })).toHaveCount(0)
+  await expect(selection.getByRole('button', { name: /use gemini/i })).toHaveCount(0)
   // The retired Claude *CLI* login lane is not a connection card.
   await expect(selection.getByRole('button', { name: /use claude code/i })).toHaveCount(0)
+  // The local card must SAY it is unstable/experimental/untested — never quietly normal.
+  await expect(selection.getByText(/UNSTABLE \/ EXPERIMENTAL \/ UNTESTED/i).first()).toBeVisible()
 })
 
-test('OpenRouter and Anthropic show a tier-grouped model dropdown', async ({ page }) => {
+test('OpenRouter shows a flat curated model picker; the local card shows the free-form input', async ({ page }) => {
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
 
-  // (The Codex/ChatGPT CLI connection lane was retired — it is no longer a connection card.)
-
-  // OpenRouter: tier-grouped dropdown with all curated options.
+  // OpenRouter with no live catalog (no key in the test env): the flat curated dropdown — no tier
+  // optgroups (model tiering removed, owner 2026-07-18). With a live catalog it becomes the
+  // searchable picker; both paths land on one concrete model id.
   await selection.getByRole('button', { name: /use openrouter/i }).click()
-  const openRouterSelect = guidedSetup.getByRole('combobox', { name: /choose one model/i })
-  await expect(openRouterSelect).toBeVisible()
-  await expect(openRouterSelect.locator('optgroup[label="Tier 1"]')).toHaveCount(1)
-  await expect(openRouterSelect.locator('optgroup[label="Tier 2"]')).toHaveCount(1)
-  await expect(openRouterSelect.locator('optgroup[label="Tier 3"]')).toHaveCount(1)
-  await expect(openRouterSelect.locator('option[value="anthropic/claude-opus-4.8"]')).toHaveCount(1)
+  const modelControl = guidedSetup.getByRole('combobox', { name: /choose one model/i }).or(
+    guidedSetup.getByRole('textbox', { name: /search or enter an openrouter model id/i }),
+  )
+  await expect(modelControl.first()).toBeVisible()
+  await expect(guidedSetup.locator('optgroup')).toHaveCount(0)
 
-  // Anthropic (direct API key): same tier-grouped chooser with Claude models. (The retired Claude *CLI*
-  // login is gone; Anthropic is now a real, selectable direct-API provider keyed by ANTHROPIC_API_KEY.)
-  await selection.getByRole('button', { name: /use anthropic \(claude\)/i }).click()
-  const claudeSelect = guidedSetup.getByRole('combobox', { name: /choose one model/i })
-  await expect(claudeSelect.locator('option[value="claude-opus-4-8"]')).toHaveCount(1)
-  await expect(claudeSelect.locator('option[value="claude-haiku-4-5"]')).toHaveCount(1)
+  // The local surface has no curated list: a free-form model input + explicit Set button.
+  await selection.getByRole('button', { name: /use a local model \(ollama \/ vllm\)/i }).click()
+  await expect(guidedSetup.getByRole('textbox', { name: /enter the local model id/i })).toBeVisible()
+  await expect(guidedSetup.getByRole('button', { name: /set the local model/i })).toBeVisible()
 })
 
 test('the providers page places model-quality responsibility on the user (no trust gate)', async ({ page }) => {

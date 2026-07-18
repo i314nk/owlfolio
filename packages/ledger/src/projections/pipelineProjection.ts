@@ -439,6 +439,9 @@ const TIMELINE_LABELS: Record<string, (payload: Record<string, unknown>) => stri
   research_run_requested: () => 'research_run_requested',
   research_run_claimed: () => 'research_run_claimed',
   research_run_failed: () => 'research_run_failed',
+  // Live-run breadcrumbs: "lane · message" — the near-live activity feed inside the drill-down.
+  research_run_progress_recorded: (payload) =>
+    `${getString(payload, 'lane') ?? 'run'} · ${getString(payload, 'message') ?? 'progress'}`,
   shariah_gate_judged: (payload) => {
     // SCREENING OFF: a DISABLED gate is a recorded non-verdict — never presented as an OPEN pass.
     if (payload['status'] === 'DISABLED' || payload['sector_status'] === 'DISABLED') return 'shariah_gate_judged · GATE OFF (not screened)'

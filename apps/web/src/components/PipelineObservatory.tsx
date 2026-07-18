@@ -1,6 +1,13 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
+import type { OwlLocale } from '@owlfolio/shared/appConfig'
+
+import { ArchiveAllRunsButton } from './ArchiveAllRunsButton'
+import { ArchiveRunButton } from './ArchiveRunButton'
+import { PipelineLiveRefresh } from './PipelineLiveRefresh'
+import { RerunAnalysisButton } from './RerunAnalysisButton'
 import { RouteHeader } from './designSystem'
+import { t, type MessageKey } from '../lib/i18n'
 import type {
   PipelineDrillDown,
   PipelineFailedRun,
@@ -21,6 +28,22 @@ export type PipelineObservatoryProps = {
   mode: WorkflowMode
   /** SCREENING TOGGLE (owner, 2026-07-16): false renders the Shariah-gate stage as OFF. */
   shariahEnabled?: boolean
+  /** i18n: the page chrome language (projection data stays as recorded). */
+  locale?: OwlLocale
+}
+
+// i18n: render-scoped locale — set once per page render; all helpers run inside the same
+// synchronous server render pass.
+let panelLocale: OwlLocale = 'en'
+const dt = (key: MessageKey): string => t(panelLocale, key)
+
+// VIEW WINDOW (owner-approved 2026-07-18): finished runs (done/rejected) older than this leave the
+// observatory's table — their permanent home is the Research library. Active, failed, and the
+// currently selected run always stay. View-only: the ledger keeps everything.
+const FINISHED_RUN_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
+
+function isFinishedRun(run: PipelineRun): boolean {
+  return run.status === 'done' || run.status === 'rejected'
 }
 
 // ── Scoped style vocabulary ───────────────────────────────────────────────────
@@ -164,14 +187,14 @@ function sectionHead(accent: string, title: string, note?: string, titleColor?: 
 
 function LedgerLine({ summary }: { summary: PipelineProjection['summary'] }): ReactNode {
   const stats: { figureClass: string; label: string; value: string }[] = [
-    { figureClass: 'owl-ledger-figure', label: 'Active runs', value: String(summary.active_runs) },
-    { figureClass: 'owl-ledger-figure', label: 'Awaiting approval', value: String(summary.awaiting_approval) },
+    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_active'), value: String(summary.active_runs) },
+    { figureClass: 'owl-ledger-figure', label: dt('pp_stat_awaiting'), value: String(summary.awaiting_approval) },
     {
       figureClass: `owl-ledger-figure ${summary.failed_recent > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald'}`,
-      label: 'Failed (recent)',
+      label: dt('pp_stat_failed'),
       value: String(summary.failed_recent),
     },
-    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: 'Grounded sources', value: String(summary.grounded_sources) },
+    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: dt('pp_stat_sources'), value: String(summary.grounded_sources) },
   ]
 
   return createElement(
@@ -323,7 +346,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
     return createElement(
       'div',
       { className: 'owl-row', style: { color: 'var(--owl-color-muted)', gridTemplateColumns: '1fr' } },
-      'No research runs yet — enqueue a research run to populate the swarm pipeline.',
+      dt('pp_runs_empty'),
     )
   }
 
@@ -388,7 +411,15 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
   return createElement(
     'section',
     { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
-    sectionHead('Faults', 'Failed runs', 'failure is the latest state — no forward progress since', 'var(--owl-color-risk-bright)'),
+    sectionHead(dt('pp_failed_accent'), dt('pp_failed_title'), dt('pp_failed_note'), 'var(--owl-color-risk-bright)'),
+    // Bulk acknowledge for a pile of failures — each archive stays an individual auditable event.
+    failedRuns.length > 1
+      ? createElement(
+          'div',
+          null,
+          createElement(ArchiveAllRunsButton, { cases: failedRuns.map((run) => ({ caseId: run.case_id, ticker: run.ticker })) }),
+        )
+      : null,
     createElement(
       'div',
       { style: { overflowX: 'auto' } },
@@ -401,7 +432,7 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
           createElement(
             'tr',
             null,
-            ...['Ticker', 'Failed', 'Reason'].map((heading) =>
+            ...['Ticker', 'Failed', 'Reason', 'Actions'].map((heading) =>
               createElement('th', { key: heading, style: thStyle }, heading),
             ),
           ),
@@ -409,13 +440,42 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
         createElement(
           'tbody',
           null,
+          // Failures are ACTIONABLE where they surface: the ticker opens the dossier (the error +
+          // re-run live there), and Archive acknowledges + discards in place. Never a dead end.
           ...failedRuns.map((run) =>
             createElement(
               'tr',
               { key: run.case_id },
-              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-gold-bright)', fontWeight: 800 } }, run.ticker),
+              createElement(
+                'td',
+                { style: tdStyle },
+                createElement(
+                  'a',
+                  {
+                    className: 'owl-focusable',
+                    href: `/research/${encodeURIComponent(run.case_id)}`,
+                    style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800, textDecoration: 'none' },
+                  },
+                  run.ticker,
+                ),
+              ),
               createElement('td', { style: { ...tdStyle, ...monoMeta } }, relativeTime(run.failed_at)),
               createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
+              createElement(
+                'td',
+                { style: tdStyle },
+                createElement(
+                  'div',
+                  { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } },
+                  createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker }),
+                  // Restart = the existing supersession re-run (confirm-gated: full provider spend).
+                  // Hidden when the ticker is a case-id fallback (legacy cases without a recorded
+                  // ticker) — a re-run needs the real symbol; the dossier link remains the path.
+                  /^rc[_-]/i.test(run.ticker)
+                    ? null
+                    : createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
+                ),
+              ),
             ),
           ),
         ),
@@ -512,8 +572,11 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
         ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No swarm events recorded for this run yet.')
         : createElement(
             'ul',
-            { style: { fontSize: 'var(--owl-text-sm)', listStyle: 'none', margin: '0.3rem 0 0', padding: 0 } },
-            ...drillDown.timeline.map((entry, index) =>
+            // The breadcrumb feed scrolls INSIDE the card (never stretches the page). column-reverse
+            // over a newest-first list keeps the visual order ascending while pinning the scroll to
+            // the newest entry — the live feed reads like a log tail with no client JS.
+            { style: { display: 'flex', flexDirection: 'column-reverse', fontSize: 'var(--owl-text-sm)', listStyle: 'none', margin: '0.3rem 0 0', maxHeight: '22rem', overflowY: 'auto', padding: 0 } },
+            ...[...drillDown.timeline].reverse().map((entry, index) =>
               createElement(
                 'li',
                 {
@@ -569,34 +632,52 @@ function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): Reac
 
 // ── The page ──────────────────────────────────────────────────────────────────
 
-export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true }: PipelineObservatoryProps): ReactNode {
+export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true, locale = 'en' }: PipelineObservatoryProps): ReactNode {
+  panelLocale = locale
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
 
   const snapshotTime = snapshot_at !== undefined
     ? new Date(snapshot_at).toISOString().slice(11, 19)
     : undefined
 
+  // The finished-run view window; active runs and the selected drill-down target always stay.
+  const now = Date.now()
+  const visibleRuns = runs.filter((run) =>
+    !isFinishedRun(run)
+    || run.research_case_id === selectedCaseId
+    || now - Date.parse(run.updated_at) <= FINISHED_RUN_WINDOW_MS,
+  )
+  const hiddenFinishedCount = runs.length - visibleRuns.length
+
   return createElement(
     'section',
     { 'aria-label': 'Pipeline observatory', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: 'Observability',
-      title: 'Strategy pipeline observatory',
-      description: 'Watch your research swarm at work — live. A projection-driven view of every case moving through the workflow, drawn straight from the audit ledger.',
+      kicker: dt('pp_kicker'),
+      title: dt('pp_title'),
+      description: dt('pp_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
 
-    // Vital signs + snapshot
+    // Vital signs + snapshot + the live auto-refresh indicator (mounted only while a run executes,
+    // so the "live" claim in the header is actually true).
     createElement(LedgerLine, { summary }),
-    snapshotTime !== undefined
-      ? createElement('p', { style: { ...monoMeta, margin: 0, textAlign: 'right' } }, `Snapshot taken at ${snapshotTime}`)
+    summary.active_runs > 0 || snapshotTime !== undefined
+      ? createElement(
+          'div',
+          { style: { alignItems: 'center', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' } },
+          summary.active_runs > 0 ? createElement(PipelineLiveRefresh, { label: dt('pp_live') }) : null,
+          snapshotTime !== undefined
+            ? createElement('p', { style: { ...monoMeta, margin: 0 } }, `Snapshot taken at ${snapshotTime}`)
+            : null,
+        )
       : null,
 
     // Stage-flow map
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
+      sectionHead(dt('pp_flow_accent'), dt('pp_flow_title'), dt('pp_flow_note')),
       // SCREENING OFF: the gate stage reads OFF (gray dot) — the funnel never implies a screen that
       // is not running. The count stays (historical + DISABLED pass-throughs still move through it).
       createElement(StageFlowMap, {
@@ -630,16 +711,33 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Verdict states', 'How the harness labels a case', 'distinct states an operator will see'),
-      createElement(VerdictStateLegend),
+      sectionHead(dt('pp_verdict_accent'), dt('pp_verdict_title'), dt('pp_verdict_note')),
+      // Collapsed by default: the legend is identical every visit — page space goes to what needs
+      // the user now. The states stay one click away.
+      createElement(
+        'details',
+        null,
+        createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, dt('pp_legend_toggle')),
+        createElement('div', { style: { marginTop: '0.6rem' } }, createElement(VerdictStateLegend)),
+      ),
     ),
 
     // Active & recent runs
     createElement(
       'section',
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-      sectionHead('Live execution', 'Active & recent runs', 'select a run to drill into the swarm'),
-      createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
+      sectionHead(dt('pp_runs_accent'), dt('pp_runs_title'), dt('pp_runs_note')),
+      createElement(RunsTable, { runs: visibleRuns, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
+      // The view window is visible, never silent: say how many finished runs left the table.
+      hiddenFinishedCount > 0
+        ? createElement(
+            'p',
+            { style: sectionNoteStyle },
+            hiddenFinishedCount === 1 ? dt('pp_hidden_finished_one') : dt('pp_hidden_finished_many').replace('{count}', String(hiddenFinishedCount)),
+            ' ',
+            createElement('a', { className: 'owl-focusable', href: '/research', style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none' } }, dt('pp_open_library')),
+          )
+        : null,
     ),
 
     // Failed runs
@@ -652,7 +750,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
         ? createElement(
             'p',
             { style: sectionNoteStyle },
-            'Select a run above to inspect its specialist swarm.',
+            dt('pp_select_run'),
           )
         : null,
   )

@@ -43,34 +43,6 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
         keys: [{ name: 'ANTHROPIC_API_KEY', description: 'Anthropic Claude API key.', is_set: false, advanced: false }],
       },
     ],
-    roleConfig: {
-      registry_version: 'model-registry-2026-06-1',
-      guidance: ['Tier philosophy: T1 frontier, T2 mid, T3 cheap; T0 is never a model.'],
-      no_model_note: 'T0 — No model, ever.',
-      // Tier menus are scoped to the primary provider (OpenAI here).
-      active_provider_id: 'openai',
-      active_provider_label: 'OpenAI',
-      tiers: [
-        {
-          tier: 'T1', description: 'Frontier synthesis + moat/Shariah lanes.', roles: ['synthesis', 'lane_moat', 'lane_shariah'],
-          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.1,
-          source: 'default', target_provider_connected: true, target_provider_qualified: true,
-          model_options: [{ model_id: 'gpt-5.5', note: 'Reasoning model.' }],
-        },
-        {
-          tier: 'T2', description: 'Quick screen + red team.', roles: ['quick_screen', 'red_team'],
-          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.2,
-          source: 'default', target_provider_connected: true, target_provider_qualified: true,
-          model_options: [{ model_id: 'gpt-5.5', note: 'Reasoning model.' }],
-        },
-        {
-          tier: 'T3', description: 'Monitors + entity resolution.', roles: ['monitors', 'entity_resolve'],
-          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.0,
-          source: 'default', target_provider_connected: true, target_provider_qualified: true,
-          model_options: [],
-        },
-      ],
-    },
     ...overrides,
   }
 }
@@ -102,7 +74,7 @@ describe('ProviderKeysPanel — provider logins section', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps({ loginRows: [] })))
     expect(html).not.toContain('Provider logins (OAuth / subscription)')
     expect(html).not.toContain('Owner’s Manual has no in-app OAuth')
-    // Section B (API-key + per-tier model config) still renders.
+    // Section B (API keys) still renders.
     expect(html).toContain('ANTHROPIC_API_KEY')
   })
 })
@@ -118,57 +90,15 @@ describe('ProviderKeysPanel — registry selectability (acceptance test 2)', () 
     expect(html).toContain('…K3jQAA')
   })
 
-  it('renders three tier selectors (T1/T2/T3) with the current resolution + guidance', () => {
+  it('renders the single-model note and no tier machinery (model tiering removed — owner, 2026-07-18)', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
-    // The three tiers and the roles each one covers.
-    expect(html).toContain('synthesis')
-    expect(html).toContain('monitors')
-    expect(html).toContain('Covers:')
-    expect(html).toContain('model-registry-2026-06-1')
-    // Current resolution + guidance + the selector posting to the model-roles route by TIER.
-    expect(html).toContain('openai/gpt-5.5')
-    expect(html).toContain('Tier philosophy')
-    expect(html).toContain('/api/settings/model-roles')
-    expect(html).toContain('name="tier"')
-    expect(html).toContain('value="T1"')
-    // The menus are scoped to the primary provider (shown by label, not a per-tier provider picker).
-    expect(html).toContain('Primary provider')
-    expect(html).toContain('OpenAI')
-  })
-})
-
-describe('ProviderKeysPanel — per-tier config honesty (not-connected warning + source)', () => {
-  it('shows a fail-closed warning when a tier targets an unconnected provider, never fake-green', () => {
-    const props = baseProps()
-    props.roleConfig.tiers[0] = {
-      tier: 'T1', description: 'Frontier synthesis.', roles: ['synthesis', 'lane_moat'],
-      resolved_provider_id: 'deepseek', resolved_model: 'r1', resolved_temperature: 0.1,
-      source: 'file', target_provider_connected: false, target_provider_qualified: false,
-      current_value: 'deepseek:r1@0.1', model_options: [],
-    }
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
-    expect(html).toContain('provider not connected')
-    expect(html).toContain('Pinned')
-    // A pinned tier exposes a Clear affordance to restore the default-inherit.
-    expect(html).toContain('clear')
-  })
-})
-
-describe('ProviderKeysPanel — tier model dropdown (scoped to the primary provider)', () => {
-  it('renders a real model dropdown of the primary provider tier-fitting models (no free-form box)', () => {
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
-    // The primary provider's T1/T2 model appears as a <select> <option> ...
-    expect(html).toContain('gpt-5.5')
-    expect(html).toContain('name="model"')
-    // ... and the old free-form datalist is gone.
-    expect(html).not.toContain('curated-models-T1')
-    expect(html).not.toContain('or type any')
-  })
-
-  it('shows an inherits-the-run-default note for a tier the primary provider has no curated model for', () => {
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
-    // T3 has model_options: [] in the fixture (OpenAI has no curated T3 model).
-    expect(html).toContain('inherits the run default')
+    // ONE model runs the analysis; the guided setup above owns the choice.
+    expect(html).toContain('One model runs the whole analysis')
+    // The per-tier override UI and its route are gone.
+    expect(html).not.toContain('/api/settings/model-roles')
+    expect(html).not.toContain('name="tier"')
+    expect(html).not.toContain('Tier philosophy')
+    expect(html).not.toContain('per-tier model overrides')
   })
 })
 

@@ -249,6 +249,10 @@ test('screening OFF: the toggle persists, the run skips the gate, and the admiss
   await page.getByTestId('shariah-toggle').click()
   await page.getByTestId('shariah-save').click()
   await expect(page.getByText('Screening is OFF')).toBeVisible()
+  // "Screening is OFF" is optimistic (it flips with the toggle, before the save POST lands); the
+  // "Saved" confirmation only renders after the round-trip — wait for IT before reloading, or the
+  // reload can race the write and read the old config.
+  await expect(page.getByText('Saved')).toBeVisible()
   await page.reload()
   await expect(page.getByText('Screening is OFF')).toBeVisible()
 

@@ -23,12 +23,12 @@ function render(initialTabId?: string): string {
 
 describe('LearnTabs', () => {
   it('exposes the harness-spec tabs in order, including the sources and CLI tabs', () => {
+    // Judgment Objectivity was removed (owner 2026-07-18): Sources & Grounding and the Swarm tab
+    // carry the surviving points; the epistemics are properties of the swarm, not their own tab.
     expect(LEARN_TABS.map((tab) => tab.id)).toEqual([
       'strategy',
       'swarm',
       'sources',
-      'judgment',
-      'lifecycle',
       'shariah',
       'tiering',
       'cli',
@@ -62,29 +62,25 @@ describe('LearnTabs', () => {
     expect(html).toContain('re-fetch')
   })
 
-  it('documents the circle-gate hardening: k-sample unanimous agreement + grounded evidence floors, settings-tunable', () => {
-    const html = render('judgment')
-    expect(html).toContain('unanimous')
-    expect(html).toContain('evidence floor')
-    expect(html).toContain('Settings')
-  })
-
-  it('documents model selection: reasoning-only picker + curated recommendations by tier', () => {
+  it('documents model selection: reasoning-only picker + a flat curated shortlist (no tiers)', () => {
     const html = render('tiering')
     expect(html).toContain('reasoning models the harness can actually drive')
     expect(html).toContain('Recommended for the job')
-    // A curated T1 recommendation is rendered live from the catalog.
+    // A curated recommendation is rendered live from the catalog.
     expect(html).toContain('anthropic/claude-opus-4.8')
-    // Tier headings present.
-    expect(html).toContain('T1 — Frontier')
-    expect(html).toContain('T3 — Cheap / high-volume')
+    // MODEL TIERING REMOVED (owner, 2026-07-18): one model runs the analysis; easy jobs are
+    // programmatic. No tier headings, no tier framing.
+    expect(html).not.toContain('T1 — Frontier')
+    expect(html).not.toContain('T3 — Cheap')
+    expect(html).not.toContain('Four tiers')
   })
 
-  it('documents the CLI: the short owlfolio command, the commands, and its dry-run boundary', () => {
+  it('documents the CLI: the rebranded launcher, the compat alias, and its read-only boundary', () => {
     const html = render('cli')
-    // The short, hermes-style entrypoint is the headline form.
-    expect(html).toContain('owlfolio ')
-    expect(html).toContain('owlfolio doctor')
+    // REBRAND: owners-manual is the headline form; owlfolio survives as the compat alias.
+    expect(html).toContain('owners-manual ')
+    expect(html).toContain('owners-manual doctor')
+    expect(html).toContain('compat alias')
     // The zero-setup pnpm alternative and the PATH setup are documented too.
     expect(html).toContain('corepack pnpm owlfolio')
     expect(html).toContain('OWLFOLIO_PROJECT_DIR')
@@ -176,9 +172,8 @@ describe('LearnTabs', () => {
     expect(html).toContain('never agent-inferred')
     expect(html).toContain('edgar sic')
     expect(html).toContain('permissive by default')
-    // Size = deferred Pabrai Principle 5 axis.
-    expect(html).toContain('pabrai principle 5')
-    expect(html).toContain('deferred')
+    // No roadmap language: deferred/later-phase promises are gone (owner, 2026-07-18).
+    expect(html).not.toContain('deferred')
     // Cheapness only on an already-wonderful business; uncertainty vs permanent-loss + bear case.
     expect(html).toContain('already-wonderful')
     expect(html).toContain('permanent-loss risk')
@@ -187,8 +182,9 @@ describe('LearnTabs', () => {
     expect(html).toContain('signed thesis')
     expect(html).toContain('never pre-filled')
     expect(html).toContain('computed')
-    // NO OVERCLAIM: no admit-recommendation panel yet.
-    expect(html).toContain('no admit-recommendation panel yet')
+    // No roadmap language — the honest-scope caveat states what IS, without deferred promises.
+    expect(html).toContain('admit is human-decided')
+    expect(html).not.toContain('admit-recommendation panel')
   })
 
   it('states the grounding invariant on the swarm panel', () => {
@@ -197,10 +193,14 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('the harness computes')
   })
 
-  it('keeps the honest Shariah boundary (a screening aid, not a fatwa)', () => {
+  it('the Shariah tab is "Optional Shariah" and leads with the honest boundary (owner, 2026-07-18)', () => {
+    expect(LEARN_TABS.find((tab) => tab.id === 'shariah')?.label).toBe('Optional Shariah')
     const html = render('shariah')
-    expect(html.toLowerCase()).toContain('not a')
-    expect(html.toLowerCase()).toContain('fatwa')
+    const lower = html.toLowerCase()
+    // Not a fatwa; a ruling must come from certified Islamic scholars; this is an educational project.
+    expect(lower).toContain('not a fatwa')
+    expect(lower).toContain('certified islamic scholars')
+    expect(lower).toContain('educational project')
   })
 
   it('live-renders the AAOIFI financial-ratio thresholds from the exported constants (no hardcode drift)', () => {
@@ -215,39 +215,20 @@ describe('LearnTabs', () => {
     expect(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)).toBe('5%')
   })
 
-  it('describes the unified lifecycle and the single state-branched cadence engine on the lifecycle panel', () => {
-    const html = render('lifecycle')
-    // One list, one lifecycle: candidate → watched → held → exited.
-    expect(html.toUpperCase()).toContain('CANDIDATE')
-    expect(html.toUpperCase()).toContain('WATCHED')
-    expect(html.toUpperCase()).toContain('HELD')
-    expect(html.toUpperCase()).toContain('EXITED')
-    // ONE cadence engine; detection state-independent; action branches on state.
-    expect(html.toLowerCase()).toContain('one cadence engine')
-    expect(html.toLowerCase()).toContain('does not depend on which state')
-    // Stale "separate watchlist and holdings monitors" framing is replaced.
-    expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
-    // Honesty: deteriorating watched name, no prune action yet; exits are sold vs screened out.
-    expect(html.toLowerCase()).toContain('deteriorating')
-    expect(html.toLowerCase()).toContain('no prune action yet')
-    expect(html.toLowerCase()).toContain('screened out')
-    // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
-    // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).
-    expect(html.toLowerCase()).toContain('check-in') // renamed from 'thesis re-review' (owner, Phase 4)
-    expect(html.toLowerCase()).toContain('since a decision')
-    expect(html.toLowerCase()).toContain('intact, weakened, broken')
-    expect(html.toLowerCase()).toContain('inconclusive')
-    expect(html.toLowerCase()).toContain('no scheduler fires it yet')
-  })
-
-  it('describes the four model tiers including the compute-everything T0 rule', () => {
+  it('states the single-model reality: one model runs the analysis, quality follows the choice, compute rule intact', () => {
+    const tab = LEARN_TABS.find((t) => t.id === 'tiering')
+    expect(tab?.label).toBe('Models & Trust')
     const html = render('tiering')
-    expect(html).toContain('T1')
-    expect(html).toContain('T0')
-    expect(html.toLowerCase()).toContain('if it can be computed, compute it')
-    // Honest status (owner): the tiered setup is DESIGN, not proven behavior — live testing so far
-    // ran through OpenRouter with a single routed model.
-    expect(html.toLowerCase()).toContain('not been exercised end-to-end')
-    expect(html.toLowerCase()).toContain('openrouter with a single routed model')
+    const lower = html.toLowerCase()
+    // One model, chosen by you — and the analysis is only as good as it.
+    expect(lower).toContain('one configured reasoning model')
+    expect(lower).toContain('only as good as the model')
+    // The compute-everything rule survives the tiering removal (it was never about tiers).
+    expect(lower).toContain('if it can be computed, compute it')
+    // The tiered-routing framing and its honest-status caveat are gone with the tiers.
+    expect(lower).not.toContain('tier routing')
+    expect(lower).not.toContain('not been exercised end-to-end')
+    // The cross-check does not promise a second model (single-model reality).
+    expect(lower).not.toContain('runs twice on two models')
   })
 })

@@ -1,5 +1,7 @@
 import { createElement } from 'react'
 
+import { resolveLocale } from '@owlfolio/shared/appConfig'
+
 import { DataSafetyPanel } from '../../../components/DataSafetyPanel'
 import { getDataSafetyViewModel } from '../../../lib/dataSafety'
 import { isResearchResetEnabled } from '../../../lib/devTools'
@@ -15,5 +17,5 @@ export default async function DataSafetyPage() {
 
   const bulkResetEnabled = isResearchResetEnabled({ env: process.env, mode: state.config.mode })
 
-  return createElement(DataSafetyPanel, { dataSafety, bulkResetEnabled })
+  return createElement(DataSafetyPanel, { dataSafety, bulkResetEnabled, locale: resolveLocale(state.config.language) })
 }

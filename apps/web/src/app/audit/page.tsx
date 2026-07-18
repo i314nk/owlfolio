@@ -1,4 +1,5 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveLocale } from '@owlfolio/shared'
 
 import { AuditActivityPanel } from '../../components/AuditActivityPanel'
 import { AuditSearchFocusBridge } from '../../components/AuditSearchFocusBridge'
@@ -29,7 +30,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         </a>
       </p>
       <AuditSearchFocusBridge focusSearchInput={focusSearchInput} />
-      <AuditActivityPanel events={events} filters={filters} />
+      <AuditActivityPanel events={events} filters={filters} locale={resolveLocale(state.config.language)} />
     </main>
   )
 }
@@ -59,8 +60,9 @@ function parseAuditActivityFilters(params: Record<string, string | string[] | un
   const schemaVersion = firstParam(params?.schema_version)
   const sourceId = firstParam(params?.source_id)
   const timeOrder = firstParam(params?.time_order) === 'desc' ? 'desc' : 'asc'
+  const view = firstParam(params?.view) === 'full' ? 'full' : 'decisions'
 
-  const filters: AuditActivityFilters = { timeOrder }
+  const filters: AuditActivityFilters = { timeOrder, view }
   if (correlationId !== undefined) {
     filters.correlationId = correlationId
   }

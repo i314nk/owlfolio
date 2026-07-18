@@ -60,26 +60,22 @@ The CLI is non-interactive and never authors an irreversible transition (no trad
 
 ## Providers
 
-The whole CLI/OAuth provider lane (Codex `openai`/`openai-codex-cli`, Claude CLI `claude`, Gemini CLI `gemini-cli`) was **retired**. Surviving providers are the function-calling tool-loop providers below. The `openai`/`anthropic` **vendor** ids and their models are preserved (they back the `*-api` providers and OpenRouter routes); only the CLI **providers** were removed.
+PROVIDER CONSOLIDATION (owner-locked 2026-07-18): OpenRouter is the ONE real provider; the direct API-key providers (`openai-api`/`anthropic-api`/`gemini-developer-api`) and the whole CLI/OAuth lane (Codex, Claude CLI, Gemini CLI) are **removed**. The `openai`/`anthropic`/`google` **vendor** ids and their models are preserved (they label OpenRouter-routed models). Model tiering (T1/T2/T3 roles, `OWLFOLIO_MODEL_ROLE_*` overrides, auto-tier assignment, dual-model cross-checks) is also **removed**: ONE configured reasoning model runs every stage of the analysis, and the analysis is only as good as that model. Deterministic work (valuation math, ratio checks, parsing) is pure code, never a model.
 
 Current provider IDs:
 
-- `mock-provider`: certified deterministic demo/test provider.
+- `mock-provider`: certified deterministic test provider (tests/e2e only; never offered in onboarding).
 - `openrouter`: the default personal-local provider — an OpenAI-compatible meta-aggregator that routes one `OPENROUTER_API_KEY` to many models. Proven grounded tool-loop; experimental/fail-closed until each *routed model* has its own target-specific certification report.
-- `openai-api`: direct OpenAI API (OpenAI-compatible adapter); locally runnable with `OPENAI_API_KEY`, experimental/fail-closed until a target-specific latest certification is recorded.
-- `anthropic-api`: direct Anthropic API (OpenAI-compatible adapter); locally runnable with `ANTHROPIC_API_KEY`, experimental/fail-closed likewise. Distinct from the retired Claude CLI login.
-- `gemini-developer-api`: direct Gemini Developer API candidate; experimental/fail-closed until privacy posture and a target-specific latest certification are recorded.
+- `local`: the experimental local surface — an OpenAI-compatible endpoint the user runs themselves (Ollama / vLLM), via the same generalized adapter. EXPLICITLY UNSTABLE / EXPERIMENTAL / UNTESTED (the owner has not exercised this lane); every surface that names it must say so. Base URL `OWLFOLIO_LOCAL_API_BASE_URL` (default Ollama `http://127.0.0.1:11434/v1`); `OWLFOLIO_LOCAL_API_KEY` optional and never gates readiness.
 
-The three direct API-key providers are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's certified `runToolLoop`.
+Both real surfaces are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's certified `runToolLoop`.
 
 Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe any direct API surface as certified/live/autonomous until a corresponding target-specific latest report exists and passes the required scenarios.
 
 Credential/readiness checks use:
 
 - OpenRouter: `OPENROUTER_API_KEY`.
-- OpenAI: `OPENAI_API_KEY`.
-- Anthropic: `ANTHROPIC_API_KEY`.
-- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
+- Local: no key required (readiness = the configured-or-default base URL; the status label carries the UNSTABLE/EXPERIMENTAL/UNTESTED warning).
 
 Keys are stored in the local env file (`OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`), never the ledger, logs, or git.
 

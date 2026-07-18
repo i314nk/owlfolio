@@ -9,14 +9,10 @@ import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 
 export type ProviderReadinessEnv = {
-  ANTHROPIC_API_KEY?: string
-  OPENAI_API_KEY?: string
-  GEMINI_API_KEY?: string
-  GOOGLE_API_KEY?: string
   OPENROUTER_API_KEY?: string
-  DEEPSEEK_API_KEY?: string
-  DASHSCOPE_API_KEY?: string
-  MISTRAL_API_KEY?: string
+  /** The experimental local OpenAI-compatible endpoint (Ollama / vLLM); optional — defaults to Ollama. */
+  OWLFOLIO_LOCAL_API_BASE_URL?: string
+  OWLFOLIO_LOCAL_API_KEY?: string
 }
 export type ProviderOption = {
   provider_id: ProviderId
@@ -99,19 +95,20 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
     return openRouterReadiness(provider, env.OPENROUTER_API_KEY)
   }
 
-  // Direct OpenAI-compatible API surfaces (key path) — a present key is a runnable credential signal via the
-  // generalized adapter. Readiness is NOT certification: each stays experimental/fail-closed until a
-  // target-specific certification report exists.
-  if (provider.provider_surface_id === 'openai-api') {
-    return directApiReadiness(provider, 'OPENAI_API_KEY', env.OPENAI_API_KEY)
-  }
-
-  if (provider.provider_surface_id === 'anthropic-api') {
-    return directApiReadiness(provider, 'ANTHROPIC_API_KEY', env.ANTHROPIC_API_KEY)
-  }
-
-  if (provider.provider_surface_id === 'gemini-developer-api') {
-    return directApiReadiness(provider, 'GEMINI_API_KEY', env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY)
+  // The experimental LOCAL surface (Ollama / vLLM). No key is required (most local servers run
+  // unauthenticated), so a configured-or-default base URL counts as runnable — but the readiness
+  // label says loudly what this lane is: UNSTABLE, EXPERIMENTAL, UNTESTED.
+  if (provider.provider_surface_id === 'local') {
+    const baseUrl = env.OWLFOLIO_LOCAL_API_BASE_URL ?? 'http://127.0.0.1:11434/v1'
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: 'OWLFOLIO_LOCAL_API_BASE_URL',
+      authSource: env.OWLFOLIO_LOCAL_API_BASE_URL === undefined ? 'default (Ollama http://127.0.0.1:11434/v1)' : 'OWLFOLIO_LOCAL_API_BASE_URL',
+      statusLabel: `UNSTABLE / EXPERIMENTAL / UNTESTED: the local OpenAI-compatible endpoint (${baseUrl}) has not been tested end-to-end — expect failures; runs fail closed. Your local server and model must be running before a run starts.`,
+    })
   }
 
   if (provider.support_level === 'unsupported') {
@@ -119,30 +116,6 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
   }
 
   throw new Error(`Readiness not implemented for provider: ${providerId}`)
-}
-
-/** Readiness for a direct OpenAI-compatible API surface: key present → ready (experimental, not certified). */
-function directApiReadiness(provider: ProviderCatalogEntry, keyName: string, apiKey: string | undefined): ProviderReadiness {
-  if (apiKey !== undefined && apiKey.length > 0) {
-    return readinessFrom(provider, {
-      isReady: true,
-      authMode: 'api_key',
-      readinessState: 'ready',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: keyName,
-      authSource: keyName,
-      statusLabel: `${keyName} detected; the ${provider.label} direct API adapter is live. Experimental until a target-specific certification report exists (readiness is not certification).`,
-    })
-  }
-
-  return readinessFrom(provider, {
-    isReady: false,
-    authMode: 'api_key',
-    readinessState: 'missing_credentials',
-    credentialSourceCategory: 'missing',
-    authSource: 'missing',
-    statusLabel: `Missing ${keyName}; set it to use the ${provider.label} direct API (experimental, fail-closed until certified).`,
-  })
 }
 
 function openRouterReadiness(

@@ -207,6 +207,11 @@ export type GroundedToolDeps = {
    * still hash-verified and lane-gated, so a source here is no more permissive than a cited one.
    */
   readCorpus?: ReadonlyMap<string, CapturedSource>
+  /**
+   * Live-run observability: called once per tool call with a one-line outcome breadcrumb
+   * ("read_source src_1 → verified"). Observation only — a throwing callback never breaks the loop.
+   */
+  onProgress?: (message: string) => void
 }
 
 export type GroundedToolExecutor = {
@@ -259,6 +264,14 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
   const policy_rejections: SourcePolicyRejection[] = []
   const seenUrls = new Map<string, string>()
 
+  const progress = (message: string): void => {
+    try {
+      deps.onProgress?.(message)
+    } catch {
+      // Observability must never break the tool loop.
+    }
+  }
+
   const executor: ProviderToolExecutor = async (toolName, args) => {
     if (toolName === 'fetch_source') {
       const url = typeof (args as { url?: unknown })?.url === 'string' ? (args as { url: string }).url.trim() : ''
@@ -270,6 +283,7 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
       if (priorId !== undefined) {
         const prior = captured.find((c) => c.source_id === priorId)
         if (prior !== undefined) {
+          progress(`fetch_source ${url} → reused ${priorId}`)
           return formatFetchResult(prior, verified.has(priorId), excerptChars)
         }
       }
@@ -287,16 +301,19 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
       for (const rej of result.policy_rejections) policy_rejections.push(rej)
       if (result.policy_rejections.some((r) => r.source_id === sourceId)) {
         const rej = result.policy_rejections.find((r) => r.source_id === sourceId)!
+        progress(`fetch_source ${url} → policy-rejected`)
         return `REJECTED: ${url} was excluded by this lane's source-discipline policy (${rej.reason}). Cite a PRIMARY source (e.g. an SEC filing) instead.`
       }
       const cap = result.captured.find((c) => c.source_id === sourceId)
       if (cap === undefined) {
+        progress(`fetch_source ${url} → unavailable`)
         return `UNAVAILABLE: ${url} could not be grounded. Try a different primary source.`
       }
       captured.push(cap)
       seenUrls.set(url, sourceId)
       const isVerified = result.verified_ids.includes(sourceId)
       if (isVerified) verified.add(sourceId)
+      progress(`fetch_source ${url} → ${isVerified ? 'verified' : 'unavailable'} (${sourceId})`)
       return formatFetchResult(cap, isVerified, excerptChars)
     }
 
@@ -312,8 +329,10 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
         fundamentals = undefined
       }
       if (fundamentals === undefined || fundamentals.filings.length === 0) {
+        progress(`search_filings ${ticker} → no filings`)
         return `NO FILINGS FOUND for ${ticker} on SEC EDGAR. This may be a non-US filer; try fetch_source on a known primary-source URL instead.`
       }
+      progress(`search_filings ${ticker} → ${Math.min(fundamentals.filings.length, 10)} filings`)
       const lines = fundamentals.filings
         .slice(0, 10)
         .map((f) => `- ${f.form} filed ${f.filed}: ${f.url}`)
@@ -342,10 +361,12 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
       const read = await readGroundedSource(sourceId, corpus, readOpts, deps.grounding)
       if (!read.ok) {
         // Anti-laundering: a failed/uncitable read NEVER adds the id to verified_ids.
+        progress(`read_source ${sourceId} → uncitable (${read.reason})`)
         return formatReadFailure(sourceId, read.reason, read.available_items)
       }
       // A successful read is hash-verified AND in-lane → the source is citable in this loop.
       verified.add(sourceId)
+      progress(`read_source ${sourceId}${readOpts.section !== undefined ? ` §${readOpts.section}` : ''} → verified`)
       return formatReadResult(read)
     }
 
@@ -409,7 +430,7 @@ export async function runGroundedAgentWithTools<T extends { proposed_sources: z.
   provider: Provider,
   request: GroundedAgentRequest,
   schema: ZodType<T>,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; fetchFundamentals?: (ticker: string, d?: SecEdgarDeps) => Promise<Fundamentals | undefined>; maxToolCalls?: number; readCorpus?: ReadonlyMap<string, CapturedSource> } = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; fetchFundamentals?: (ticker: string, d?: SecEdgarDeps) => Promise<Fundamentals | undefined>; maxToolCalls?: number; readCorpus?: ReadonlyMap<string, CapturedSource>; onProgress?: (message: string) => void } = {},
   opts: { lane?: string } = {},
 ): Promise<GroundedAgentResult<T> & { degraded_no_tools: boolean }> {
   const supportsLoop = provider.capabilities['multi-step-tool-loop'] !== 'unsupported' && typeof provider.runToolLoop === 'function'
@@ -425,6 +446,7 @@ export async function runGroundedAgentWithTools<T extends { proposed_sources: z.
     ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
     ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
     ...(deps.readCorpus === undefined ? {} : { readCorpus: deps.readCorpus }),
+    ...(deps.onProgress === undefined ? {} : { onProgress: deps.onProgress }),
   })
 
   const loop = await provider.runToolLoop!(

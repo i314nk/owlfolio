@@ -4,30 +4,20 @@ import {
   LLM_API_KEY_GROUPS,
   TOOL_DATA_KEY_GROUPS,
   buildOnboardingGate,
-  buildTierAssignmentSummary,
   llmRegistrySelectability,
   oauthLoginExpiryView,
 } from '../providerKeys'
 
 describe('LLM and tool/data key catalogs', () => {
-  it('lists the LLM provider key groups (Anthropic/OpenAI/Gemini/OpenRouter) with env var entries and a Get key link', () => {
-    const labels = LLM_API_KEY_GROUPS.map((group) => group.label)
-    // The direct API-key providers each have a key group; OpenRouter remains the one meta-aggregator key.
-    expect(labels).toEqual(
-      expect.arrayContaining(['Anthropic', 'OpenAI', 'Gemini (Google)', 'OpenRouter']),
-    )
-    // The unwired direct-provider key groups stay retired.
-    expect(labels).not.toContain('DeepSeek')
-    expect(labels).not.toContain('Qwen / DashScope')
-    expect(labels).not.toContain('Kimi / Moonshot')
-    expect(labels).not.toContain('Mistral')
-    const anthropic = LLM_API_KEY_GROUPS.find((group) => group.label === 'Anthropic')
-    expect(anthropic?.keys.some((key) => key.name === 'ANTHROPIC_API_KEY')).toBe(true)
-    const gemini = LLM_API_KEY_GROUPS.find((group) => group.label === 'Gemini (Google)')
-    expect(gemini?.keys.some((key) => key.name === 'GEMINI_API_KEY')).toBe(true)
-    const openai = LLM_API_KEY_GROUPS.find((group) => group.label === 'OpenAI')
-    expect(openai?.get_key_url).toMatch(/^https:\/\//)
-    expect(openai?.keys.some((key) => key.name === 'OPENAI_API_KEY')).toBe(true)
+  it('lists ONLY the OpenRouter + local key groups (PROVIDER CONSOLIDATION, owner 2026-07-18)', () => {
+    expect(LLM_API_KEY_GROUPS.map((group) => group.id).sort()).toEqual(['local', 'openrouter'])
+    const openrouter = LLM_API_KEY_GROUPS.find((group) => group.id === 'openrouter')
+    expect(openrouter?.get_key_url).toMatch(/^https:\/\//)
+    expect(openrouter?.keys.some((key) => key.name === 'OPENROUTER_API_KEY')).toBe(true)
+    // The local group is loudly experimental and its keys are advanced/optional.
+    const local = LLM_API_KEY_GROUPS.find((group) => group.id === 'local')
+    expect(local?.label.toLowerCase()).toContain('untested')
+    expect(local?.keys.some((key) => key.name === 'OWLFOLIO_LOCAL_API_BASE_URL')).toBe(true)
     for (const group of LLM_API_KEY_GROUPS) {
       for (const key of group.keys) {
         expect(key.description.length).toBeGreaterThan(0)
@@ -47,25 +37,14 @@ describe('LLM and tool/data key catalogs', () => {
 
 describe('llmRegistrySelectability (acceptance test 2)', () => {
   it('marks a provider selectable once its API key is set', () => {
-    const withoutKey = llmRegistrySelectability({ OPENAI_API_KEY: false })
-    const withKey = llmRegistrySelectability({ OPENAI_API_KEY: true })
-    expect(withoutKey.openai).toBe(false)
-    expect(withKey.openai).toBe(true)
+    const withoutKey = llmRegistrySelectability({ OPENROUTER_API_KEY: false })
+    const withKey = llmRegistrySelectability({ OPENROUTER_API_KEY: true })
+    expect(withoutKey.openrouter).toBe(false)
+    expect(withKey.openrouter).toBe(true)
   })
 })
 
-describe('buildTierAssignmentSummary (reads from modelRegistry)', () => {
-  it('produces a synthesis/lanes/monitors tier summary from the registry', () => {
-    const summary = buildTierAssignmentSummary({ activeProviderId: 'mock-provider', activeModel: 'mock-demo' })
-    expect(summary.registry_version.length).toBeGreaterThan(0)
-    const roles = summary.lines.map((line) => line.role)
-    expect(roles).toContain('synthesis')
-    expect(roles).toContain('monitors')
-    const synthesis = summary.lines.find((line) => line.role === 'synthesis')
-    expect(synthesis?.tier).toBe('T1')
-    expect(synthesis?.provider_id).toBe('mock-provider')
-  })
-})
+// (The tier-assignment summary suite was removed with model tiering — owner, 2026-07-18.)
 
 describe('oauthLoginExpiryView (acceptance test 5 — expired token)', () => {
   it('reports a zero countdown + a re-auth command when the token is expired', () => {

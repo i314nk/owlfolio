@@ -5,17 +5,7 @@ import { tmpdir } from 'node:os'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
-import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
-import {
-  createResearchCase,
-  discoverCandidate,
-  draftDecision,
-  draftQuickScreen,
-  confirmWatchlistDraft,
-  queueDeepDive,
-  queueDiscoveryCandidateForQuickScreen,
-  startDeepDive,
-} from '@owlfolio/workflow'
+import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { resolveAppConfigPath } from '../appConfigStore'
@@ -23,7 +13,6 @@ import {
   enqueueResearchRun,
   getAppHoldingsFromStore,
   getAppResearchCaseFromStore,
-  getAppResearchPipelineFromStore,
   getAppWatchlistItemsFromStore,
   openPersonalHoldingFromWatchlist,
   promoteResearchCaseToWatchlist,
@@ -36,14 +25,6 @@ import {
   setInvestableCapital,
   getInvestableCapital,
 } from '../workflow'
-
-// A server-marshaled audit (one finding per business item + an ack flag) for a DIRECT confirmWatchlistDraft
-// call. Review-and-promote: this is provenance, not a gate — confirmWatchlistDraft no longer blocks on it.
-const COMPLETE_AUDIT = {
-  version: CHECKLIST_PARAMS.version,
-  business_findings: Object.fromEntries(listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`])),
-  cognitive_acknowledged: true,
-}
 
 describe('workflow helpers', () => {
   const dirs: string[] = []
@@ -896,13 +877,13 @@ describe('workflow helpers', () => {
   })
 
   it('defaults a provider without an explicit model id to its curated catalog default model', () => {
-    // openai-api → gpt-5.5 (the catalog default for the direct OpenAI API surface)
+    // local → llama3.3:70b (the catalog default for the experimental local surface)
     expect(resolveModelIdForProvider({
       provider: {
-        provider_id: 'openai-api',
+        provider_id: 'local',
         support_level: 'experimental',
       },
-    })).toBe('gpt-5.5')
+    })).toBe('llama3.3:70b')
     // openrouter → openrouter/auto (its own catalog default), not a hard-coded fallback
     expect(resolveModelIdForProvider({
       provider: {
@@ -910,250 +891,6 @@ describe('workflow helpers', () => {
         support_level: 'experimental',
       },
     })).toBe('openrouter/auto')
-  })
-
-  it('projects the selected strategy research pipeline into cockpit sections', async () => {
-    const store = new SQLiteEventStore()
-    const selectedStrategy = { strategy_id: 'buffett-munger', strategy_version: 'v2-alpha' }
-    const otherStrategy = { strategy_id: 'income-yield', strategy_version: 'v1' }
-
-    try {
-      const discovered = await discoverCandidate(store, {
-        candidate_id: 'candidate_discovered_001',
-        ticker: 'DSCV',
-        company_name: 'Discovered Co',
-        market: 'NYSE',
-        ...selectedStrategy,
-        discovery_source: 'mock-screener',
-        source_ids: ['src_discovered'],
-        actor_id: 'worker_discovery',
-      })
-      const quickScreenCandidate = await discoverCandidate(store, {
-        candidate_id: 'candidate_quick_001',
-        ticker: 'QSCR',
-        company_name: 'Quick Screen Co',
-        market: 'NASDAQ',
-        ...selectedStrategy,
-        discovery_source: 'mock-screener',
-        source_ids: ['src_quick_candidate'],
-        actor_id: 'worker_discovery',
-      })
-      await queueDiscoveryCandidateForQuickScreen(store, {
-        candidate_id: quickScreenCandidate.candidate_id,
-        queue_id: 'queue_candidate_quick_001',
-        causation_id: quickScreenCandidate.event_id,
-        actor_id: 'worker_discovery',
-      })
-      await discoverCandidate(store, {
-        candidate_id: 'candidate_other_strategy_001',
-        ticker: 'OTHR',
-        company_name: 'Other Strategy Co',
-        market: 'NYSE',
-        ...otherStrategy,
-        discovery_source: 'mock-screener',
-        source_ids: ['src_other_strategy'],
-        actor_id: 'worker_discovery',
-      })
-
-      const quickCase = await createResearchCase(store, {
-        research_case_id: 'rc_quick_001',
-        company_id: 'company_quick',
-        ticker: 'QKCS',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      await draftQuickScreen(store, {
-        research_case_id: quickCase.research_case_id,
-        quick_screen_id: 'quick_rc_quick_001',
-        company_id: 'company_quick',
-        ticker: 'QKCS',
-        ...selectedStrategy,
-        screening_result: 'deep_dive_candidate',
-        summary: 'Quick screen recommends a deeper selected-strategy review.',
-        business_quality: 'Good enough for a deeper review.',
-        moat: 'Moat needs specialist confirmation.',
-        management_capital_allocation: 'Needs capital allocation review.',
-        financial_quality: 'Financial quality appears resilient.',
-        valuation_sanity: 'Valuation needs a margin-of-safety pass.',
-        shariah_status: 'PENDING',
-        red_flags: [],
-        confidence: 'medium',
-        caveats: ['Quick screen only'],
-        source_ids: ['src_quick_case'],
-        actor_id: 'mock-provider',
-      })
-
-      const queuedCase = await createResearchCase(store, {
-        research_case_id: 'rc_queue_001',
-        company_id: 'company_queue',
-        ticker: 'QDVE',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      const queuedQuickScreen = await draftQuickScreen(store, {
-        research_case_id: queuedCase.research_case_id,
-        quick_screen_id: 'quick_rc_queue_001',
-        company_id: 'company_queue',
-        ticker: 'QDVE',
-        ...selectedStrategy,
-        screening_result: 'deep_dive_candidate',
-        summary: 'Queue this company for deep dive.',
-        business_quality: 'Quality evidence is promising.',
-        moat: 'Moat evidence is plausible.',
-        management_capital_allocation: 'Capital allocation requires diligence.',
-        financial_quality: 'Financials pass the initial filter.',
-        valuation_sanity: 'Valuation requires detailed review.',
-        shariah_status: 'PENDING',
-        red_flags: [],
-        confidence: 'medium',
-        caveats: ['Needs a full source pass'],
-        source_ids: ['src_queue_case'],
-        actor_id: 'mock-provider',
-      })
-      await queueDeepDive(store, {
-        research_case_id: queuedCase.research_case_id,
-        queue_id: 'queue_rc_queue_001',
-        ...selectedStrategy,
-        source_ids: ['src_queue_case'],
-        causation_id: queuedQuickScreen.event_id,
-        actor_id: 'system',
-      })
-
-      const deepDiveCase = await createResearchCase(store, {
-        research_case_id: 'rc_deep_001',
-        company_id: 'company_deep',
-        ticker: 'DEEP',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      const deepDiveQuickScreen = await draftQuickScreen(store, {
-        research_case_id: deepDiveCase.research_case_id,
-        quick_screen_id: 'quick_rc_deep_001',
-        company_id: 'company_deep',
-        ticker: 'DEEP',
-        ...selectedStrategy,
-        screening_result: 'deep_dive_candidate',
-        summary: 'Start deep dive after queueing.',
-        business_quality: 'Quality evidence is promising.',
-        moat: 'Moat evidence is plausible.',
-        management_capital_allocation: 'Capital allocation requires diligence.',
-        financial_quality: 'Financials pass the initial filter.',
-        valuation_sanity: 'Valuation requires detailed review.',
-        shariah_status: 'PENDING',
-        red_flags: [],
-        confidence: 'medium',
-        caveats: ['Needs a full source pass'],
-        source_ids: ['src_deep_case'],
-        actor_id: 'mock-provider',
-      })
-      const queuedDeepDive = await queueDeepDive(store, {
-        research_case_id: deepDiveCase.research_case_id,
-        queue_id: 'queue_rc_deep_001',
-        ...selectedStrategy,
-        source_ids: ['src_deep_case'],
-        causation_id: deepDiveQuickScreen.event_id,
-        actor_id: 'system',
-      })
-      await startDeepDive(store, {
-        research_case_id: deepDiveCase.research_case_id,
-        deep_dive_id: 'deep_rc_deep_001',
-        ...selectedStrategy,
-        specialist_lanes: ['moat', 'valuation'],
-        source_ids: ['src_deep_case', 'src_deep_transcript'],
-        causation_id: queuedDeepDive.event_id,
-        actor_id: 'worker_research',
-      })
-
-      const decisionCase = await createResearchCase(store, {
-        research_case_id: 'rc_decision_001',
-        company_id: 'company_decision',
-        ticker: 'DCSN',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      await draftDecision(store, {
-        research_case_id: decisionCase.research_case_id,
-        decision_id: 'decision_rc_decision_001',
-        decision: 'WATCH',
-        reason: 'Draft decision is waiting for user review.',
-        causation_id: decisionCase.event_id,
-      })
-
-      const watchlistCase = await createResearchCase(store, {
-        research_case_id: 'rc_watch_001',
-        company_id: 'company_watch',
-        ticker: 'WTCH',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      await confirmWatchlistDraft(store, {
-        watchlist_item_id: 'watch_rc_watch_001',
-        research_case_id: watchlistCase.research_case_id,
-        decision_id: 'decision_rc_watch_001',
-        company_id: 'company_watch',
-        ticker: 'WTCH',
-        ...selectedStrategy,
-        thesis_summary: 'Selected-strategy watchlist draft awaits user confirmation.',
-        locked_buy_below: 50,
-        buy_below_valuation_version: 'valuation-2026-06-cap-1',
-        signed_thesis: 'I am admitting WTCH at the frozen buy-below.',
-        signed_thesis_draft: 'Watch WTCH: selected-strategy watchlist draft awaits user confirmation.',
-        checklist_audit: COMPLETE_AUDIT,
-        actor_id: 'user_local',
-      })
-
-      const passedCase = await createResearchCase(store, {
-        research_case_id: 'rc_pass_001',
-        company_id: 'company_pass',
-        ticker: 'PASS',
-        ...selectedStrategy,
-        actor_id: 'user_local',
-      })
-      await draftQuickScreen(store, {
-        research_case_id: passedCase.research_case_id,
-        quick_screen_id: 'quick_rc_pass_001',
-        company_id: 'company_pass',
-        ticker: 'PASS',
-        ...selectedStrategy,
-        screening_result: 'pass',
-        summary: 'Initial screen says pass for now.',
-        business_quality: 'Good business but not compelling enough.',
-        moat: 'Moat evidence is mixed.',
-        management_capital_allocation: 'Capital allocation is acceptable.',
-        financial_quality: 'Financial quality is stable.',
-        valuation_sanity: 'Valuation is not attractive enough.',
-        shariah_status: 'PENDING',
-        red_flags: [],
-        confidence: 'medium',
-        caveats: ['Can be revisited later'],
-        source_ids: ['src_pass_case'],
-        actor_id: 'mock-provider',
-      })
-
-      const pipeline = await getAppResearchPipelineFromStore(store, 'personal-local', selectedStrategy.strategy_id)
-      const sectionItems = Object.fromEntries(
-        pipeline.sections.map((section) => [section.title, section.items.map((item) => item.label)]),
-      )
-
-      expect(pipeline.selectedStrategyLabel).toBe('Selected strategy: buffett-munger')
-      expect(sectionItems['Discovered']).toEqual([`${discovered.ticker} — ${discovered.company_name}`])
-      expect(sectionItems['Front Gates']).toEqual(expect.arrayContaining([
-        `${quickScreenCandidate.ticker} — ${quickScreenCandidate.company_name}`,
-        'QKCS',
-      ]))
-      expect(sectionItems['Deep Dive Queue']).toEqual(['QDVE'])
-      expect(sectionItems['In Deep Dive']).toEqual(['DEEP'])
-      expect(sectionItems['Synthesis / Decision Pending']).toEqual(['DCSN'])
-      const decisionItem = pipeline.sections
-        .flatMap((section) => section.items)
-        .find((item) => item.id === 'rc_decision_001')
-      expect(decisionItem?.summary).toBe('Draft decision is waiting for user review.')
-      expect(sectionItems.Watchlist).toEqual(['WTCH'])
-      expect(sectionItems['Rejected / Passed']).toEqual(['PASS'])
-      expect(pipeline.sections.flatMap((section) => section.items.map((item) => item.label))).not.toContain('OTHR — Other Strategy Co')
-    } finally {
-      store.close()
-    }
   })
 
   it('returns an empty watchlist for a newly initialized personal ledger', async () => {

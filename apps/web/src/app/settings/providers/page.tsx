@@ -12,7 +12,7 @@ import { getOnboardingProviderOptions, getOnboardingState } from '../../../lib/o
 import { buildProviderKeysPanelProps } from '../../../lib/providerKeysView'
 import { getOpenRouterModelOptions } from '../../../lib/openRouterModelOptions'
 import { resolveProjectRootFromCwd } from '../../../lib/appConfigStore'
-import { resolveModelIdForProvider } from '../../../lib/workflow'
+import { resolveLocale } from '@owlfolio/shared/appConfig'
 import { resolveActiveModeStatus } from '../../../lib/resolveActiveModeStatus'
 import { ProviderKeysCopyScript } from './ProviderKeysCopyScript'
 
@@ -46,7 +46,6 @@ export default async function ProviderKeysSettingsPage() {
     repoIsGitWorkTree,
     processEnv: process.env,
     activeProviderId: state.config.provider.provider_id,
-    activeModel: resolveModelIdForProvider(state.config),
   })
 
   // Echo the same persistent indicator at the top of the fix destination so the current state is
@@ -54,8 +53,7 @@ export default async function ProviderKeysSettingsPage() {
   const activeModeStatus = await resolveActiveModeStatus(state.config)
 
   // Guided-setup input: the provider options for the shared provider/model picker. (The onboarding gate's
-  // outstanding items are rendered by ProviderKeysPanel via buildProviderKeysPanelProps; capital is set on
-  // the Portfolio page, surfaced as a gate hint there.)
+  // outstanding items are rendered by ProviderKeysPanel via buildProviderKeysPanelProps.)
   const providerOptions = await getOnboardingProviderOptions({ env: process.env })
 
   // OpenRouter's full live catalog for the searchable model picker (cached, fail-closed to the curated
@@ -74,7 +72,7 @@ export default async function ProviderKeysSettingsPage() {
       // The SAVED capability verdict for the active provider+model (persisted by the probe).
       modelCapability: await getModelCapabilityNote(state.config.provider.provider_id, state.config.provider.model_id),
     }),
-    createElement(ProviderKeysPanel, props),
+    createElement(ProviderKeysPanel, { ...props, locale: resolveLocale(state.config.language) }),
     createElement(ProviderKeysCopyScript, {}),
     createElement(BoundariesFooter, {}),
   )
