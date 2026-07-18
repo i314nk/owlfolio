@@ -490,6 +490,10 @@ function defaultTaskDefinitions(automation?: AutomationSettings, shariahEnabled 
   // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
   const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
+  // 13F discovery is config-driven (Settings → Superinvestors toggle + cadence; owner, 2026-07-18).
+  // The on-demand web "Run discovery" path force-enables via OWLFOLIO_DISCOVERY_13F_ENABLED=1 so a
+  // user-clicked harvest runs regardless of the scheduled toggle.
+  const discoveryCron = cadenceToCron(cfg.discovery.cadence, CRON_QUARTERLY)
   // TODO: annual reanalysis task (follow-up) — cfg.reanalysis drives the annual full-swarm; no worker task
   // yet. The INTERIM filings-delta side now has a consumer: re_review_check (quarterly, below).
 
@@ -590,14 +594,14 @@ function defaultTaskDefinitions(automation?: AutomationSettings, shariahEnabled 
       },
     },
     {
-      // Discovery Module 1 — 13F cloning (Pabrai engine). Quarterly cadence (~2 weeks after the 13F
-      // deadline). Records source:'13f_clone' CANDIDATE observations; the human/quick-screen gates entry
-      // to research. Disabled by default — opt-in via OWLFOLIO_DISCOVERY_13F_ENABLED to keep the alpha
-      // dry-run/mock-safe and avoid live SEC fetches on every tick.
+      // Discovery Module 1 — 13F cloning (Pabrai engine). Records source:'13f_clone' CANDIDATE
+      // observations; the human gates entry to research. Enabled + scheduled from Settings →
+      // Superinvestors (default OFF, keeping the alpha dry-run/mock-safe with no live SEC fetches);
+      // the on-demand Run-discovery spawn force-enables via OWLFOLIO_DISCOVERY_13F_ENABLED=1.
       scheduled_task_id: 'task_discovery_13f_quarterly',
       task_kind: 'discovery_13f',
-      cadence: CRON_QUARTERLY,
-      enabled: process.env['OWLFOLIO_DISCOVERY_13F_ENABLED'] === '1',
+      cadence: discoveryCron.cadence,
+      enabled: (cfg.discovery.enabled && discoveryCron.enabled) || process.env['OWLFOLIO_DISCOVERY_13F_ENABLED'] === '1',
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -671,13 +675,14 @@ export async function defineDefaultScheduledTasks(
       continue
     }
 
-    // RECONCILE (dogfood 2026-07-16): the settings/env-derived enabled state is the source of
-    // truth, but the first definition's frozen :v1 idempotency key made it sticky forever — a
-    // discovery_13f defined disabled could never be flipped on by the Run-discovery opt-in, and a
-    // toggled-off re-screen never reached the ledger. When the desired enabled state differs from
-    // the projected one, append a redefinition (the projection folds definitions last-wins); once
-    // the states match this appends nothing, so the ledger stays churn-free.
-    if (existing.enabled !== payload.enabled) {
+    // RECONCILE (dogfood 2026-07-16; cadence added 2026-07-18): the settings/env-derived state is
+    // the source of truth, but the first definition's frozen :v1 idempotency key made it sticky
+    // forever — a discovery_13f defined disabled could never be flipped on by the Run-discovery
+    // opt-in, a toggled-off re-screen never reached the ledger, and a changed cadence never took.
+    // When the desired enabled state OR cadence differs from the projected one, append a
+    // redefinition (the projection folds definitions last-wins); once the states match this
+    // appends nothing, so the ledger stays churn-free.
+    if (existing.enabled !== payload.enabled || existing.cadence !== payload.cadence) {
       const stamp = createdAt.replace(/[^0-9]/g, '').slice(0, 14)
       const event = scheduledTaskEvent(
         'scheduled_task_defined',

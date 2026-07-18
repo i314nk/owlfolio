@@ -3,6 +3,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 import { OwlButtonLink, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter, CommandCenterDiscoverySignal, MonitorAlert } from '../lib/commandCenter'
+import type { DutyDue } from '../lib/dutiesDue'
 import { shortManagerName } from '../lib/entityName'
 
 export type ZoneStripEntry = {
@@ -230,6 +231,7 @@ const SIGNAL_BADGE_LABEL: Record<CommandCenterDiscoverySignal['signal']['signal_
 function createNeedsAttention(dashboard: AppCommandCenter) {
   const alerts = dashboard.monitor_alerts
   const signals = dashboard.discovery_signals
+  const duties = dashboard.duties_due
 
   return createElement(
     'section',
@@ -241,11 +243,13 @@ function createNeedsAttention(dashboard: AppCommandCenter) {
       { className: 'owl-cc-directive' },
       'These are what your agent is watching and the exits it has drafted. None are executed and none advance your portfolio — each links to where you author the decision.',
     ),
-    alerts.length === 0 && signals.length === 0
+    alerts.length === 0 && signals.length === 0 && duties.length === 0
       ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No alerts — the agent is watching.')
       : createElement(
         'div',
         { className: 'owl-row-list' },
+        // Duty nudges first: a lapsed rhythm is actionable NOW and cheap to clear.
+        ...duties.map((duty) => createDutyDueRow(duty)),
         ...alerts.map((alert) => createAttentionRow(alert)),
         ...signals.map((signal) => createDiscoverySignalRow(signal)),
       ),
@@ -276,6 +280,35 @@ function createAttentionRow(alert: MonitorAlert) {
       'div',
       { className: 'owl-row-aside' },
       createElement(OwlButtonLink, { href: alert.human_action.href, variant: alert.severity === 'urgent' ? 'danger' : 'secondary' }, `${alert.human_action.label} →`),
+    ),
+  )
+}
+
+/**
+ * A cadence duty whose time has come (13F harvest / quarterly check-in / annual re-analysis). The
+ * alpha has no autonomous scheduler — this row IS the schedule: it tells the user a configured
+ * rhythm has lapsed and links to where the run is authored. Never an auto-run.
+ */
+function createDutyDueRow(duty: DutyDue) {
+  return createElement(
+    'div',
+    { key: `duty:${duty.id}`, className: 'owl-row owl-row-top', 'data-testid': `duty-due-${duty.id}` },
+    createElement(
+      'div',
+      { className: 'owl-row-main' },
+      createElement(
+        'div',
+        { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+        createElement(StatusBadge, { tone: 'warning' }, 'Duty due'),
+        createElement(StatusBadge, { tone: 'neutral' }, 'You run it'),
+      ),
+      createElement('h3', { className: 'owl-row-title' }, duty.headline),
+      createElement('p', { className: 'owl-row-helper' }, duty.detail),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-aside' },
+      createElement(OwlButtonLink, { href: duty.href, variant: 'secondary' }, `${duty.action_label} →`),
     ),
   )
 }

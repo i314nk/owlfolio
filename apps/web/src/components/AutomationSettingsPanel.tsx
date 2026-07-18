@@ -424,7 +424,7 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
           ControlRow,
           {
             label: 'Superinvestors (13F discovery)',
-            helper: 'Harvest the tracked superinvestors\u2019 quarterly 13F filings for new candidate ideas.',
+            helper: 'Harvest the tracked superinvestors\u2019 quarterly 13F filings for new candidate ideas. When a harvest is overdue for the chosen cadence, the command center shows a \u201cduty due\u201d nudge.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {

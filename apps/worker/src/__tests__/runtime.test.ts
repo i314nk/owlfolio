@@ -645,6 +645,64 @@ describe('worker runtime', () => {
 
 
 
+  it('wires the Settings discovery toggle + cadence into the discovery_13f task (owner, 2026-07-18)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '')
+    try {
+      // Settings ON, weekly → the task is enabled on the weekly cron, no env var needed.
+      await defineDefaultScheduledTasks(store, {
+        now: () => '2026-06-01T08:00:00.000Z',
+        automation: { discovery: { enabled: true, cadence: 'weekly', auto_research: false } } as never,
+      })
+      const task = projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')
+      expect(task?.enabled).toBe(true)
+      expect(task?.cadence).toBe('0 8 * * 1')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('discovery_13f stays disabled when the Settings toggle is off (no env opt-in)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '')
+    try {
+      await defineDefaultScheduledTasks(store, {
+        now: () => '2026-06-01T08:00:00.000Z',
+        automation: { discovery: { enabled: false, cadence: 'weekly', auto_research: false } } as never,
+      })
+      expect(projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')?.enabled).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reconciles a CADENCE change: switching discovery weekly → monthly redefines the task (owner, 2026-07-18)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    vi.stubEnv('OWLFOLIO_DISCOVERY_13F_ENABLED', '')
+    try {
+      await defineDefaultScheduledTasks(store, {
+        now: () => '2026-06-01T08:00:00.000Z',
+        automation: { discovery: { enabled: true, cadence: 'weekly', auto_research: false } } as never,
+      })
+      await defineDefaultScheduledTasks(store, {
+        now: () => '2026-06-02T08:00:00.000Z',
+        automation: { discovery: { enabled: true, cadence: 'monthly', auto_research: false } } as never,
+      })
+      const task = projectScheduledTasks(await store.list()).find((t) => t.task_kind === 'discovery_13f')
+      expect(task?.cadence).toBe('0 6 1 * *')
+      // Quiet once matched: a third identical tick appends nothing.
+      const before = (await store.list()).filter((e) => e.event_type === 'scheduled_task_defined').length
+      await defineDefaultScheduledTasks(store, {
+        now: () => '2026-06-03T08:00:00.000Z',
+        automation: { discovery: { enabled: true, cadence: 'monthly', auto_research: false } } as never,
+      })
+      const after = (await store.list()).filter((e) => e.event_type === 'scheduled_task_defined').length
+      expect(after).toBe(before)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('reconciles a stale enabled flag: a discovery_13f defined disabled flips on when the opt-in appears (dogfood 2026-07-16)', async () => {
     // The live failure: the sandbox ledger held discovery_13f enabled:false from an early tick
     // (no opt-in env), and the frozen :v1 idempotency key meant the Run-discovery spawn
