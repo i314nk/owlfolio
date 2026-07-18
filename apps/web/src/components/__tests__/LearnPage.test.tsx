@@ -49,6 +49,17 @@ describe('LearnPage source', () => {
     expect(tabsSource).not.toContain('future calibration')
   })
 
+  it('the CLI tab teaches the rebranded launcher (owners-manual primary, owlfolio compat alias)', () => {
+    expect(tabsSource).toContain('owners-manual ')
+    expect(tabsSource).toContain('compat alias')
+  })
+
+  it('the source whitelist names only live lanes and only shipped source kinds', () => {
+    // The risks lane is retired (historical dossiers only) and transcripts are not sourced.
+    expect(tabsSource).not.toContain('risks may read anything')
+    expect(tabsSource).not.toContain('transcripts')
+  })
+
   it('the Shariah tab documents the screening toggle honestly (fail-visible OFF)', () => {
     expect(tabsSource).toContain('Shariah screening')
     expect(tabsSource).toContain('GATE OFF')

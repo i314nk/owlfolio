@@ -80,11 +80,12 @@ describe('LearnTabs', () => {
     expect(html).toContain('T3 — Cheap / high-volume')
   })
 
-  it('documents the CLI: the short owlfolio command, the commands, and its dry-run boundary', () => {
+  it('documents the CLI: the rebranded launcher, the compat alias, and its read-only boundary', () => {
     const html = render('cli')
-    // The short, hermes-style entrypoint is the headline form.
-    expect(html).toContain('owlfolio ')
-    expect(html).toContain('owlfolio doctor')
+    // REBRAND: owners-manual is the headline form; owlfolio survives as the compat alias.
+    expect(html).toContain('owners-manual ')
+    expect(html).toContain('owners-manual doctor')
+    expect(html).toContain('compat alias')
     // The zero-setup pnpm alternative and the PATH setup are documented too.
     expect(html).toContain('corepack pnpm owlfolio')
     expect(html).toContain('OWLFOLIO_PROJECT_DIR')
