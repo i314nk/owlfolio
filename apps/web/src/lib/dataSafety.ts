@@ -1,9 +1,7 @@
-import { relative, sep } from 'node:path'
+import { relative } from 'node:path'
 
 import {
-  buildRestoreDryRunPlan,
   buildRuntimeBackupManifest,
-  type RestoreDryRunPlan,
   type RuntimeBackupEntry,
   type RuntimeBackupEntryRole,
   type RuntimeBackupManifest,
@@ -22,18 +20,6 @@ export type DataSafetyExcludedCategory = {
   reason: string
 }
 
-export type DataSafetyRestoreProposal = {
-  status: 'proposal-only'
-  restore_root_label: string
-  counts: RestoreDryRunPlan['counts']
-  path_rewrites: Array<{
-    field: RestoreDryRunPlan['path_rewrites'][number]['field']
-    from_label: string
-    to_label: string
-  }>
-  verification_status: string
-}
-
 export type DataSafetyViewModel = {
   generated_at_utc: string
   mode: RuntimeBackupManifest['app_config']['mode']
@@ -43,7 +29,6 @@ export type DataSafetyViewModel = {
   manifest_file_count: number
   included_categories: DataSafetyCategory[]
   excluded_categories: DataSafetyExcludedCategory[]
-  restore: DataSafetyRestoreProposal
 }
 
 const sensitivePathTerms = [
@@ -120,21 +105,6 @@ function safePathLabel({
   return fallback
 }
 
-function safeRestoreTargetLabel({
-  pathValue,
-  restoreRoot,
-}: {
-  pathValue: string
-  restoreRoot: string
-}): string {
-  const relativePath = normalizedPath(relative(restoreRoot, pathValue))
-  if (isProjectRelativePathSafe(relativePath)) {
-    return `restore-root/${relativePath}`
-  }
-
-  return 'operator-selected restore root runtime path'
-}
-
 function excludedPatternLabel(pattern: string): string {
   const lower = pattern.toLowerCase()
   if (lower.includes('auth') || lower.includes('claude') || lower.includes('codex') || lower.includes('gemini')) {
@@ -166,14 +136,9 @@ function dedupeExcludedCategories(categories: DataSafetyExcludedCategory[]): Dat
 
 export function buildDataSafetyViewModelFromManifest({
   manifest,
-  restoreRootLabel = 'operator-selected restore root',
 }: {
   manifest: RuntimeBackupManifest
-  restoreRootLabel?: string
 }): DataSafetyViewModel {
-  const restoreRoot = `${manifest.project_dir}${sep}.owlfolio-restore-dry-run`
-  const restorePlan = buildRestoreDryRunPlan({ manifest, restoreRoot })
-
   return {
     generated_at_utc: manifest.created_at_utc,
     mode: manifest.app_config.mode,
@@ -195,21 +160,6 @@ export function buildDataSafetyViewModelFromManifest({
       pattern: excludedPatternLabel(entry.pattern),
       reason: entry.reason,
     }))),
-    restore: {
-      status: 'proposal-only',
-      restore_root_label: restoreRootLabel,
-      counts: restorePlan.counts,
-      path_rewrites: restorePlan.path_rewrites.map((rewrite) => ({
-        field: rewrite.field,
-        from_label: safePathLabel({
-          pathValue: rewrite.from,
-          projectDir: manifest.project_dir,
-          fallback: `configured ${rewrite.field}`,
-        }),
-        to_label: safeRestoreTargetLabel({ pathValue: rewrite.to, restoreRoot }),
-      })),
-      verification_status: 'Dry-run verification proposal only; an operator must run the restore archive and verification commands from the runbook.',
-    },
   }
 }
 

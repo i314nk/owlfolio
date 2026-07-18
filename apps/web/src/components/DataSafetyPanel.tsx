@@ -68,7 +68,7 @@ export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false, locale =
     createManifestSnapshot(dataSafety),
     createIncludedCategories(dataSafety),
     createExcludedCategories(dataSafety),
-    createRestorePosture(dataSafety),
+    createRestorePosture(),
     // The destructive wholesale clear is a dev/test tool, visually + textually separated below the calm
     // status surfaces. Rendered ONLY when the server-side gate is enabled; ABSENT in normal operation.
     bulkResetEnabled ? createBulkResetSection() : null,
@@ -133,7 +133,7 @@ function createPrivacyBoundary() {
       createElement('strong', { style: { color: 'var(--owl-color-text)' } }, 'To back up: '),
       'run ',
       createElement(Code, null, 'corepack pnpm worker -- --once --dry-run --define-defaults'),
-      ' to verify state, then archive the paths listed under the allowlisted runtime data below. To restore, unpack the archive into the project workspace and re-authenticate providers — no web restore flow exists yet.',
+      ' to verify state, then archive the paths listed under the allowlisted runtime data below. To restore, unpack the archive into the project workspace and re-authenticate providers — the app never restores automatically.',
     ),
   )
 }
@@ -232,62 +232,29 @@ function createExcludedCategories(dataSafety: DataSafetyViewModel) {
 
 // ── Restore posture (operator-only, honest) ───────────────────────────────────
 
-function createRestorePosture(dataSafety: DataSafetyViewModel) {
-  const detail: ReactNode[] = [
-    createElement(
-      'div',
-      { key: 'counts', className: 'owl-row owl-row-top' },
-      createElement(
-        'div',
-        { className: 'owl-row-main' },
-        createElement('h3', { className: 'owl-row-title' }, 'Restore root'),
-        createElement('p', { className: 'owl-row-helper' }, dataSafety.restore.restore_root_label),
-      ),
-      createElement(
-        'div',
-        { className: 'owl-row-aside', style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } },
-        createElement(Code, null, `${dataSafety.restore.counts.files} files`),
-        createElement(Code, null, `${dataSafety.restore.counts.ledgers} ledgers`),
-        createElement(Code, null, `${dataSafety.restore.counts.source_bundles} bundles`),
-        createElement(Code, null, `${dataSafety.restore.counts.provider_reports} reports`),
-      ),
-    ),
-    ...dataSafety.restore.path_rewrites.map((rewrite) => createElement(
-      'div',
-      { key: `${rewrite.field}:${rewrite.from_label}:${rewrite.to_label}`, className: 'owl-row owl-row-top' },
-      createElement(
-        'div',
-        { className: 'owl-row-main' },
-        createElement('h3', { className: 'owl-row-title' },
-          createElement(Code, null, rewrite.field),
-        ),
-        createElement(
-          'p',
-          { className: 'owl-row-helper' },
-          createElement(Code, null, rewrite.from_label),
-          ' → ',
-          createElement(Code, null, rewrite.to_label),
-        ),
-      ),
-    )),
-  ]
-
+function createRestorePosture() {
   return createElement(
     'section',
     { 'aria-label': 'Restore posture', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Restore dry-run'),
-    createElement('h2', { className: 'owl-section-title' }, 'Restore is dry-run/proposal only'),
+    createElement('p', { className: 'owl-section-accent' }, 'Restore'),
+    createElement('h2', { className: 'owl-section-title' }, 'Restore is manual \u2014 copy the files back'),
     createElement(
       'p',
       { className: 'owl-body' },
-      'No destructive restore action is available in the web app. Restore remains an operator-confirmed archive/restore workflow until a reviewed restore flow exists.',
+      'To restore, copy the files above back to their paths (or point the ',
+      createElement(Code, null, 'OWLFOLIO_*'),
+      ' path overrides at the restored copies) and restart the app. For a checksummed manifest and a restore path plan, the ops CLI covers it: ',
+      createElement(Code, null, 'corepack pnpm ops:backup:manifest'),
+      ', ',
+      createElement(Code, null, 'ops:restore:dry-run'),
+      ', ',
+      createElement(Code, null, 'ops:restore:verify'),
+      '.',
     ),
     createElement(
       'p',
-      { style: { alignItems: 'center', display: 'flex', gap: 'var(--owl-space-2)', margin: 0 } },
-      createElement(StatusBadge, { tone: 'manual' }, 'Proposal only'),
-      createElement('span', { className: 'owl-row-helper', style: { margin: 0 } }, dataSafety.restore.verification_status),
+      { className: 'owl-body' },
+      'Owner\u2019s Manual never restores automatically \u2014 like every other duty, you initiate it. There is no destructive restore control anywhere in the app.',
     ),
-    ...detail,
   )
 }
