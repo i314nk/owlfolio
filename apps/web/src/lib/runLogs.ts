@@ -95,18 +95,62 @@ export async function latestRunLogTail(
       }
     }
     if (newest === undefined) return undefined
-
-    const handle = await open(join(dir, newest.name), 'r')
-    try {
-      const start = Math.max(0, newest.size - maxBytes)
-      const length = newest.size - start
-      const buffer = Buffer.alloc(length)
-      await handle.read(buffer, 0, length, start)
-      return { file: newest.name, tail: redactSecrets(buffer.toString('utf8')) }
-    } finally {
-      await handle.close()
-    }
+    return { file: newest.name, tail: await readRedactedTail(dir, newest.name, newest.size, maxBytes) }
   } catch {
     return undefined
+  }
+}
+
+/**
+ * Every log inside one run's time window (its research/deep-dive spawns), newest first — the
+ * per-run diagnostics page's read. Tails are redacted like latestRunLogTail; an unreadable file is
+ * skipped, never fatal.
+ */
+export async function runLogTailsForWindow(
+  filter: { sinceMs: number; untilMs?: number; taskKinds: readonly string[] },
+  maxBytesEach = DEFAULT_TAIL_BYTES,
+  maxFiles = 5,
+): Promise<{ file: string; tail: string }[]> {
+  try {
+    const dir = resolveRunLogDir()
+    const names = (await readdir(dir)).filter((name) => name.endsWith('.log') && filter.taskKinds.some((kind) => name.startsWith(`${kind}-`)))
+
+    const inWindow: { name: string; mtimeMs: number; size: number }[] = []
+    for (const name of names) {
+      try {
+        const s = await stat(join(dir, name))
+        if (s.mtimeMs < filter.sinceMs) continue
+        if (filter.untilMs !== undefined && s.mtimeMs > filter.untilMs) continue
+        inWindow.push({ name, mtimeMs: s.mtimeMs, size: s.size })
+      } catch {
+        // Skip an unreadable entry.
+      }
+    }
+
+    inWindow.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    const out: { file: string; tail: string }[] = []
+    for (const entry of inWindow.slice(0, maxFiles)) {
+      try {
+        out.push({ file: entry.name, tail: await readRedactedTail(dir, entry.name, entry.size, maxBytesEach) })
+      } catch {
+        // Skip an unreadable entry.
+      }
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+async function readRedactedTail(dir: string, name: string, size: number, maxBytes: number): Promise<string> {
+  const handle = await open(join(dir, name), 'r')
+  try {
+    const start = Math.max(0, size - maxBytes)
+    const length = size - start
+    const buffer = Buffer.alloc(length)
+    await handle.read(buffer, 0, length, start)
+    return redactSecrets(buffer.toString('utf8'))
+  } finally {
+    await handle.close()
   }
 }

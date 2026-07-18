@@ -220,18 +220,20 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('data-testid="archive-all-runs-button"')
   })
 
-  it('renders the worker-log diagnostics pane when a tail is provided, collapsed, and not otherwise', () => {
-    const withLog = renderToStaticMarkup(createElement(PipelineObservatory, {
-      pipeline,
-      mode: 'personal-local',
-      workerLog: { file: 'process_deep_dive_queue-2026-07-18.log', tail: 'lane moat started\nread_source sec_10k → verified' },
-    }))
-    expect(withLog).toContain('Worker log')
-    expect(withLog).toContain('process_deep_dive_queue-2026-07-18.log')
-    expect(withLog).toContain('read_source sec_10k → verified')
-
-    const withoutLog = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline, mode: 'personal-local' }))
-    expect(withoutLog).not.toContain('Worker log')
+  it('links every run row (and every failed row) to its per-run worker-log page instead of an inline pane', () => {
+    const withFailure: PipelineProjection = {
+      ...pipeline,
+      failed_runs: [
+        { case_id: 'rc-dead', ticker: 'DEAD', failed_at: '2026-07-17T00:00:00Z', error_summary: 'x' },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(PipelineObservatory, { pipeline: withFailure, mode: 'personal-local' }))
+    // Active/done runs…
+    expect(html).toContain('href="/pipeline/run-log/rc-msft"')
+    // …and failures alike.
+    expect(html).toContain('href="/pipeline/run-log/rc-dead"')
+    // The always-visible diagnostics pane is gone.
+    expect(html).not.toContain('Worker log')
   })
 
   it('collapses the verdict-state legend behind a toggle (the chips stay in the DOM)', () => {

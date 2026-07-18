@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { latestRunLogTail, resolveRunLogDir } from '../runLogs'
+import { latestRunLogTail, resolveRunLogDir, runLogTailsForWindow } from '../runLogs'
 
 const dirs: string[] = []
 
@@ -69,6 +69,26 @@ describe('runLogs', () => {
     // A since-filter after the deep-dive log's mtime excludes it.
     const excluded = await latestRunLogTail(undefined, { sinceMs: Date.now() - 30_000, taskKinds: ['process_deep_dive_queue'] })
     expect(excluded).toBeUndefined()
+  })
+
+  it('collects every log in a run window, newest first, and excludes files outside it', async () => {
+    const dir = await tempLogDir()
+    const now = Date.now()
+    await writeFile(join(dir, 'process_research_queue-a.log'), 'front gates output\n')
+    await utimes(join(dir, 'process_research_queue-a.log'), new Date(now - 120_000), new Date(now - 120_000))
+    await writeFile(join(dir, 'process_deep_dive_queue-b.log'), 'deep dive output\n')
+    await utimes(join(dir, 'process_deep_dive_queue-b.log'), new Date(now - 60_000), new Date(now - 60_000))
+    await writeFile(join(dir, 'process_research_queue-old.log'), 'a prior run\n')
+    await utimes(join(dir, 'process_research_queue-old.log'), new Date(now - 3_600_000), new Date(now - 3_600_000))
+    await writeFile(join(dir, 'discovery_13f-c.log'), 'harvest — wrong kind\n')
+
+    const logs = await runLogTailsForWindow({
+      sinceMs: now - 180_000,
+      untilMs: now,
+      taskKinds: ['process_research_queue', 'process_deep_dive_queue'],
+    })
+    expect(logs.map((l) => l.file)).toEqual(['process_deep_dive_queue-b.log', 'process_research_queue-a.log'])
+    expect(logs[0]?.tail).toContain('deep dive output')
   })
 
   it('bounds the tail to the requested byte budget (tail, not the whole file)', async () => {

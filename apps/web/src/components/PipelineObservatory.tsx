@@ -30,8 +30,6 @@ export type PipelineObservatoryProps = {
   shariahEnabled?: boolean
   /** i18n: the page chrome language (projection data stays as recorded). */
   locale?: OwlLocale
-  /** The newest worker run-log tail (already secret-redacted server-side); absent when no logs exist. */
-  workerLog?: { file: string; tail: string }
 }
 
 // i18n: render-scoped locale — set once per page render; all helpers run inside the same
@@ -364,7 +362,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
         createElement(
           'tr',
           null,
-          ...['Ticker', 'Started', 'Stage', 'Status', 'Sources'].map((heading) =>
+          ...['Ticker', 'Started', 'Stage', 'Status', 'Sources', 'Logs'].map((heading) =>
             createElement('th', { key: heading, style: thStyle }, heading),
           ),
         ),
@@ -398,6 +396,15 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
             createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-muted)' } }, run.stage_label),
             createElement('td', { style: tdStyle }, runChip(run)),
             createElement('td', { style: tdStyle }, sourceCountBadge(run.source_count)),
+            createElement(
+              'td',
+              { style: tdStyle },
+              createElement(
+                'a',
+                { className: 'owl-focusable', href: `/pipeline/run-log/${encodeURIComponent(run.research_case_id)}`, style: { ...monoMeta, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' } },
+                dt('pp_log_link'),
+              ),
+            ),
           )
         }),
       ),
@@ -472,6 +479,11 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
                   createElement(ArchiveRunButton, { caseId: run.case_id, ticker: run.ticker }),
                   // Restart = the existing supersession re-run (confirm-gated: full provider spend).
                   createElement(RerunAnalysisButton, { caseId: run.case_id, ticker: run.ticker }),
+                  createElement(
+                    'a',
+                    { className: 'owl-focusable', href: `/pipeline/run-log/${encodeURIComponent(run.case_id)}`, style: { ...monoMeta, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' } },
+                    dt('pp_log_link'),
+                  ),
                 ),
               ),
             ),
@@ -630,7 +642,7 @@ function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): Reac
 
 // ── The page ──────────────────────────────────────────────────────────────────
 
-export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true, locale = 'en', workerLog }: PipelineObservatoryProps): ReactNode {
+export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shariahEnabled = true, locale = 'en' }: PipelineObservatoryProps): ReactNode {
   panelLocale = locale
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
 
@@ -740,27 +752,6 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId, shari
 
     // Failed runs
     createElement(FailedRunsSection, { failedRuns: failed_runs }),
-
-    // Worker-log diagnostics: the newest spawn's stdout/stderr tail (secret-redacted server-side) —
-    // the post-mortem a failed run used to take to the grave. Collapsed; the ledger stays the truth.
-    workerLog !== undefined
-      ? createElement(
-          'section',
-          { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
-          sectionHead(dt('pp_log_accent'), dt('pp_log_title'), dt('pp_log_note')),
-          createElement('p', { style: { ...monoMeta, margin: 0 } }, workerLog.file),
-          createElement(
-            'details',
-            null,
-            createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, dt('pp_log_toggle')),
-            createElement(
-              'pre',
-              { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: '0.6rem 0 0', maxHeight: '20rem', overflow: 'auto', padding: '0.7rem 0.85rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } },
-              workerLog.tail,
-            ),
-          ),
-        )
-      : null,
 
     // Per-run drill-down
     drillDown !== undefined
