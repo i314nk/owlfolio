@@ -1,5 +1,12 @@
 # Owner's Manual v2 research harness — internals & execution model
 
+> **HISTORICAL NOTE (2026-07-19).** Parts of this document predate the 2026-06-29 CLI/OAuth
+> provider excision, the 2026-07-18 provider consolidation (OpenRouter + an experimental local
+> endpoint ONLY), and the model-tiering removal (ONE configured model runs every stage). References
+> to Codex/Claude/Gemini CLI providers, direct API surfaces, T1/T2/T3 tiers, or `OWLFOLIO_MODEL_ROLE_*`
+> are preserved as decision-record context — they do not describe the current app.
+
+
 Verified: 2026-06-13, against the live code and the OpenRouter golden-set qualification run.
 
 This is the "how the harness actually runs under the hood" reference — the living companion to the

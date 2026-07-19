@@ -1,7 +1,7 @@
 # Owner's Manual v2 local-use candidate readiness
 
 Date: 2026-06-07 · **Updated: 2026-07-18**
-Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Owner's Manual v2 branch after provider-surface, research-pipeline, accounting, purification, and Data Safety hardening.
+Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Owner's Manual v2 branch after provider-surface, research-pipeline, and Data Safety hardening. (The accounting/purification bookkeeping half was removed in the 2026-07-13 scale-down.)
 
 > **Update 2026-07-08.** Major changes since the 2026-06-07 baseline:
 >
@@ -40,22 +40,20 @@ Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Ow
 
 ## Release position
 
-Owner's Manual v2 is an automation-first local-use candidate and personal-local operating-ledger slice. It is not a public beta, production SaaS, broker connection, live trading system, or complete autonomous investment operating system. The current app is suitable for trusted local use and product validation around the local ledger workflow, strategy-based research pipeline, provider readiness boundaries, Shariah/accounting/purification projections, Data Safety surfaces, and dry-run worker safety model.
+Owner's Manual v2 is an automation-first local-use candidate and personal-local operating-ledger slice. It is not a public beta, production SaaS, broker connection, live trading system, or complete autonomous investment operating system. The current app is suitable for trusted local use and product validation around the local ledger workflow, strategy-based research pipeline, provider readiness boundaries, Shariah screening, Data Safety surfaces, and dry-run worker safety model.
 
 ## What is in the local-use candidate
 
 - Local Next.js web app as the primary interface.
 - Browser onboarding for deterministic demo mode and personal-local mode.
-- Command Center with setup-aware status, workflow counts, next actions, accounting prompts, holding-review prompts, and recent ledger activity.
+- Command Center with setup-aware status, workflow counts, next actions, duty nudges, and recent ledger activity.
 - Strategy-based research cockpit from discovery through the Shariah + circle-of-competence gates, deep dive, synthesis/decision, watchlist, and holding transitions.
 - Default Buffett 4-Pillar strategy posture; future selectable strategies remain experimental until policy, audit, Shariah, valuation, and provider-certification gates are complete.
 - Provider-authored research/watchlist drafts with explicit source/audit evidence.
 - Explicit user confirmation for watchlist items.
 - Explicit user transition from confirmed watchlist item to open holding.
 - Portfolio lot entry, manual valuation, holding review draft/confirm/reject/override flows.
-- Automatic local portfolio, monthly accounting, and purification projections from ledger events and manual/source-backed inputs.
-- Monthly accounting report page from period-bounded ledger projections.
-- Purification obligation/payment report page from ledger projections.
+- Automatic local portfolio projections from ledger events. (The monthly accounting and purification report pages were removed in the scale-down; the purification RATE remains dossier guidance, and legacy events stay readable in the audit timeline.)
 - Shariah gate/policy helpers and ledger projection tests.
 - Audit activity page over append-only event envelopes.
 - Provider status page bounded by catalog capabilities plus latest certification reports.
@@ -76,24 +74,23 @@ Latest persisted reports are under `data/provider-certifications/` and are summa
 
 Provider claims must not exceed this evidence. **Certification has shifted to the user's responsibility and is optional before use**: a capable reasoning model (reasoning + tool-calling + structured output, the model picker's floor) can be selected and used immediately; the certification runner is a deeper per-model audit a user may run for recorded evidence. Docs/UI never describe a surface as certified/live/autonomous without a passing target-specific latest report.
 
-## Shariah, accounting, and purification boundaries
+## Shariah boundaries
 
 - Owner's Manual is Shariah-by-design at the workflow/domain level, but local-use outputs are decision-support artifacts, not fatwas or professional rulings.
 - Shariah results must remain source-grounded and conservative; user-authored overrides/status changes are explicit ledger events.
 - Purification obligations and payments are separate auditable events; the app tracks them but does not make the charitable payment or guarantee final compliance.
-- Monthly accounting is based on local ledger events, manual lot/valuation/cash inputs, and period-bounded projections; it is not a broker statement, custodian record, or tax filing system.
 - Broker credentials, broker synchronization, live trading, order placement, tax reporting, and portfolio rebalancing automation are out of scope for this local-use candidate.
 
 ## Data Safety boundaries
 
-- Local backups may include sensitive investment ledgers, source bundles, app configuration metadata, provider certification metadata, and Shariah/accounting/purification context.
+- Local backups may include sensitive investment ledgers, source bundles, app configuration metadata, provider certification metadata, and Shariah context.
 - Credentials, API keys, provider auth homes, CLI session files, build outputs, test artifacts, and browser/runtime caches must stay out of backup manifests and git.
 - The web Data Safety panel is status/proposal evidence only. Destructive restore remains an operator-confirmed runbook flow until a separate reviewed restore UX exists.
 - Provider readiness after restore still requires re-authentication and certification evidence; a restored config must not imply real-provider readiness.
 
 ## Worker safety boundary
 
-The local worker is dry-run/mock-safe for alpha. It can define default scheduled tasks and append run lifecycle events, but it must not auto-approve investment decisions or create irreversible portfolio/accounting/purification actions.
+The local worker is dry-run/mock-safe for alpha. It can define default scheduled tasks and append run lifecycle events, but it must not auto-approve investment decisions or create irreversible portfolio actions.
 
 Twelve one-tick task kinds are defined (reviews, deterministic monitors, Shariah re-screen,
 valuation refresh, purification, forecast resolution, 13F discovery, the thesis re-review sweep, and
@@ -123,7 +120,7 @@ Current gate result (2026-07-05, re-review merge closeout):
 - `corepack pnpm lint`: passed with `--max-warnings=0` across the touched packages.
 - `corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate`: passed, no known vulnerabilities.
 - `NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build`: passed.
-- `corepack pnpm e2e`: **8/8 passed (2026-07-08)** — the monthly-accounting and workflow-intake specs were fixed (one shared hydration root cause on the watchlist/portfolio pages).
+- `corepack pnpm e2e`: **9/9 passing** as of 2026-07-19.
 
 Known warning observed during `next build`: Next/Turbopack emitted one NFT/import-trace warning around local filesystem helpers (`next.config.mjs`, `appConfigStore`, `onboarding`, `api/testing/reset`). The build exited 0 and no generated/runtime artifacts appeared in git status; keep this as a known warning rather than a release blocker unless it expands, changes behavior, or starts tracing sensitive runtime files.
 

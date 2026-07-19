@@ -66,6 +66,12 @@ A `catalog.investment_grade_candidate` flag plus an `isInvestmentGradeSuitable(p
 
 Readiness is still not certification: a present `OPENROUTER_API_KEY`/`DEEPSEEK_API_KEY`/`DASHSCOPE_API_KEY`/`MISTRAL_API_KEY` is a credential signal only; the surface stays `is_ready: false` / `unsupported_surface` and fail-closed until an adapter and a target-specific certification report exist. The Providers page groups providers into **Investment-grade (certified)**, **Frontier candidates (experimental)**, and **Other / unsupported**, with a per-provider investment-grade badge alongside the certification-bounded effective-support label.
 
+> **HISTORICAL PLANNING CONTEXT (pre-consolidation).** Everything below this line is the
+> 2026-06-03 planning survey that informed provider selection. It predates the 2026-06-29 CLI/OAuth
+> excision, the 2026-07-18 provider consolidation (OpenRouter + experimental local ONLY), and the
+> model-tiering removal. It is preserved as a decision record — the CURRENT truth is the baseline
+> table above and the certification reports.
+
 ## Recommended support tiers
 
 | Tier | Providers | Owner's Manual role | Certification rule |

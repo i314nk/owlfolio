@@ -17,15 +17,13 @@ Owner's Manual (engine namespace Owlfolio; earlier working names Owlfolio/OwlCla
 
 ## Provider runtimes and certification candidates
 
-Owlfolio v2 is provider-neutral at the workflow boundary: provider outputs are drafts or observations, while portfolio/accounting/purification transitions remain explicit user-authored ledger events.
+Owner's Manual is provider-neutral at the workflow boundary: provider outputs are drafts or observations, while portfolio transitions remain explicit user-authored ledger events.
 
 Current alpha provider evidence is bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`:
 
 - **Mock provider** — deterministic demo/test provider used for certified alpha regression coverage. It is not real investment intelligence.
-- **OpenAI Codex CLI** — experimental local/dev provider path. Codex/OpenAI trademarks and terms belong to OpenAI.
-- **Claude CLI / Anthropic** — experimental local/dev provider path, currently unsupported/not-configured in this environment when the latest certification report says Claude Code subscription access is disabled. Anthropic/Claude trademarks and terms belong to Anthropic.
 
-Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API providers are future candidates unless and until Owlfolio implements adapters and records passing certification reports.
+The surviving providers are OpenRouter (the default meta-aggregator) and an experimental local OpenAI-compatible endpoint (Ollama / vLLM); their trademarks belong to their owners. Support labels never exceed the latest recorded certification evidence.
 
 ---
 
@@ -46,9 +44,9 @@ Owlfolio's methodology prose should paraphrase and attribute traditions rather t
 
 ---
 
-## Shariah/accounting/purification domain caveat
+## Shariah domain caveat
 
-Owlfolio is Shariah-by-design at the workflow and audit-boundary level, but the alpha is not a fatwa engine, broker statement, tax filing system, accounting firm, or payment processor. Shariah policy helpers, accounting projections, and purification reports are decision-support and audit artifacts that require human review.
+Shariah screening in Owner's Manual is a grounded, optional, local decision-support aid — never a fatwa. This is an educational project: obtain a ruling from certified Islamic scholars before acting on any Shariah conclusion.
 
 ---
 

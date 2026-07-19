@@ -39,7 +39,6 @@
     "./marketData": "./src/marketData.ts",
     "./secEdgar": "./src/secEdgar.ts",
     "./fundamentalsProvider": "./src/fundamentalsProvider.ts",
-    "./performanceProjection": "./src/performanceProjection.ts",
     "./portfolioAnalytics": "./src/portfolioAnalytics.ts",
     "./mwr": "./src/mwr.ts",
     "./postMortem": "./src/postMortem.ts",
