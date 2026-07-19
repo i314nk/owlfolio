@@ -39,20 +39,22 @@
 
 ## See it in action
 
-**Setup** — clone, `pnpm dev`, onboard in the browser, and the Command Center is live:
+**Setup** — the guided provider setup (OpenRouter, or a local Ollama/vLLM endpoint; one model
+runs the whole analysis) and the live Command Center with its duty nudges:
 
-![Setup: from unconfigured to a live Command Center](docs/assets/readme-setup.gif)
+![Setup: the guided provider setup and the live Command Center](docs/assets/setup-tour-202607.gif)
 
-**An analysis** — a real grounded dossier (Costco): verdict, valuation, lane findings, and the
-thesis re-review card checking the recorded break triggers against newly-filed documents (renewal
-rate, comp sales, and gross margin read out of the hash-verified filings):
+**An analysis** — a real grounded dossier (Coca-Cola): the verdict, the computed price ladder,
+the cited lane findings, and the sanity rail doing its job — including the anomaly-guarded
+valuation base catching a one-off-distorted fiscal year:
 
-![An example analysis dossier with the thesis re-review card](docs/assets/readme-analysis.gif)
+![An example analysis dossier with the computed ladder and sanity facts](docs/assets/analysis-tour-202607.gif)
 
-**The pages** — intake → dossier → promote to watchlist → record your entry → the held-thesis view,
-plus the pipeline, audit trail, the Learn docs, and the strategy overview:
+**The pages** — the Command Center, Superinvestors 13F discovery, the research library, the
+watchlist zone board, the held-thesis portfolio, the pipeline observatory, the decision-trail
+audit, and the Learn docs:
 
-![A tour of the main pages](docs/assets/readme-pages.gif)
+![A tour of the main pages](docs/assets/pages-tour-202607.gif)
 
 ---
 
