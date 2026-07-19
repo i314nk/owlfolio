@@ -7,6 +7,7 @@ import type { OwlThemeId } from '@owlfolio/shared'
 
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { PageTranslator } from './PageTranslator'
 import { t, type MessageKey } from '../lib/i18n'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
@@ -112,6 +113,7 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
           createElement('span', { className: 'owl-shell-context-value' }, t(item.value)),
         )),
         createElement(ThemeSwitcher, { current: theme }),
+        createElement(PageTranslator, {}),
       ),
       createElement(
         'div',
