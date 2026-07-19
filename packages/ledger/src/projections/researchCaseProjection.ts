@@ -457,7 +457,7 @@ export type ResearchCaseValuationProjection = {
   /** E2: the BOOK intrinsic value per share (the computed FCF reference the thresholds margin off). */
   intrinsic_value_per_share?: number
   /** E2: the T0 FCF basis provenance (fiscal year, CFO, capex, FCF, currency, source id). */
-  fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string }
+  fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; fcf_base_basis?: string; latest_fcf_musd?: number; fcf_median_musd?: number; fcf_base_window?: number[]; fcf_base_deviation?: number; reporting_currency?: string; source_id?: string }
   /** E2 survivor: the purely factual capex-vs-D&A reinvestment-mix note (no maintenance proxy). */
   capex_vs_da?: { total_capex_musd?: number; d_and_a_musd?: number; capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string }
   /** The resolved industry P/FCF exit multiple + its provenance (model_grounded/clamped/asserted/fallback). */
@@ -1969,6 +1969,13 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
     const cfo = getNumber(rawFcfBasis, 'cfo_musd'); if (cfo !== undefined) fb.cfo_musd = cfo
     const capex = getNumber(rawFcfBasis, 'capex_musd'); if (capex !== undefined) fb.capex_musd = capex
     const fcf = getNumber(rawFcfBasis, 'fcf_musd'); if (fcf !== undefined) fb.fcf_musd = fcf
+    // FCF-base normalization provenance (owner, 2026-07-19) — additive, legacy-tolerant.
+    const basis = getString(rawFcfBasis, 'fcf_base_basis'); if (basis !== undefined) fb.fcf_base_basis = basis
+    const latestFcf = getNumber(rawFcfBasis, 'latest_fcf_musd'); if (latestFcf !== undefined) fb.latest_fcf_musd = latestFcf
+    const medianFcf = getNumber(rawFcfBasis, 'fcf_median_musd'); if (medianFcf !== undefined) fb.fcf_median_musd = medianFcf
+    const windowYears = rawFcfBasis['fcf_base_window']
+    if (Array.isArray(windowYears) && windowYears.every((y) => typeof y === 'number')) fb.fcf_base_window = windowYears as number[]
+    const dev = getNumber(rawFcfBasis, 'fcf_base_deviation'); if (dev !== undefined) fb.fcf_base_deviation = dev
     const cur = getString(rawFcfBasis, 'reporting_currency'); if (cur !== undefined) fb.reporting_currency = cur
     const sid = getString(rawFcfBasis, 'source_id'); if (sid !== undefined) fb.source_id = sid
     if (Object.keys(fb).length > 0) projected.fcf_basis = fb

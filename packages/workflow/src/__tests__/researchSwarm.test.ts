@@ -3230,6 +3230,52 @@ function swarmFakeProviderWithShariah(
 }
 
 describe('E2 — the FCF basis (OE bridge retired): provenance, AAOIFI ratios, fx, unpriced fail-closed', () => {
+  it('KO-like depressed base year: the valuation uses the window MEDIAN as FCF0 and flags the anomaly (owner, 2026-07-19)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    // COST facts with a KO-shaped FCF trajectory: healthy years then a one-off-depressed latest.
+    // Window FCFs [2900, 6629, 6745, 6800, 6400] → median 6629; latest (2900) deviates ~-56%.
+    const depressed = {
+      ...costFundamentals,
+      latest_annual: { ...costFundamentals.latest_annual, cfo_musd: 6900, capex_musd: 4000 },
+      annual_series: [
+        { ...costFundamentals.annual_series[0]!, cfo_musd: 6900, capex_musd: 4000 },  // 2025: 2900 ← depressed
+        { ...costFundamentals.annual_series[1]! },                                    // 2024: 6629
+        { ...costFundamentals.annual_series[2]! },                                    // 2023: 6745
+        { ...costFundamentals.annual_series[2]!, fiscal_year: 2022, cfo_musd: 11000, capex_musd: 4200 }, // 6800
+        { ...costFundamentals.annual_series[2]!, fiscal_year: 2021, cfo_musd: 10500, capex_musd: 4100 }, // 6400
+      ],
+    }
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: depressed,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysis?.payload as Record<string, unknown>)['valuation'] as Record<string, unknown>
+    const fcfBasis = valuation['fcf_basis'] as Record<string, unknown>
+    // The base USED is the median, not the poisoned latest year.
+    expect(fcfBasis['fcf_musd']).toBe(6629)
+    expect(fcfBasis['fcf_base_basis']).toBe('median_window')
+    expect(fcfBasis['latest_fcf_musd']).toBe(2900)
+    expect(fcfBasis['fcf_median_musd']).toBe(6629)
+    expect(fcfBasis['fcf_base_window']).toEqual([2021, 2022, 2023, 2024, 2025])
+    // Latest-year facts stay as provenance.
+    expect(fcfBasis['fiscal_year']).toBe(2025)
+    expect(fcfBasis['cfo_musd']).toBe(6900)
+    // The switch is a loud FACT on the sanity rail.
+    const sanity = (valuation['sanity_flags'] as string[] | undefined) ?? []
+    expect(sanity.join(' ')).toContain('fcf_base_anomalous')
+    expect(sanity.join(' ')).toContain('median')
+  })
+
   it('persists the T0 fcf_basis provenance + capex_vs_da note and recomputes the AAOIFI ratios (COST-like)', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
@@ -3252,6 +3298,10 @@ describe('E2 — the FCF basis (OE bridge retired): provenance, AAOIFI ratios, f
     expect(fcfBasis['cfo_musd']).toBe(13335)
     expect(fcfBasis['capex_musd']).toBe(5498)
     expect(fcfBasis['fcf_musd']).toBe(13335 - 5498)
+    // Clean growing series: the latest year stays the base (no punishment for growth); the median
+    // is recorded as provenance only.
+    expect(fcfBasis['fcf_base_basis']).toBe('latest_year')
+    expect(fcfBasis['fcf_median_musd']).toBe(6745)
     expect(fcfBasis['source_id']).toBe('sec_edgar_10k_0000909832_fy2025')
     // The OE bridge fields are gone from new events.
     expect(valuation['owner_earnings_bridge']).toBeUndefined()
