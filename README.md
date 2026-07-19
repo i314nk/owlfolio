@@ -104,6 +104,12 @@ flowchart LR
 - **Transitions are yours**: watchlist confirmations, holding opens and closes are explicitly
   user-authored ledger events — machine actors are rejected at the ledger level.
 
+> **Strategy credit** 📖 — the Buffett 4-Pillar method implemented here was shaped by
+> [*The New Money Strategy: The Modern Guide to Rational, Long-Term Investing*](https://www.amazon.com/New-Money-Strategy-Long-Term-Investing/dp/1394369840)
+> by **Brandon van der Kolk**, creator of the [New Money](https://www.youtube.com/channel/UCvSXMi2LebwJEM1s4bz5IBA)
+> YouTube channel — the book that helped me understand and formulate Buffett's approach.
+> The implementation, the thresholds, and any errors are my own.
+
 The core design rule is **"code computes, judgment proposes"**:
 
 - Deterministic code computes numbers (free cash flow, intrinsic value and
