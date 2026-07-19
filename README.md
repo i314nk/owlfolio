@@ -37,6 +37,21 @@
 
 ---
 
+<div align="center">
+
+| | |
+|---:|:---|
+| **Stack** | TypeScript · Next.js (app router) · pnpm monorepo · SQLite (`node:sqlite`) |
+| **Surface** | Local web app at `127.0.0.1:3000` · read-only CLI · one-tick worker |
+| **Ledger** | Append-only events with causation/correlation IDs — every claim auditable |
+| **Providers** | OpenRouter (one key, many models) · experimental local Ollama/vLLM |
+| **Grounding** | SEC EDGAR only, harness-fetched, SHA-256-verified, fail-closed |
+| **Automation** | Notify-only by design — the app alerts, **you** initiate everything |
+
+</div>
+
+---
+
 ## See it in action
 
 **Setup** — the guided provider setup (OpenRouter, or a local Ollama/vLLM endpoint; one model
@@ -60,21 +75,34 @@ audit, and the Learn docs:
 
 ## What it is
 
-Owner's Manual runs a strategy-driven research workflow (default: Buffett 4-Pillar) on
-your own machine, structured as **Buffett's four pillars applied in order**:
-discovery → a grounded Shariah front gate → **Pillar 1: understand the
-business** (the circle-of-competence gate answers two questions — how does
-this company make money, and what key moving parts determine its success or
-failure) → **Pillar 2: the moat** (structural protection, cite-checked, with
-three harness-computed tests; a below-gate moat ends the run before further
-spend) → **Pillar 3: management** (integrity & talent, DEF 14A-grounded, with
-a veto) → **Pillar 4: value the business** (a computed intrinsic value on
-free cash flow — the exit multiple anchored to named comparables — with the
-30% margin-of-safety buy threshold and the 50% load-up threshold) → an adversarial inversion
-pass → a drafted decision → watchlist/holding transitions you explicitly
-author → ongoing check-ins as new SEC filings land. Everything is recorded in an append-only
-SQLite event ledger with causation/correlation IDs, so every number and claim is
-auditable back to its source.
+Owner's Manual runs a strategy-driven research workflow (default: **Buffett 4-Pillar**) on
+your own machine — the four pillars applied in order, every step recorded in an append-only
+SQLite event ledger so every number and claim is auditable back to its source:
+
+```mermaid
+flowchart LR
+    D["🔭 Discovery<br/><i>13F ideas · your intake</i>"] --> G["🕌 Shariah gate<br/><i>grounded, optional</i>"]
+    G --> P1["1️⃣ Understand<br/><i>circle of competence</i>"]
+    P1 --> P2["2️⃣ Moat<br/><i>cite-checked, gated</i>"]
+    P2 --> P3["3️⃣ Management<br/><i>DEF 14A · veto</i>"]
+    P3 --> P4["4️⃣ Value<br/><i>computed IV · buy ladder</i>"]
+    P4 --> INV["😈 Inversion<br/><i>the case against</i>"]
+    INV --> DEC["📋 Decision draft<br/><i>BUY · WATCH · PASS</i>"]
+    DEC --> YOU{"🧑‍⚖️ You decide"}
+    YOU --> W["👁 Watchlist"]
+    YOU --> H["💼 Held thesis"]
+    W --> CK["🔁 Check-ins vs new filings"]
+    H --> CK
+    CK -.->|new 10-K → full re-run| P1
+```
+
+- **A failed gate ends the run before further spend** — an out-of-circle business, a below-gate
+  moat, or a Shariah fail is a recorded early exit, not a silent skip.
+- **Pillar 4 is arithmetic**: intrinsic value on free cash flow (the base year anomaly-guarded
+  against one-offs), the exit multiple anchored to named comparables, a 30% margin-of-safety buy
+  threshold and a 50% load-up threshold.
+- **Transitions are yours**: watchlist confirmations, holding opens and closes are explicitly
+  user-authored ledger events — machine actors are rejected at the ledger level.
 
 The core design rule is **"code computes, judgment proposes"**:
 
@@ -103,85 +131,25 @@ The core design rule is **"code computes, judgment proposes"**:
 
 ### Built and working today (local alpha)
 
-- Browser onboarding, Command Center, research cockpit, watchlist (the zone
-  board), the held-thesis portfolio view, audit trail, provider status, and a
-  Learn section documenting the strategy and grounding architecture.
-- **Compact boards, one home per name**: each row is one line
-  ("TICKER — Company Name · buy ≤ / now") that expands into a small decision
-  card (verdict summary + the load-up → buy → IV price ladder) and links to
-  the full analysis. The boards always display from the LATEST non-superseded
-  analysis of a ticker, with its date shown; a held name lives on the
-  portfolio only and returns to the watchlist when its holding closes.
-- **Shariah screening is an opt-out** (Settings, default ON). OFF is
-  fail-visible: transition gates record explicit DISABLED decisions (never a
-  fake pass), boards show a neutral GATE OFF chip, the Shariah lanes stop
-  spending provider quota, the quarterly re-screen disables, and the
-  purification surfaces hide. Names admitted while OFF stay labeled that way
-  in the ledger forever.
-- **Human-authored exits**: "Remove from watchlist" and "Close holding
-  (record the exit)" — reason recorded, machine actors rejected at the ledger
-  level, raw events kept forever. Owner's Manual never trades; the close records
-  the exit you executed at your broker.
-- **The 10-K cadence**: check-ins cover the year; when one detects a new
-  annual report, the boards raise "full re-analysis recommended" with a
-  one-click superseding re-run (confirm-gated — the spend stays yours).
-- The multi-agent research swarm with a hardened circle-of-competence gate
-  (k-sample unanimous agreement + grounded evidence floors, tunable in
-  Settings) — "outside the circle" is a recorded early exit, not a failure.
-- **Thesis re-review**: on demand (dossier, watchlist, and portfolio pages) or
-  via a worker tick, Owner's Manual diffs the filings that appeared since a decision
-  against the recorded thesis and its break triggers, and records
-  INTACT / WEAKENED / BROKEN — or, honestly, INCONCLUSIVE / UNVERIFIED when the
-  evidence can't support a verdict. A broken thesis on a held name escalates a
-  full re-run draft; a human still decides everything.
-- **Insider Form 4 signal**: deterministic parsing of insider transactions
-  (never a model judgment), a computed digest for the management lane, a
-  sell-cluster trigger, and a dossier card.
-- **Superinvestors (13F discovery)**: the idea source at the top of the
-  funnel. The /discovery page tracks seven owner-curated value investors —
-  Warren Buffett (Berkshire), Mohnish Pabrai (dormant filer, labeled), Michael
-  Burry (Scion, intermittent filer, labeled), Li Lu (Himalaya), Seth Klarman
-  (Baupost), Bill Ackman (Pershing Square), and Guy Spier (Aquamarine) — via
-  their quarterly SEC 13F filings: latest portfolios as expandable manager
-  cards, and buys/sells as one action heat-map matrix with your held/watched
-  names flagged. Every figure is stamped "as of report · filed" (the ~45-day
-  lag), the filing gives no reasons, and a signal is an idea to research —
-  never a copy trade or an auto-promotion. See
-  `docs/architecture/superinvestors-13f-discovery.md`. Watchlist/portfolio
-  price checks ride the same human-fired worker.
-- A small read-only CLI (`owners-manual start|status|doctor`; `owlfolio` compat alias) for launch/inspect/
-  diagnose; all onboarding and decisions live in the browser.
-- **Duty nudges — the alert IS the schedule.** There is no autonomous
-  scheduler by design; instead the Command Center's attention rail computes,
-  from the ledger, when a configured rhythm has lapsed — a 13F discovery
-  harvest due, the monthly/quarterly thesis check-in due, the annual
-  re-analysis of held names due — and links to where *you* run it. Every
-  cadence knob in Settings is wired and notify-only: nothing initiates
-  anything automatically (locked by test).
-- **Pre-spend ticker validation.** A research case only starts for a real SEC
-  filer: the typed ticker resolves against SEC's official filer list (the same
-  universe the whole pipeline grounds in), `BRK.B` auto-normalizes to EDGAR's
-  `BRK-B`, and an SEC outage fails open (the run's own grounding still fails
-  closed).
-- **An anomaly-guarded valuation base.** The DCF's starting free cash flow is
-  the latest filed year *unless* it deviates more than 25% from the five-year
-  median (one-off tax deposits, earnout payments) — then the median is used
-  and a loud FACT flag names both figures on the dossier. Symmetric: windfall
-  years are trimmed exactly like depressed ones.
-- **A decision-trail audit view.** The audit page defaults to what matters —
-  user-authored transitions, gates, verdicts, failures — with the full raw
-  event stream one click away and trace links that always resolve.
-- **English-only UI, translation on demand.** The app ships English; any
-  language is a page translation away (the shell's Translate control drives
-  Chromium's on-device Translator API; elsewhere it points at the browser's
-  own translate — Firefox's runs fully on-device). Machine vocabulary the user
-  must type, run, or search — tickers, ids, commands, env names — is marked
-  `translate="no"` so no translator can corrupt it.
-- A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
-  recording observations and drafts. It never auto-approves investment
-  decisions, trades, confirmations, Shariah overrides, or payments.
+| | Area | What works |
+|---|---|---|
+| 🖥️ | **The surfaces** | Browser onboarding, Command Center, research cockpit, watchlist zone board, held-thesis portfolio, pipeline observatory, decision-trail audit, provider status, and a Learn section documenting the whole harness. |
+| 📇 | **Compact boards** | One home per name: a one-line row ("TICKER · buy ≤ / now") expanding into a decision card with the load-up → buy → IV price ladder, always showing the latest non-superseded analysis. Held names live on the portfolio and return to the watchlist when a holding closes. |
+| 🕌 | **Optional Shariah screening** | Default ON, grounded, harness-recomputed AAOIFI ratios. OFF is fail-visible: gates record explicit DISABLED decisions (never a fake pass), boards show GATE OFF, Shariah spend stops, and names admitted while OFF stay labeled forever. |
+| 🔭 | **Superinvestors (13F)** | Seven owner-curated value investors tracked via quarterly SEC 13F filings — portfolios as manager cards, buys/sells as one action heat-map with your names flagged. Every figure stamped "as of · filed" (~45-day lag); a signal is an idea to research, never a copy trade. |
+| 🧠 | **The research swarm** | Multi-agent lanes with a hardened circle-of-competence gate (k-sample unanimous agreement + grounded evidence floors, tunable) — "outside the circle" is a recorded early exit, not a failure. |
+| 🔁 | **Thesis re-review** | On demand or per worker tick: new filings since a decision diffed against the recorded thesis and break triggers → INTACT / WEAKENED / BROKEN — or honestly INCONCLUSIVE / UNVERIFIED. A new 10-K raises "full re-analysis recommended" with a confirm-gated superseding re-run. |
+| 🔔 | **Duty nudges** | There is no autonomous scheduler *by design* — the Command Center computes from the ledger when a configured rhythm lapsed (13F harvest, thesis check-in, annual re-analysis) and links to where **you** run it. Notify-only, locked by test. |
+| 🛡️ | **Pre-spend guards** | Ticker validation against SEC's filer list before any case is minted (`BRK.B` → `BRK-B` auto-normalized); an anomaly-guarded DCF base (a latest year >25% off the 5-year median is replaced by the median, with a loud FACT flag — symmetric for windfalls). |
+| 📝 | **Human-authored transitions** | Watchlist removals and holding closes record your reason; machine actors are rejected at the ledger level. The app never trades — a close records the exit you executed at your broker. |
+| 🕵️ | **Insider Form 4 signal** | Deterministic parsing (never a model judgment): a computed digest for the management lane, a sell-cluster trigger, and a dossier card. |
+| 🔎 | **Decision-trail audit** | The audit page defaults to what matters — user transitions, gates, verdicts, failures — with the full raw event stream one click away and trace links that always resolve. |
+| 🌐 | **Translation on demand** | English-only UI; any language via page translation (the shell control drives Chromium’s on-device Translator API; Firefox’s built-in translate is also on-device). Tickers, ids, commands, and env names carry `translate="no"` so no translator corrupts them. |
+| ⚙️ | **CLI & worker** | A read-only CLI (`owners-manual start\|status\|doctor`) and a one-tick, dry-run/mock-safe worker recording observations and drafts — it never auto-approves decisions, trades, confirmations, or overrides. |
 
-### Not done yet (deliberately)
+<details>
+<summary><b>Not done yet — deliberately</b> (the honesty list: what this alpha does not do)</summary>
+
 
 - **No scheduler / unattended automation.** Every worker task is
   scheduler-shaped (one-tick, cadence metadata recorded), but nothing fires
@@ -213,6 +181,8 @@ The core design rule is **"code computes, judgment proposes"**:
 - Known issue: the Next/Turbopack NFT import-trace warning noted below.
 
 Gaps are tracked in `docs/ALPHA_READINESS.md`.
+
+</details>
 
 ---
 
