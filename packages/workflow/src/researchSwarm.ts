@@ -46,7 +46,6 @@ import { computeMoatTests, type MoatTests } from './moatTests'
 import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { fcfImpliedExitMultiple, fcfImpliedGrowth, fcfIntrinsicValuePerShare, resolveExitMultiple } from '@owlfolio/strategies/bookValuation'
-import { yearFcf } from './annualRatios'
 import { runRetainedEarningsTest, type RetainedEarningsTestResult } from './retainedEarningsTest'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
@@ -72,6 +71,7 @@ import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, 
 import { runInversionPass, buildInversionLayer, type InversionLaneDigest, type InversionResult } from './inversionPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import { runShariahGatePhase, type ShariahGatePhaseResult } from './shariahGatePhase'
+import { resolveFcfBase } from './fcfBase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   LaneAgentSchema,
@@ -2630,11 +2630,14 @@ export async function runResearchDeepDivePhase(
   const shares_valid = Number.isFinite(shares_outstanding) && shares_outstanding > 0
   const reporting_currency = fundamentals?.currency
 
-  // The FCF basis row: the latest EDGAR year where CFO − capex is computable.
-  const latestFcfRow = fundamentals?.annual_series !== undefined
-    ? [...fundamentals.annual_series].sort((a, b) => b.fiscal_year - a.fiscal_year).find((a) => yearFcf(a) !== undefined)
+  // The FCF base (owner, 2026-07-19 — the KO $8.16 finding): the latest computable EDGAR year is
+  // FCF0 UNLESS it deviates from the recent-window median beyond the anomaly threshold (disclosed
+  // one-offs — IRS deposits, earnout payments — poison a raw base year); then the MEDIAN is the base
+  // and the switch is a loud FACT on the sanity rail. Pure T0 (resolveFcfBase).
+  const fcfBase = fundamentals?.annual_series !== undefined
+    ? resolveFcfBase(fundamentals.annual_series)
     : undefined
-  const latestFcfMusd = latestFcfRow !== undefined ? yearFcf(latestFcfRow) : undefined
+  const latestFcfMusd = fcfBase?.fcf_musd
   if (latestFcfMusd === undefined) {
     degradedFlags.push(
       'fcf_not_computable: free cash flow (CFO − capex) is not computable for this filer (CFO or capex '
@@ -2642,13 +2645,20 @@ export async function runResearchDeepDivePhase(
       + 'value, buy threshold, or zone is emitted; owner-earnings proxies are retired and never substitute.',
     )
   }
-  // T0 provenance for the FCF basis (replaces the owner-earnings bridge block).
-  const fcfBasis = latestFcfRow !== undefined
+  // T0 provenance for the FCF basis. `fcf_musd` is THE BASE USED (median when anomaly-switched);
+  // the latest year's own facts stay alongside so the dossier can show both honestly.
+  const fcfBasis = fcfBase !== undefined
     ? {
-        fiscal_year: latestFcfRow.fiscal_year,
-        ...(latestFcfRow.cfo_musd !== undefined ? { cfo_musd: latestFcfRow.cfo_musd } : {}),
-        ...(latestFcfRow.capex_musd !== undefined ? { capex_musd: latestFcfRow.capex_musd } : {}),
-        fcf_musd: latestFcfMusd as number,
+        fiscal_year: fcfBase.latest.fiscal_year,
+        ...(fcfBase.latest.cfo_musd !== undefined ? { cfo_musd: fcfBase.latest.cfo_musd } : {}),
+        ...(fcfBase.latest.capex_musd !== undefined ? { capex_musd: fcfBase.latest.capex_musd } : {}),
+        fcf_musd: fcfBase.fcf_musd,
+        fcf_base_basis: fcfBase.basis,
+        latest_fcf_musd: fcfBase.latest.fcf_musd,
+        ...(fcfBase.median_musd === undefined ? {} : { fcf_median_musd: fcfBase.median_musd }),
+        ...(fcfBase.window_fiscal_years === undefined ? {} : { fcf_base_window: fcfBase.window_fiscal_years }),
+        ...(fcfBase.deviation === undefined ? {} : { fcf_base_deviation: fcfBase.deviation }),
+        ...(reporting_currency !== undefined ? {} : {}),
         ...(reporting_currency !== undefined ? { reporting_currency } : {}),
         ...(primaryFilingSourceId !== undefined ? { source_id: primaryFilingSourceId } : {}),
       }
@@ -2798,6 +2808,16 @@ export async function runResearchDeepDivePhase(
   const advisorySanityCarryover: string[] = []
   // E2 survivor: the factual reinvestment-mix read (advisory when heavy; never a proxy, never a block).
   if (capexVsDa.growth_capex_heavy) advisorySanityCarryover.push(`capex_mix: ${capexVsDa.note}`)
+  // FCF-base anomaly (owner, 2026-07-19 — the KO $8.16 finding): the latest year deviated from the
+  // window median beyond the threshold, so the MEDIAN is FCF0. A loud FACT, never silent.
+  if (fcfBase !== undefined && fcfBase.basis === 'median_window' && fcfBase.median_musd !== undefined && fcfBase.deviation !== undefined) {
+    advisorySanityCarryover.push(
+      `fcf_base_anomalous: FACT: FY${fcfBase.latest.fiscal_year} FCF (${Math.round(fcfBase.latest.fcf_musd).toLocaleString('en-US')}M) is `
+      + `${Math.abs(fcfBase.deviation * 100).toFixed(0)}% ${fcfBase.deviation < 0 ? 'below' : 'above'} the ${fcfBase.window_fiscal_years?.length ?? 0}-year median `
+      + `(${Math.round(fcfBase.median_musd).toLocaleString('en-US')}M) — likely one-offs distorting the base year; the valuation uses the MEDIAN as FCF0. `
+      + `Audit the cash-flow statement for non-recurring items.`,
+    )
+  }
   const growthResult = creditedGrowth(buffettMungerStrategy, {
     demonstrated_growth,
     ...(laneArguedGrowth !== undefined ? { agent_proposed_growth: laneArguedGrowth } : {}),

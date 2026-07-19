@@ -1401,3 +1401,33 @@ describe('the one-pager card (B3)', () => {
     expect(html).not.toContain('one-pager-card')
   })
 })
+describe('FCF-base normalization display (owner, 2026-07-19 — the KO finding)', () => {
+  it('a median-switched base shows BOTH the median used and the anomalous latest year', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: baseCase({
+        fcf_basis: {
+          fiscal_year: 2025, cfo_musd: 7408, capex_musd: 2112, fcf_musd: 9534,
+          fcf_base_basis: 'median_window', latest_fcf_musd: 5296, fcf_median_musd: 9534,
+          fcf_base_window: [2021, 2022, 2023, 2024, 2025], reporting_currency: 'USD',
+        },
+      }),
+    }))
+    expect(html).toContain('data-testid="fcf-base-median"')
+    expect(html).toContain('median of FY2021–FY2025')
+    expect(html).toContain('9,534')
+    expect(html).toContain('5,296')
+    expect(html).toContain('anomalous')
+    // The plain arithmetic line (whose numbers would not add up) must NOT render in this mode.
+    expect(html).not.toContain('FCF = CFO')
+  })
+
+  it('a latest-year base renders the plain arithmetic line exactly as before', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: baseCase({
+        fcf_basis: { fiscal_year: 2025, cfo_musd: 13335, capex_musd: 5498, fcf_musd: 7837, fcf_base_basis: 'latest_year', reporting_currency: 'USD' },
+      }),
+    }))
+    expect(html).toContain('FCF = CFO $13,335M − capex $5,498M = $7,837M (FY2025, USD)')
+    expect(html).not.toContain('fcf-base-median')
+  })
+})

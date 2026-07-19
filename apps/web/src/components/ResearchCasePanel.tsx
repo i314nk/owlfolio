@@ -2241,7 +2241,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const assumedGrowth = reasoning?.assumed_growth ?? growthRate
 
   // E2: the T0 FCF basis + the factual capex-vs-D&A note (the OE bridge is retired from display).
-  const fcfBasis = (valuation as { fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string } }).fcf_basis
+  const fcfBasis = (valuation as { fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; fcf_base_basis?: string; latest_fcf_musd?: number; fcf_median_musd?: number; fcf_base_window?: number[]; reporting_currency?: string; source_id?: string } }).fcf_basis
   const capexVsDa = (valuation as { capex_vs_da?: { capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string } }).capex_vs_da
 
   return createElement(
@@ -2406,7 +2406,15 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           padding: '0.75rem 1rem',
         },
       },
-      fcfBasis !== undefined ? createElement('p', { style: { color: 'var(--owl-color-text-soft)', margin: '0 0 0.4rem' } },
+      // FCF-base normalization (owner, 2026-07-19): when the latest year was anomalous, the base is
+      // the window MEDIAN — the display must show BOTH (median used + the latest year's own facts),
+      // never an arithmetic line whose numbers don't add up.
+      fcfBasis !== undefined && fcfBasis.fcf_base_basis === 'median_window' ? createElement('p', { 'data-testid': 'fcf-base-median', style: { color: 'var(--owl-color-text-soft)', margin: '0 0 0.4rem' } },
+        `FCF\u2080 = $${fcfBasis.fcf_musd !== undefined ? Math.round(fcfBasis.fcf_musd).toLocaleString('en-US') : '?'}M — median of `
+        + `${fcfBasis.fcf_base_window !== undefined && fcfBasis.fcf_base_window.length > 0 ? `FY${fcfBasis.fcf_base_window[0]}–FY${fcfBasis.fcf_base_window[fcfBasis.fcf_base_window.length - 1]}` : 'the recent window'}`
+        + ` (latest FY${fcfBasis.fiscal_year ?? '?'}: CFO ${fcfBasis.cfo_musd !== undefined ? `$${Math.round(fcfBasis.cfo_musd).toLocaleString('en-US')}M` : '?'} − capex ${fcfBasis.capex_musd !== undefined ? `$${Math.round(fcfBasis.capex_musd).toLocaleString('en-US')}M` : '?'}`
+        + `${fcfBasis.latest_fcf_musd !== undefined ? ` = $${Math.round(fcfBasis.latest_fcf_musd).toLocaleString('en-US')}M` : ''} — anomalous, see the sanity note)`,
+      ) : fcfBasis !== undefined ? createElement('p', { style: { color: 'var(--owl-color-text-soft)', margin: '0 0 0.4rem' } },
         `FCF = CFO ${fcfBasis.cfo_musd !== undefined ? `$${Math.round(fcfBasis.cfo_musd).toLocaleString('en-US')}M` : '?'} − capex ${fcfBasis.capex_musd !== undefined ? `$${Math.round(fcfBasis.capex_musd).toLocaleString('en-US')}M` : '?'}`
         + `${fcfBasis.fcf_musd !== undefined ? ` = $${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M` : ''}`
         + `${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year}` : ''}${fcfBasis.reporting_currency !== undefined && fcfBasis.fiscal_year !== undefined ? `, ${fcfBasis.reporting_currency})` : fcfBasis.fiscal_year !== undefined ? ')' : ''}`,
