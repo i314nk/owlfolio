@@ -6,6 +6,7 @@ import { evaluateCircleGate } from '../../../../lib/circleGate'
 import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../lib/onboarding'
 import { evaluateOnboardingGate } from '../../../../lib/onboardingGate'
 import { enqueueResearchRun } from '../../../../lib/workflow'
+import { resolveResearchTicker, type ResearchTickerResolution } from '../../../../lib/tickerValidation'
 
 function parseRequestBody(body: unknown): { ticker: string; company_id?: string; supersedes_research_case_id?: string; moat_gate_override?: boolean } {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
@@ -58,6 +59,8 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string;
 /** Test-only seam for the pre-flight key guard (fake env-file read / fake live validation). */
 type StartRouteDeps = {
   keyGuard?: (providerId: string) => Promise<PreflightKeyGuardResult>
+  /** Test seam for the SEC-filer ticker validation (avoids live sec.gov in unit tests). */
+  resolveTicker?: (ticker: string) => Promise<ResearchTickerResolution>
 }
 
 export async function POST(request: Request, _context?: unknown, deps: StartRouteDeps = {}) {
@@ -121,13 +124,36 @@ export async function POST(request: Request, _context?: unknown, deps: StartRout
       )
     }
 
+    // TICKER VALIDATION (owner, 2026-07-19): resolve the user-typed ticker against SEC's filer list
+    // BEFORE any spend — the same universe the pipeline grounds in, so "no CIK" means the app cannot
+    // research it at all (not merely a possible typo). Normalizes BRK.B → BRK-B; FAILS OPEN when the
+    // lookup itself errors (an sec.gov hiccup must not block research — the run still fails closed).
+    // The deterministic mock lane skips the live lookup (its runs never touch the network), keeping
+    // demo/e2e offline; the test seam exercises the branches regardless of provider.
+    let effectiveTicker = parsed.ticker
+    if (deps.resolveTicker !== undefined || state.config.provider.provider_id !== 'mock-provider') {
+      const resolution = await (deps.resolveTicker ?? resolveResearchTicker)(parsed.ticker)
+      if (resolution.status === 'unknown') {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'unknown_ticker',
+              message: `"${parsed.ticker.toUpperCase()}" was not found among SEC filers. Owner’s Manual researches companies that file with the SEC — check the symbol (class shares use a hyphen: BRK-B, not BRK.B).`,
+            },
+          },
+          { status: 400 },
+        )
+      }
+      effectiveTicker = resolution.ticker
+    }
+
     // Circle-of-competence PRE-SPEND gate: when the owner has ENABLED a boundary, reject an
     // out-of-circle candidate BEFORE any expensive research is spent — no research case is created.
     // Permissive default (enabled !== true) skips this entirely so the common path is unchanged (no
     // extra fetch). The decision is config-only — there is NO LLM in the circle path.
     const circleConfig = state.config.circle_of_competence
     if (circleConfig?.enabled === true) {
-      const circle = await evaluateCircleGate(circleConfig, parsed.ticker)
+      const circle = await evaluateCircleGate(circleConfig, effectiveTicker)
       if (!circle.allowed) {
         return NextResponse.json(
           {
@@ -141,7 +167,7 @@ export async function POST(request: Request, _context?: unknown, deps: StartRout
       }
     }
 
-    const { research_case_id } = await enqueueResearchRun(state, parsed)
+    const { research_case_id } = await enqueueResearchRun(state, { ...parsed, ticker: effectiveTicker })
 
     return NextResponse.json({ research_case_id }, { status: 202 })
   } catch (error) {

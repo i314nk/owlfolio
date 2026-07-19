@@ -3,12 +3,12 @@ import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
 
 import { AppNavigation } from './AppNavigation'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
-import type { OwlLocale, OwlThemeId } from '@owlfolio/shared'
+import type { OwlThemeId } from '@owlfolio/shared'
 
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 import { ThemeSwitcher } from './ThemeSwitcher'
-import { LanguageSwitcher } from './LanguageSwitcher'
-import { t, type MessageKey } from '../lib/i18n'
+import { PageTranslator } from './PageTranslator'
+import { t } from '../lib/i18n'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
 // Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
@@ -41,7 +41,6 @@ export type AppShellProps = {
   /** The active UI palette (PALETTES 2026-07-16); the shell mounts the top-right quick-switcher. */
   theme?: OwlThemeId
   /** The active UI language (i18n S1); the shell translates the chrome + mounts the switcher. */
-  locale?: OwlLocale
 }
 
 export type OwlCardProps = {
@@ -86,19 +85,12 @@ export type SourceChipProps = {
   label?: string
 }
 
-const shellStatusItems: { label: MessageKey; value: MessageKey }[] = [
-  { label: 'ctx_local_ledger', value: 'ctx_local_ledger_value' },
-  { label: 'ctx_shariah', value: 'ctx_shariah_value' },
-  { label: 'ctx_provider', value: 'ctx_provider_value' },
-]
-
-export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher, theme = 'emerald', locale = 'en' }: AppShellProps) {
+export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher, theme = 'emerald' }: AppShellProps) {
   return createElement(
     'div',
     { className: `owl-app-shell ${fontVariableClassName}`, 'data-owl-shell': 'clean-sidebar' },
     createElement(AppNavigation, {
       isSetupComplete,
-      locale,
       ...(activeModeStatus === undefined ? {} : { activeModeStatus }),
       ...(modelSwitcher === undefined ? {} : { modelSwitcher }),
     }),
@@ -108,20 +100,15 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
       createElement(
         'div',
         { 'aria-label': 'Owner’s Manual operating context', className: 'owl-shell-context-bar' },
-        ...shellStatusItems.map((item) => createElement(
-          'span',
-          { className: 'owl-shell-context-chip', key: item.label },
-          createElement('span', { className: 'owl-shell-context-label' }, t(locale, item.label)),
-          createElement('span', { className: 'owl-shell-context-value' }, t(locale, item.value)),
-        )),
+        // Decorative status chips removed (owner, 2026-07-19): the bar keeps only the two CONTROLS.
         createElement(ThemeSwitcher, { current: theme }),
-        createElement(LanguageSwitcher, { current: locale }),
+        createElement(PageTranslator, {}),
       ),
       createElement(
         'div',
         { className: 'owl-main-region' },
         children,
-        createElement(BoundariesFooter, { locale }),
+        createElement(BoundariesFooter, {}),
       ),
     ),
   )
@@ -135,12 +122,12 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
 export const BOUNDARIES_FOOTER_TEXT =
   'Automated output is a draft or observation — never a recommendation to act. Every irreversible transition is human-authored.'
 
-export function BoundariesFooter({ locale = 'en' }: { locale?: OwlLocale }) {
+export function BoundariesFooter(_props: Record<string, never> = {}) {
   return createElement(
     'footer',
     { 'aria-label': 'Owner’s Manual fiduciary boundaries', className: 'owl-boundaries-footer', role: 'contentinfo' },
-    createElement('p', { className: 'owl-boundaries-footer-label' }, t(locale, 'footer_label')),
-    createElement('p', { className: 'owl-boundaries-footer-text' }, locale === 'en' ? BOUNDARIES_FOOTER_TEXT : t(locale, 'footer_text')),
+    createElement('p', { className: 'owl-boundaries-footer-label' }, t('footer_label')),
+    createElement('p', { className: 'owl-boundaries-footer-text' }, BOUNDARIES_FOOTER_TEXT),
   )
 }
 
@@ -228,10 +215,17 @@ export function EmptyState({ description, primaryAction, provenance, secondaryAc
   )
 }
 
+/**
+ * TRANSLATE-HARDENING CONVENTION (owner, 2026-07-19): the app is English-only and full-page
+ * translation is an external, on-demand concern (browser translate). Anything the user must TYPE,
+ * RUN, COPY, or SEARCH verbatim — ids, tickers, model ids, env var names, CLI commands, paths —
+ * carries `translate="no"` so a page translator renders the prose without corrupting the machine
+ * vocabulary. Conceptual vocabulary (verdicts, statuses, headings) deliberately stays translatable.
+ */
 export function SourceChip({ href, id, label = 'Source' }: SourceChipProps) {
   const content = [
     createElement('span', { className: 'owl-source-chip-label', key: 'label' }, label),
-    createElement('span', { className: 'owl-source-chip-id', key: 'id' }, id),
+    createElement('span', { className: 'owl-source-chip-id', key: 'id', translate: 'no' }, id),
   ]
 
   if (href === undefined) {

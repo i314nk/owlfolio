@@ -31,7 +31,7 @@ export function ResearchCasePending({ caseId, refreshIntervalMs = 2000 }: Resear
       <p className="owl-empty-state-kicker">Research running</p>
       <h2 className="owl-section-title">Building your research case…</h2>
       <p className="owl-empty-state-description">
-        The research worker is gathering sources and drafting the dossier for <code>{caseId}</code>.
+        The research worker is gathering sources and drafting the dossier for <code translate="no">{caseId}</code>.
         This page refreshes automatically — it will show the case as soon as the worker finishes.
       </p>
     </section>

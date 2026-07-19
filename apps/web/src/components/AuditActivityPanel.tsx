@@ -1,6 +1,5 @@
 import { createElement, type CSSProperties } from 'react'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import {
   deriveAuditActivityView,
@@ -9,14 +8,12 @@ import {
   type AuditActivityFilters,
   type AuditCaseGroup,
 } from '../lib/audit'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import { RouteHeader } from './designSystem'
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call. Page
 // chrome follows the locale; ledger data and the row internals (technical vocabulary, ids, raw
 // payloads) stay as recorded.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 // ── Inline styles for surfaces that have no shared class yet ──────────────────
 // The page leans on the shared editorial vocabulary (owl-section-card,
@@ -214,7 +211,6 @@ type AuditActivityPanelProps = {
   events: AuditActivityEvent[]
   filters?: AuditActivityFilters
   /** i18n: the page chrome language (ledger data stays as recorded). */
-  locale?: OwlLocale
 }
 
 /**
@@ -225,17 +221,16 @@ type AuditActivityPanelProps = {
  * fiduciary ledger. Leads with the summary, keeps the powerful filters but
  * presents them cleanly, then renders events grouped by research case.
  */
-export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: AuditActivityPanelProps) {
-  panelLocale = locale
+export function AuditActivityPanel({ events, filters = {} }: AuditActivityPanelProps) {
   const view = deriveAuditActivityView(events, filters)
 
   return createElement(
     'section',
-    { 'aria-label': dt('au_title'), style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    { 'aria-label': t('au_title'), style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     createElement(RouteHeader, {
-      kicker: dt('au_kicker'),
-      title: dt('au_title'),
-      description: dt('au_desc'),
+      kicker: t('au_kicker'),
+      title: t('au_title'),
+      description: t('au_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
     createElement(AuditLedgerLine, { events, filterOptions: view.filterOptions, shownCount: view.events.length }),
@@ -244,17 +239,17 @@ export function AuditActivityPanel({ events, filters = {}, locale = 'en' }: Audi
     createElement(
       'p',
       { className: 'owl-row-helper', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', margin: 0 } },
-      view.effectiveView === 'decisions' ? dt('au_view_decisions_note') : dt('au_view_full_note'),
+      view.effectiveView === 'decisions' ? t('au_view_decisions_note') : t('au_view_full_note'),
       view.effectiveView === 'decisions'
-        ? createElement('a', { className: 'owl-focusable', href: '/audit?view=full', style: traceLinkStyle }, dt('au_view_full_link'))
-        : createElement('a', { className: 'owl-focusable', href: '/audit', style: traceLinkStyle }, dt('au_view_decisions_link')),
+        ? createElement('a', { className: 'owl-focusable', href: '/audit?view=full', style: traceLinkStyle }, t('au_view_full_link'))
+        : createElement('a', { className: 'owl-focusable', href: '/audit', style: traceLinkStyle }, t('au_view_decisions_link')),
     ),
     createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions, activeFilters: view.activeFilters }),
     view.events.length === 0
       ? createElement(
         'p',
         { className: 'owl-body' },
-        events.length === 0 ? dt('au_empty_none') : dt('au_empty_filtered'),
+        events.length === 0 ? t('au_empty_none') : t('au_empty_filtered'),
       )
       : createElement(AuditGroupedView, { caseGroups: view.caseGroups, ungroupedEvents: view.ungroupedEvents }),
   )
@@ -271,11 +266,11 @@ function AuditLedgerLine({ events, filterOptions, shownCount }: {
   const caseCount = new Set(events.map((event) => event.correlation_id).filter((id): id is string => id !== undefined)).size
 
   const stats: { label: string; value: string }[] = [
-    { label: dt('au_stat_events'), value: hasEvents ? countsText(events.length) : '—' },
-    { label: dt('au_stat_shown'), value: hasEvents ? countsText(shownCount) : '—' },
-    { label: dt('au_stat_cases'), value: hasEvents ? countsText(caseCount) : '—' },
-    { label: dt('au_stat_types'), value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
-    { label: dt('au_stat_actors'), value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
+    { label: t('au_stat_events'), value: hasEvents ? countsText(events.length) : '—' },
+    { label: t('au_stat_shown'), value: hasEvents ? countsText(shownCount) : '—' },
+    { label: t('au_stat_cases'), value: hasEvents ? countsText(caseCount) : '—' },
+    { label: t('au_stat_types'), value: hasEvents ? countsText(filterOptions.eventTypes.length) : '—' },
+    { label: t('au_stat_actors'), value: hasEvents ? countsText(filterOptions.actors.length) : '—' },
   ]
 
   return createElement(
@@ -313,7 +308,7 @@ function AuditActivityFiltersForm({ filters, filterOptions, activeFilters }: {
       className: 'owl-section-card',
       style: { gap: 'var(--owl-space-2)', position: 'sticky', top: '0.6rem', zIndex: 20 },
     },
-    createElement('p', { className: 'owl-section-accent' }, dt('au_filter_accent')),
+    createElement('p', { className: 'owl-section-accent' }, t('au_filter_accent')),
     createElement(
       'form',
       { action: '/audit', method: 'get', style: { display: 'grid', gap: '0.7rem', margin: 0 } },
@@ -321,28 +316,28 @@ function AuditActivityFiltersForm({ filters, filterOptions, activeFilters }: {
       createElement(
         'div',
         { style: { alignItems: 'flex-end', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
-        filterInput(dt('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field', undefined, { flex: '2 1 240px' }),
-        filterInput(dt('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID', undefined, { flex: '1 1 180px' }),
-        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, dt('au_apply')),
-        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, dt('au_clear')),
+        filterInput(t('au_f_query'), 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field', undefined, { flex: '2 1 240px' }),
+        filterInput(t('au_f_entity'), 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID', undefined, { flex: '1 1 180px' }),
+        createElement('button', { className: 'owl-button owl-button-primary owl-focusable', type: 'submit' }, t('au_apply')),
+        createElement('a', { className: 'owl-button owl-button-secondary owl-focusable', href: '/audit' }, t('au_clear')),
       ),
       // The technical filters, one toggle away (open whenever one is active).
       createElement(
         'details',
         advancedActive ? { open: true } : {},
-        createElement('summary', { style: advancedSummaryStyle }, dt('au_advanced')),
+        createElement('summary', { style: advancedSummaryStyle }, t('au_advanced')),
         createElement(
           'div',
           { style: { ...filterFormStyle, marginTop: '0.6rem' } },
-          filterInput(dt('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
-          filterInput(dt('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
-          filterInput(dt('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
-          filterSelect(dt('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, dt('au_all_types')),
-          filterSelect(dt('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, dt('au_all_actors')),
-          filterInput(dt('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
-          filterInput(dt('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
-          filterSelect(dt('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], dt('au_order_asc')),
-          filterSelect(dt('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, dt('au_all_schema')),
+          filterInput(t('au_f_event_id'), 'event_id', filters.eventId ?? '', 'evt_...'),
+          filterInput(t('au_f_correlation'), 'correlation_id', filters.correlationId ?? '', 'corr_...'),
+          filterInput(t('au_f_source'), 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
+          filterSelect(t('au_f_type'), 'event_type', filters.eventType ?? '', filterOptions.eventTypes, t('au_all_types')),
+          filterSelect(t('au_f_actor'), 'actor', filters.actor ?? '', filterOptions.actors, t('au_all_actors')),
+          filterInput(t('au_f_from'), 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
+          filterInput(t('au_f_to'), 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
+          filterSelect(t('au_f_order'), 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], t('au_order_asc')),
+          filterSelect(t('au_f_schema'), 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, t('au_all_schema')),
         ),
       ),
     ),
@@ -358,7 +353,7 @@ function ActiveAuditFilters({ activeFilters }: { activeFilters: string[] }) {
   return createElement(
     'section',
     { 'aria-label': 'Active audit filters', style: { display: 'grid', gap: '0.5rem' } },
-    createElement('p', { style: detailTermStyle }, dt('au_active')),
+    createElement('p', { style: detailTermStyle }, t('au_active')),
     createElement(
       'div',
       { style: activeFiltersStyle },
@@ -399,9 +394,9 @@ function AuditCaseGroupSection({ group }: { group: AuditCaseGroup }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
-        createElement('span', { className: 'owl-section-accent' }, dt('au_group_case')),
+        createElement('span', { className: 'owl-section-accent' }, t('au_group_case')),
         createElement('span', { className: 'owl-section-title' }, group.ticker),
-        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? dt('au_ev_one') : dt('au_ev_many')} · ${dateStr}`),
+        createElement('span', { style: timestampStyle }, `${group.event_count} ${group.event_count === 1 ? t('au_ev_one') : t('au_ev_many')} · ${dateStr}`),
       ),
       createElement('span', { style: { ...timestampStyle, fontSize: 'var(--owl-text-2xs)' } }, group.correlation_id),
     ),
@@ -423,10 +418,10 @@ function AuditOtherGroupSection({ events }: { events: AuditActivityEvent[] }) {
       createElement(
         'span',
         { style: { display: 'flex', gap: '0.6rem', alignItems: 'baseline' } },
-        createElement('span', { className: 'owl-section-accent' }, dt('au_group_other')),
-        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, dt('au_group_other_title')),
+        createElement('span', { className: 'owl-section-accent' }, t('au_group_other')),
+        createElement('span', { className: 'owl-section-title', style: { color: 'var(--owl-color-muted)' } }, t('au_group_other_title')),
       ),
-      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? dt('au_ev_one') : dt('au_ev_many')}`),
+      createElement('span', { style: timestampStyle }, `${events.length} ${events.length === 1 ? t('au_ev_one') : t('au_ev_many')}`),
     ),
     createElement(
       'ol',
@@ -558,7 +553,7 @@ function RelationshipLine({ label, relationshipId }: { label: string; relationsh
     'p',
     { style: { ...detailValueStyle, marginTop: '0.75rem' } },
     `${label}: `,
-    createElement('a', { className: 'owl-focusable', href: auditFilterHref('event_id', relationshipId, relationshipId), style: traceLinkStyle }, relationshipId),
+    createElement('a', { className: 'owl-focusable', href: auditFilterHref('event_id', relationshipId, relationshipId), style: traceLinkStyle, translate: 'no' }, relationshipId),
   )
 }
 

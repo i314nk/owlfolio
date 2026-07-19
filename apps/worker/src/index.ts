@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
-import { mergeAutomationSettings, mergeSavingsSleeveConfig, resolveLocale, userSetRequiredReturn } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergeSavingsSleeveConfig, userSetRequiredReturn } from '@owlfolio/shared'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runScheduledTasks } from './runtime.ts'
 
@@ -131,8 +131,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // SCREENING TOGGLE: forwarded so a worker-executed run skips the Shariah phases exactly like a
     // web-executed one when screening is OFF.
     const shariah_enabled = runtime.config.shariah.enabled
-    // Task #88: an Arabic app language asks each run for the Arabic prose rendering (fail-open).
-    const prose_locale = resolveLocale(runtime.config.language) === 'ar' ? ('ar' as const) : undefined
 
     logLine(`worker start — task=${options.task_kind ?? 'all'} dry_run=${options.dry_run === true} provider=${runtime.config.provider.provider_id}${runtime.config.provider.model_id === undefined ? '' : ` model=${runtime.config.provider.model_id}`}`)
 
@@ -145,7 +143,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         circle_gate,
         risk_free_rate,
         shariah_enabled,
-        ...(prose_locale === undefined ? {} : { prose_locale }),
         ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
         // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
         // a worker-executed run pauses behind the gates exactly like an in-process one.
@@ -169,7 +166,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         circle_gate,
         risk_free_rate,
         shariah_enabled,
-        ...(prose_locale === undefined ? {} : { prose_locale }),
         ...(userRequiredReturn === undefined ? {} : { required_return: userRequiredReturn }),
       })
       reportResult(result)

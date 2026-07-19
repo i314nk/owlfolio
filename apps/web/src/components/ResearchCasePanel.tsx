@@ -1,8 +1,7 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
 import { RunDeepDiveButton } from './RunDeepDiveButton'
 import { createPriceLadderElement } from './PriceLadder'
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import { PillarJumpNav, type PillarJumpEntry, type PillarJumpTone } from './PillarJumpNav'
 
 import type {
@@ -36,8 +35,6 @@ export type MarketQuote = {
   source: string
 }
 
-let dossierLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(dossierLocale, key)
 
 export type ResearchCasePanelProps = {
   researchCase: AppResearchCase
@@ -58,7 +55,6 @@ export type ResearchCasePanelProps = {
   /** SCREENING TOGGLE (owner, 2026-07-15): false hides the Shariah gate section on the dossier. */
   shariahEnabled?: boolean
   /** i18n S2: the dossier chrome language (prose stays as recorded). */
-  locale?: OwlLocale
 }
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -303,28 +299,9 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal-local', configuredProviderId, marketQuote, savings, shariahEnabled = true, locale = 'en' }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'personal-local', configuredProviderId, marketQuote, savings, shariahEnabled = true }: ResearchCasePanelProps) {
   // i18n S2: render-scoped locale for the dossier chrome — every create* helper below runs
   // synchronously inside this call, so the module variable is safe per render.
-  dossierLocale = locale
-  // Task #88 (owner, 2026-07-18): when the locale is Arabic AND the run recorded an Arabic prose
-  // rendering, substitute the six prose fields ONCE here — every downstream card inherits it. The
-  // ENGLISH ledger record stays authoritative (the substitution is view-only; a labeled note says so).
-  const arabicProse = locale === 'ar' ? recordedCase.prose_ar : undefined
-  const researchCase = arabicProse === undefined ? recordedCase : {
-    ...recordedCase,
-    reason: arabicProse.decision_reason,
-    thesis_summary: arabicProse.thesis_summary,
-    evidence_summary: arabicProse.evidence_summary,
-    valuation_rationale: arabicProse.valuation_rationale,
-    shariah_rationale: arabicProse.shariah_rationale,
-    synthesis_summary: arabicProse.synthesis_summary,
-  }
-  const arabicProseNote = arabicProse === undefined ? null : createElement(
-    'p',
-    { 'data-testid': 'arabic-prose-note', dir: 'rtl', className: 'owl-row-helper', style: { border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '0.6rem 0 0', padding: '0.5rem 0.8rem' } },
-    dt('ar_prose_note'),
-  )
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -424,9 +401,9 @@ export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal
   const gateShortCircuited = researchCase.moat_gate_short_circuited === true
   const outsideCircle = researchCase.circle_competence?.in_competence === false
   const notEvaluatedReason = outsideCircle
-    ? dt('not_eval_circle')
+    ? t('not_eval_circle')
     : gateShortCircuited
-      ? dt('not_eval_moat')
+      ? t('not_eval_moat')
       : undefined
   const p2Status = outsideCircle ? notEvaluatedReason : undefined
   const p3p4Status = notEvaluatedReason
@@ -457,14 +434,14 @@ export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal
   const jumpEntries: PillarJumpEntry[] = [
     ...(shariahGateDisabledForRun(researchCase) || !shariahEnabled
       ? []
-      : [{ id: 'front-gate', label: dt('jump_gate'), tone: jumpTone(researchCase.shariah_status) }]),
+      : [{ id: 'front-gate', label: t('jump_gate'), tone: jumpTone(researchCase.shariah_status) }]),
     { id: 'pillar-1', label: 'P1', tone: jumpTone(p1Hint) },
     { id: 'pillar-2', label: 'P2', tone: p2Status !== undefined ? 'fail' as const : jumpTone(p2Hint) },
     { id: 'pillar-3', label: 'P3', tone: p3p4Status !== undefined ? 'fail' as const : jumpTone(p3Hint) },
     { id: 'pillar-4', label: 'P4', tone: p3p4Status !== undefined ? 'fail' as const : jumpTone(p4Hint) },
     {
       id: 'synthesis',
-      label: dt('jump_syn'),
+      label: t('jump_syn'),
       tone: researchCase.investment_verdict === 'BUY'
         ? 'pass'
         : researchCase.investment_verdict === 'WATCH' || researchCase.investment_verdict === 'RESEARCH_MORE'
@@ -480,8 +457,6 @@ export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal
     { style: { display: 'grid', gap: '1rem' } },
     // ── 0. Mock-provider honesty banner (personal-local, mock-authored, real provider configured) ──
     mockWarningBanner,
-    // ── Task #88: the Arabic-prose provenance note (view-only substitution; English authoritative) ──
-    arabicProseNote,
     // ── Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
     createElement(PillarJumpNav, { entries: jumpEntries }),
@@ -512,32 +487,32 @@ export function ResearchCasePanel({ researchCase: recordedCase, mode = 'personal
       ? [createElement('p', { 'data-testid': 'shariah-screening-off-line', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.04em', margin: 0 } }, 'SHARIAH SCREENING WAS OFF FOR THIS RUN — the front gate did not run; nothing was screened.')]
       : !shariahEnabled
         ? []
-        : [createPillarSection('front-gate', dt('pillar_gate'), undefined, researchCase.shariah_status, [
+        : [createPillarSection('front-gate', t('pillar_gate'), undefined, researchCase.shariah_status, [
             createComplianceRatioBlock(researchCase),
           ])]),
     // ── PILLAR 1 — Understand the business (the circle-of-competence judgment + the one-pager) ──
-    createPillarSection('pillar-1', dt('pillar_1'), undefined, p1Hint, [
+    createPillarSection('pillar-1', t('pillar_1'), undefined, p1Hint, [
       createCircleCompetencePanel(researchCase),
       createOnePagerCard(researchCase),
     ]),
     // ── PILLAR 2 — Moat: FIRST which moats were identified, THEN whether the numbers back them. ──
-    createPillarSection('pillar-2', dt('pillar_2'), p2Status, p2Hint, [
+    createPillarSection('pillar-2', t('pillar_2'), p2Status, p2Hint, [
       createMoatsIdentifiedCard(researchCase),
       createMoatTestsCard(researchCase),
     ]),
     // ── PILLAR 3 — Management (integrity & talent + the deterministic insider summary) ──
-    createPillarSection('pillar-3', dt('pillar_3'), p3p4Status, p3Hint, [
+    createPillarSection('pillar-3', t('pillar_3'), p3p4Status, p3Hint, [
       createManagementPillarPanel(researchCase),
       createInsiderActivityPanel(researchCase),
     ]),
     // ── PILLAR 4 — Value the business (price is the LAST filter; the decision moves to the END) ──
-    createPillarSection('pillar-4', dt('pillar_4'), p3p4Status, p4Hint, [
+    createPillarSection('pillar-4', t('pillar_4'), p3p4Status, p4Hint, [
       createValuationPanel(researchCase, marketQuote, savings),
     ]),
     // ── SYNTHESIS & DECISION — the reasoning (synthesis, case against, forecasts) leads; the DECISION lands at
     //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
     //    the actionable plans (admit / position plan / sizing / sell). ──
-    createPillarHeader('synthesis', dt('pillar_synthesis'), undefined),
+    createPillarHeader('synthesis', t('pillar_synthesis'), undefined),
     createCaseAgainstPanel(researchCase),
     createForecastsPanel(researchCase),
     makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
@@ -720,7 +695,7 @@ function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
   return createElement(
     'div',
     { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.4rem' } },
-    createElement('p', { className: 'owl-section-accent' }, dt('accent_likely_moats')),
+    createElement('p', { className: 'owl-section-accent' }, t('accent_likely_moats')),
 
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
       'Model-claimed protection mechanisms with cited filing evidence. A citation proves the mechanism is REAL, not that it protects — whether the protection shows up in the economics is the three T0 tests below.'),    createElement(
@@ -1279,7 +1254,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
         },
       },
       // kicker label (keeps "Research dossier" visible for e2e)
-      createElement('p', { style: labelStyle }, dt('dossier_kicker')),
+      createElement('p', { style: labelStyle }, t('dossier_kicker')),
       createElement(
         'h1',
         { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
@@ -1343,7 +1318,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
         ),
       ),
       // Verdict summary label (keeps "Verdict summary" visible for e2e)
-      createElement('p', { style: labelStyle }, dt('verdict_summary')),
+      createElement('p', { style: labelStyle }, t('verdict_summary')),
       createElement(
         'h2',
         { style: { color: 'var(--owl-color-risk-pale)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
@@ -1418,7 +1393,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
         },
       },
       // kicker label
-      createElement('p', { style: labelStyle }, dt('dossier_kicker')),
+      createElement('p', { style: labelStyle }, t('dossier_kicker')),
       createElement(
         'h1',
         { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
@@ -1465,7 +1440,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
         ),
       ),
       // Verdict summary label
-      createElement('p', { style: labelStyle }, dt('verdict_summary')),
+      createElement('p', { style: labelStyle }, t('verdict_summary')),
       createElement(
         'h2',
         { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
@@ -1549,7 +1524,7 @@ function createSetAsideHero(researchCase: AppResearchCase) {
     createElement(
       'div',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' } },
-      createElement('p', { className: 'owl-section-accent' }, dt('dossier_kicker')),
+      createElement('p', { className: 'owl-section-accent' }, t('dossier_kicker')),
       createElement(
         'div',
         { style: { alignItems: 'flex-end', display: 'flex', flexDirection: 'column', gap: '0.2rem', textAlign: 'right' } },
@@ -1665,7 +1640,7 @@ function createVerdictHero(researchCase: AppResearchCase) {
     createElement(
       'div',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' } },
-      createElement('p', { className: 'owl-section-accent' }, dt('dossier_kicker')),
+      createElement('p', { className: 'owl-section-accent' }, t('dossier_kicker')),
       // version badge stacked above the engine-version marker (the reasoning-vintage stamp).
       createElement(
         'div',
@@ -1703,13 +1678,13 @@ function createVerdictHero(researchCase: AppResearchCase) {
     createElement(
       'section',
       { style: { display: 'grid', gap: '0.5rem' } },
-      createElement('p', { className: 'owl-section-accent' }, dt('verdict_summary')),
+      createElement('p', { className: 'owl-section-accent' }, t('verdict_summary')),
       createVerdictSummaryBody(researchCase),
       // Next action
       createElement(
         'p',
         { style: { borderTop: '1px solid var(--owl-color-border)', color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0, paddingTop: '0.8rem' } },
-        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, dt('next_action')),
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, t('next_action')),
         nextAction,
       ),
     ),
@@ -1906,7 +1881,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
-        createPill(`${dt('lbl_verdict')}: ${degradedVerdict}`, resolveVerdictColors(degradedVerdict)),
+        createPill(`${t('lbl_verdict')}: ${degradedVerdict}`, resolveVerdictColors(degradedVerdict)),
         ...(researchCase.valuation_status !== undefined
           ? [createPill(`Valuation: ${researchCase.valuation_status}`, resolveValuationChipColor(researchCase.valuation_status))]
           : []),
@@ -1946,7 +1921,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       style: { gap: '0.7rem' },
     },
     // Header + the model verdict / valuation-status pills (decision-relevant, leads).
-    createElement('p', { className: 'owl-section-accent' }, dt('accent_decision')),
+    createElement('p', { className: 'owl-section-accent' }, t('accent_decision')),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -2090,7 +2065,7 @@ function createThesisBreakAuditCard(researchCase: AppResearchCase) {
       // The gold accent rail marks the human's audit surface riding with the decision.
       style: { gap: '0.6rem', borderLeft: '3px solid var(--owl-color-gold)' },
     },
-    createElement('p', { className: 'owl-section-accent' }, dt('accent_thesis_break')),
+    createElement('p', { className: 'owl-section-accent' }, t('accent_thesis_break')),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -2279,7 +2254,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     },
     // Accent title (the collapsible wrapper lifts it into the summary; the moat + discount label lives on the
     // right of the collapsed header via the valuation hint, so it is not repeated here).
-    createElement('p', { className: 'owl-section-accent' }, dt('accent_valuation')),
+    createElement('p', { className: 'owl-section-accent' }, t('accent_valuation')),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -2304,7 +2279,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         'data-testid': 'valuation-reasoning',
         style: { display: 'grid', gap: '0.45rem', marginTop: '0.4rem' },
       },
-      createElement('p', { className: 'owl-section-accent' }, dt('accent_valuation_reasoning')),
+      createElement('p', { className: 'owl-section-accent' }, t('accent_valuation_reasoning')),
 
       assumedGrowth !== undefined ? createElement(
         'p',
@@ -2517,7 +2492,7 @@ function createComplianceRatioBlock(researchCase: AppResearchCase) {
       className: 'owl-section-card',
       style: { gap: '0.5rem' },
     },
-    createElement('p', { className: 'owl-section-accent' }, dt('accent_compliance')),
+    createElement('p', { className: 'owl-section-accent' }, t('accent_compliance')),
     createSectorPermissibilityRow(researchCase),
     ledger,
   )
@@ -2671,7 +2646,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
     createElement(
       'div',
       { style: { alignItems: 'baseline', color: 'var(--owl-color-text-soft)', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
-      createElement('span', { style: { fontWeight: 800 } }, `${dt('lbl_verdict')}: ${verdict}`),
+      createElement('span', { style: { fontWeight: 800 } }, `${t('lbl_verdict')}: ${verdict}`),
       createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
     ),
     deepScreenCaveat,

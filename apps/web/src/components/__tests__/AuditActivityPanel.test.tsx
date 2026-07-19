@@ -335,22 +335,6 @@ describe('generic audit activity', () => {
     expect(html).not.toContain('#f0fdf4')
   })
 
-  it('renders the page chrome in Arabic when locale is ar (ledger data and row internals stay as recorded)', async () => {
-    const events = await getAuditActivityEventsFromStore(storeWith([
-      event({ event_id: 'evt_ar_1', aggregate_id: 'rc_ar', payload: { ticker: 'MSFT' } }),
-    ]))
-    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, locale: 'ar' }))
-    // Header, stats, and filter chrome follow the locale…
-    expect(html).toContain('نشاط التدقيق')
-    expect(html).toContain('أحداث السجل')
-    expect(html).toContain('ابحث في السجل')
-    expect(html).not.toContain('Audit activity')
-    expect(html).not.toContain('Search the record')
-    // …while ledger data and row internals (technical vocabulary) stay as recorded.
-    expect(html).toContain('MSFT')
-    expect(html).toContain('Raw ledger event JSON')
-  })
-
   it('defaults the page chrome to English when no locale is given', async () => {
     const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events: [] }))
     expect(html).toContain('Audit activity')

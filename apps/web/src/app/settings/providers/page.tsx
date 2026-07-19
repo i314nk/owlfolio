@@ -12,7 +12,6 @@ import { getOnboardingProviderOptions, getOnboardingState } from '../../../lib/o
 import { buildProviderKeysPanelProps } from '../../../lib/providerKeysView'
 import { getOpenRouterModelOptions } from '../../../lib/openRouterModelOptions'
 import { resolveProjectRootFromCwd } from '../../../lib/appConfigStore'
-import { resolveLocale } from '@owlfolio/shared/appConfig'
 import { resolveActiveModeStatus } from '../../../lib/resolveActiveModeStatus'
 import { ProviderKeysCopyScript } from './ProviderKeysCopyScript'
 
@@ -72,7 +71,7 @@ export default async function ProviderKeysSettingsPage() {
       // The SAVED capability verdict for the active provider+model (persisted by the probe).
       modelCapability: await getModelCapabilityNote(state.config.provider.provider_id, state.config.provider.model_id),
     }),
-    createElement(ProviderKeysPanel, { ...props, locale: resolveLocale(state.config.language) }),
+    createElement(ProviderKeysPanel, { ...props }),
     createElement(ProviderKeysCopyScript, {}),
     createElement(BoundariesFooter, {}),
   )

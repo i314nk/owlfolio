@@ -6,11 +6,14 @@ describe('LearnPage source', () => {
   const pageSource = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
   const tabsSource = readFileSync('apps/web/src/components/LearnTabs.tsx', 'utf8')
 
-  it('routes the header chrome through the dictionary and keeps the english-content note (long-form pattern)', () => {
-    expect(pageSource).toContain("t(locale, 'ln_kicker')")
-    expect(pageSource).toContain("t(locale, 'ln_title')")
-    expect(pageSource).toContain("t(locale, 'ln_desc')")
-    expect(pageSource).toContain('englishContentNote')
+  it('routes the header chrome through the English copy table (single-arg t; no locale plumbing)', () => {
+    const source = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
+    expect(source).toContain("t('ln_kicker')")
+    expect(source).toContain("t('ln_title')")
+    // ENGLISH-ONLY (owner pivot, 2026-07-19): no locale resolution and no english-content banner —
+    // translation is an external, on-demand concern (browser full-page translate).
+    expect(source).not.toContain('resolveLocale')
+    expect(source).not.toContain('english-content-note')
   })
 
   it('claims no calibration file — post-mortems live in the ledger; calibration is a deferred pass', () => {

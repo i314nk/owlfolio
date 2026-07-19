@@ -72,7 +72,6 @@ import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, 
 import { runInversionPass, buildInversionLayer, type InversionLaneDigest, type InversionResult } from './inversionPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import { runShariahGatePhase, type ShariahGatePhaseResult } from './shariahGatePhase'
-import { runArabicProsePass } from './arabicProsePass'
 import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   LaneAgentSchema,
@@ -315,11 +314,6 @@ export type RunStrategyResearchSwarmCommand = {
    * verdict still gates to PASS/RESEARCH_MORE) — the override buys the full analysis, never a pass.
    */
   moat_gate_override?: boolean
-  /**
-   * Task #88 (owner, 2026-07-18): when 'ar', a focused fail-open pass renders the FINAL synthesis
-   * prose into Arabic and records it on the decision payload (prose_ar). English stays authoritative.
-   */
-  prose_locale?: 'ar'
 }
 
 export type RunResearchDeepDivePhaseCommand = {
@@ -355,11 +349,6 @@ export type RunResearchDeepDivePhaseCommand = {
   deep_dive_approval?: 'automatic' | 'review'
   /** S6 — skip the EARLY moat-gate short-circuit (user-authored override; the late rails still gate). */
   moat_gate_override?: boolean
-  /**
-   * Task #88 (owner, 2026-07-18): when 'ar', a focused fail-open pass renders the FINAL synthesis
-   * prose into Arabic and records it on the decision payload (prose_ar). English stays authoritative.
-   */
-  prose_locale?: 'ar'
 }
 
 // ---------------------------------------------------------------------------
@@ -832,7 +821,6 @@ export async function runStrategyResearchSwarm(
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
     // S6: forward the user-authored moat-gate override (run remaining pillars anyway).
     ...(command.moat_gate_override === undefined ? {} : { moat_gate_override: command.moat_gate_override }),
-    ...(command.prose_locale === undefined ? {} : { prose_locale: command.prose_locale }),
     // SCREENING TOGGLE: forward so the deep Shariah pass is skipped too (zero Shariah spend when off).
     ...(command.shariah_enabled === undefined ? {} : { shariah_enabled: command.shariah_enabled }),
   }, { ...deps, accumulated })
@@ -3857,39 +3845,16 @@ export async function runResearchDeepDivePhase(
   // reason carries no red-team annotation.
   const redTeamReasonNote = ''
 
-  const finalDecisionReason = gatedReason + redTeamReasonNote
-  const finalValuationRationale = (moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`)
-    + (valuationCaveats.length > 0 ? ` ${valuationCaveats.join(' ')}` : '')
-
-  // Task #88 (owner, 2026-07-18): the focused Arabic prose rendering — runs AFTER the final English
-  // prose is composed (so gate/clamp prefixes are covered), FAIL-OPEN (undefined → English-only
-  // dossier; the run never fails for a translation). The English record stays authoritative.
-  const proseAr = command.prose_locale === 'ar'
-    ? await runArabicProsePass(provider, {
-        research_case_id: command.research_case_id,
-        model_id: command.model_id,
-        ticker: command.ticker,
-        prose: {
-          decision_reason: finalDecisionReason,
-          thesis_summary: dec.analysis.thesis_summary,
-          evidence_summary: dec.analysis.evidence_summary,
-          valuation_rationale: finalValuationRationale,
-          shariah_rationale: dec.analysis.shariah_rationale,
-          synthesis_summary: dec.analysis.synthesis_summary,
-        },
-      })
-    : undefined
-
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,
     decision: gatedVerdict,
-    reason: finalDecisionReason,
+    reason: gatedReason + redTeamReasonNote,
     thesis_summary: dec.analysis.thesis_summary,
     evidence_summary: dec.analysis.evidence_summary,
-    valuation_rationale: finalValuationRationale,
+    valuation_rationale: (moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`)
+      + (valuationCaveats.length > 0 ? ` ${valuationCaveats.join(' ')}` : ''),
     shariah_rationale: dec.analysis.shariah_rationale,
-    ...(proseAr === undefined ? {} : { prose_ar: proseAr }),
     risks: dec.analysis.risks,
     // Mechanism 3 conservative hook: unmet base-rate burdens are surfaced as open questions so an
     // exceptional claim lacking structural evidence is never silently passed to the human.

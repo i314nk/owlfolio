@@ -1,6 +1,5 @@
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveLocale } from '@owlfolio/shared'
 
 import { ResearchLibrary } from '../../components/ResearchLibrary'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
@@ -39,7 +38,6 @@ export default async function ResearchLandingPage() {
           mode={state.config.mode}
           selectedStrategyName={strategyDisplayName(selectedStrategyId)}
           cases={cases}
-          locale={resolveLocale(state.config.language)}
         />
       </main>
     )

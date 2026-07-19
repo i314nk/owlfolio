@@ -179,16 +179,4 @@ describe('the 13F discovery page', () => {
     const html = render({ quarters: [berkshireQuarter, scion] })
     expect(html).toContain('Lagging filers: Scion Asset Management (Michael Burry) (2025Q3)')
   })
-
-  it('i18n: the page chrome renders in Arabic; issuers and tickers stay as filed', () => {
-    const html = render({ quarters: [berkshireQuarter], candidates: [] })
-    expect(html).toContain('Superinvestors — 13F discovery')
-    const ar = renderToStaticMarkup(createElement(DiscoveryPanel, {
-      candidates: [], quarters: [berkshireQuarter], heldTickers: [], watchedTickers: [], locale: 'ar',
-    }))
-    expect(ar).toContain('كبار المستثمرين — استكشاف 13F')
-    expect(ar).toContain('تحركات المديرين')
-    expect(ar).toContain('محافظ المديرين')
-    expect(ar).toContain('AAPL')
-  })
 })

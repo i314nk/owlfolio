@@ -1,10 +1,9 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import { RouteHeader } from './designSystem'
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { StatusBadge, type StatusBadgeTone } from './StatusBadge'
-import { englishContentNote, t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 
 /**
  * The Hermes-pattern `/settings/providers` keys page — three stacked sections
@@ -76,13 +75,10 @@ export type ProviderKeysPanelProps = {
   onboardingGate: ProviderKeysGate
   loginRows: ProviderLoginRow[]
   llmGroups: ProviderKeyGroupView[]
-  locale?: OwlLocale
 }
 
 // i18n: render-scoped locale — page chrome follows the locale; key names, readiness strings, and
 // control internals stay English until properly translated (the english-content note says so).
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const SET_KEY_ENDPOINT = '/api/onboarding/credentials'
 
@@ -110,8 +106,6 @@ const subtleTextStyle: CSSProperties = {
 }
 
 export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
-  panelLocale = props.locale ?? 'en'
-  const note = englishContentNote(panelLocale)
   return createElement(
     'main',
     { className: 'owl-route-frame owl-route-frame-wide' },
@@ -121,16 +115,11 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
     createElement(RouteHeader, {
-      kicker: dt('sp_kicker'),
-      title: dt('sp_title'),
-      description: dt('sp_desc'),
+      kicker: t('sp_kicker'),
+      title: t('sp_title'),
+      description: t('sp_desc'),
     }),
     createElement('hr', { className: 'owl-rule' }),
-    note === undefined ? null : createElement(
-      'p',
-      { 'data-testid': 'english-content-note', dir: 'rtl', className: 'owl-row-helper', style: { border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: '1rem 0 0', padding: '0.6rem 0.8rem' } },
-      note,
-    ),
     renderEnvFileHeader(props.envFile),
     renderOnboardingGate(props.onboardingGate),
     renderProviderLoginsSection(props.loginRows),
@@ -352,7 +341,7 @@ function renderKeyRow(key: ProviderKeyView): ReactNode {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-      createElement('p', { style: { ...monoValueStyle, fontWeight: 700, margin: 0 } }, key.name),
+      createElement('p', { style: { ...monoValueStyle, fontWeight: 700, margin: 0 }, translate: 'no' }, key.name),
       createElement(StatusBadge, { tone: key.is_set ? 'success' : 'neutral' }, key.is_set ? 'set' : 'not set'),
       // Restart-to-apply signal: the file says one thing, the running server another (keys hydrate
       // only at boot). Without this chip the page reads "set/connected" while a run would fail.
@@ -409,7 +398,7 @@ function copyCommandRow(command: string) {
   return createElement(
     'div',
     { style: { alignItems: 'center', background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.5rem', display: 'flex', gap: 'var(--owl-space-2)', padding: '0.45rem 0.65rem' } },
-    createElement('code', { style: { ...monoValueStyle, flex: 1 } }, command),
+    createElement('code', { style: { ...monoValueStyle, flex: 1 }, translate: 'no' }, command),
     createElement(CopyButton, { value: command }),
   )
 }

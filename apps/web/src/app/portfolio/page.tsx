@@ -1,6 +1,5 @@
 import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveLocale } from '@owlfolio/shared'
 
 import { PortfolioPanel, type PortfolioHolding } from '../../components/PortfolioPanel'
 import { RefreshPricesButton } from '../../components/RefreshPricesButton'
@@ -35,7 +34,6 @@ export default async function PortfolioPage() {
         mode={state.config.mode}
         alerts={alerts}
         shariahEnabled={state.config.shariah.enabled}
-        locale={resolveLocale(state.config.language)}
       />
     </main>
   )

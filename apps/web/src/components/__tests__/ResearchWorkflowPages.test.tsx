@@ -674,31 +674,6 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('No thesis recorded')
   })
 
-  it('renders the portfolio page chrome in Arabic when locale is ar (row data stays as recorded)', () => {
-    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
-      locale: 'ar',
-      holdings: [{
-        holding_id: 'holding_msft_ar',
-        research_case_id: 'rc_msft_ar',
-        ticker: 'MSFT',
-        thesis_summary: 'Compounding fortress.',
-        cost_basis_per_share: 812.4,
-        currency: 'USD',
-        opened_at: '2026-05-31',
-      } as never],
-      mode: 'personal-local',
-    }))
-    expect(html).toContain('المحفظة')
-    expect(html).toContain('أطروحة مملوكة واحدة')
-    expect(html).not.toContain('held thesis')
-    expect(html).toContain('MSFT')
-    expect(html).toContain('$812.40')
-
-    const emptyHtml = renderToStaticMarkup(createElement(PortfolioPanel, { locale: 'ar', holdings: [], mode: 'personal-local' }))
-    expect(emptyHtml).toContain('لا مراكز مفتوحة بعد')
-    expect(emptyHtml).not.toContain('No holdings are open yet')
-  })
-
   it('renders a minimal portfolio view from projected holding lots', () => {
     const html = renderToStaticMarkup(createElement(PortfolioPanel, {
       holdings: [{

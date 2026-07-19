@@ -972,15 +972,6 @@ export type ResearchCaseProjection = {
   user_approved?: boolean
   reason?: string
   thesis_summary?: string
-  /** Arabic rendering of the decision prose (task #88) — recorded at analysis time; English authoritative. */
-  prose_ar?: {
-    decision_reason: string
-    thesis_summary: string
-    evidence_summary: string
-    valuation_rationale: string
-    shariah_rationale: string
-    synthesis_summary: string
-  }
   evidence_summary?: string
   valuation_rationale?: string
   shariah_rationale?: string
@@ -2696,22 +2687,6 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_rationale', getString(event.payload, 'shariah_rationale'))
       applyStringArray(researchCase, 'risks', getStringArray(event.payload, 'risks'))
       applyStringArray(researchCase, 'open_questions', getStringArray(event.payload, 'open_questions'))
-      // Task #88: the Arabic prose rendering — pass through only when complete (all six strings).
-      const proseAr = (event.payload as Record<string, unknown>)['prose_ar']
-      if (proseAr !== null && typeof proseAr === 'object' && !Array.isArray(proseAr)) {
-        const pa = proseAr as Record<string, unknown>
-        const fields = ['decision_reason', 'thesis_summary', 'evidence_summary', 'valuation_rationale', 'shariah_rationale', 'synthesis_summary'] as const
-        if (fields.every((f) => typeof pa[f] === 'string' && (pa[f] as string).length > 0)) {
-          researchCase.prose_ar = {
-            decision_reason: pa['decision_reason'] as string,
-            thesis_summary: pa['thesis_summary'] as string,
-            evidence_summary: pa['evidence_summary'] as string,
-            valuation_rationale: pa['valuation_rationale'] as string,
-            shariah_rationale: pa['shariah_rationale'] as string,
-            synthesis_summary: pa['synthesis_summary'] as string,
-          }
-        }
-      }
       continue
     }
 

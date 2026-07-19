@@ -1,15 +1,11 @@
-import { resolveLocale } from '@owlfolio/shared'
 
 import { OwlButtonLink, RouteHeader } from '../../components/designSystem'
-import { englishContentNote, t } from '../../lib/i18n'
-import { getOnboardingState } from '../../lib/onboarding'
+import { t } from '../../lib/i18n'
 import { LearnTabs } from '../../components/LearnTabs'
 
 const linkRowStyle = { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.3rem' } as const
 
 export default async function LearnPage() {
-  const locale = resolveLocale((await getOnboardingState()).config.language)
-  const note = englishContentNote(locale)
   return (
     <main className="owl-route-frame">
       <p className="owl-route-back-row">
@@ -18,16 +14,11 @@ export default async function LearnPage() {
         </a>
       </p>
       <RouteHeader
-        kicker={t(locale, 'ln_kicker')}
-        title={t(locale, 'ln_title')}
-        description={t(locale, 'ln_desc')}
+        kicker={t('ln_kicker')}
+        title={t('ln_title')}
+        description={t('ln_desc')}
       />
       <hr className="owl-rule" />
-      {note === undefined ? null : (
-        <p data-testid="english-content-note" dir="rtl" className="owl-row-helper" style={{ border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', margin: 0, padding: '0.6rem 0.8rem' }}>
-          {note}
-        </p>
-      )}
 
       <LearnTabs />
 

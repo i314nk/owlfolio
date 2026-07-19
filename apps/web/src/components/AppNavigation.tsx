@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation'
 
 import { ActiveModeIndicator } from './ActiveModeIndicator'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 import { t, type MessageKey } from '../lib/i18n'
@@ -90,7 +89,6 @@ export type AppNavigationProps = {
    */
   modelSwitcher?: ModelSwitcher
   /** The active UI language (i18n S1). */
-  locale?: OwlLocale
 }
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
@@ -123,7 +121,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus, modelSwitcher, locale = 'en' }: AppNavigationProps) {
+export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus, modelSwitcher }: AppNavigationProps) {
   const pathname = usePathname() ?? '/'
 
   useEffect(() => {
@@ -160,7 +158,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
   return createElement(
     'nav',
     {
-      'aria-label': t(locale, 'nav_aria_primary'),
+      'aria-label': t('nav_aria_primary'),
       className: 'owl-nav-shell',
     },
     createElement(
@@ -173,8 +171,8 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
         createElement(
           'span',
           { className: 'owl-brand-copy' },
-          createElement('span', { className: 'owl-brand-title' }, t(locale, 'brand_title')),
-          createElement('span', { className: 'owl-brand-kicker' }, t(locale, 'brand_kicker')),
+          createElement('span', { className: 'owl-brand-title' }, t('brand_title')),
+          createElement('span', { className: 'owl-brand-kicker' }, t('brand_kicker')),
         ),
       ),
       // Persistent, app-wide mode/provider/model indicator. Subsumes the legacy setup card: it is
@@ -188,30 +186,28 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
       createElement(
         'div',
         { className: 'owl-nav-sections' },
-        ...navSections.map((section) => renderNavSection(locale, section.title, section.items, pathname)),
+        ...navSections.map((section) => renderNavSection(section.title, section.items, pathname)),
       ),
       // Legacy fallback only when no status was resolved (e.g. callers not yet wired to S2).
       activeModeStatus === undefined && !isSetupComplete ? createElement(SetupCard) : null,
       createElement(
         'a',
         { className: 'owl-command-trigger owl-focusable', href: SEARCH_TRIGGER_HREF, 'aria-label': 'Audit trail search with keyboard shortcut ⌘K' },
-        createElement('span', null, t(locale, 'audit_search')),
+        createElement('span', null, t('audit_search')),
         createElement('span', { className: 'owl-command-key' }, '⌘K'),
       ),
     ),
   )
 }
 
-function renderNavSection(
-  locale: OwlLocale,
-  title: MessageKey,
+function renderNavSection(title: MessageKey,
   items: NavItem[],
   pathname: string,
 ): ReactNode {
   return createElement(
     'section',
     { className: 'owl-nav-section', key: title },
-    createElement('p', { className: 'owl-nav-section-title' }, t(locale, title)),
+    createElement('p', { className: 'owl-nav-section-title' }, t(title)),
     createElement(
       'ul',
       { className: 'owl-nav-list' },
@@ -227,7 +223,7 @@ function renderNavSection(
               href: item.href,
               ...(isActive ? { 'aria-current': 'page' } : {}),
             },
-            t(locale, item.label),
+            t(item.label),
           ),
         )
       }),

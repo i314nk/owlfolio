@@ -129,19 +129,9 @@ export type OwlThemeId = typeof OWL_THEMES[number]['id']
 
 export type AppearanceSettings = { theme: OwlThemeId }
 
-/** The selectable UI languages (i18n S1, 2026-07-17): chrome strings translate; long-form pages
- * (Learn/Strategy/dossier prose) stay English until translated and say so. Arabic flips dir=rtl. */
-export const OWL_LOCALES = [
-  { id: 'en', label: 'English', dir: 'ltr' },
-  { id: 'ar', label: 'العربية', dir: 'rtl' },
-] as const
-export type OwlLocale = typeof OWL_LOCALES[number]['id']
-
-export const resolveLocale = (language?: string): OwlLocale =>
-  OWL_LOCALES.some((l) => l.id === language) ? language as OwlLocale : 'en'
-
-export const localeDir = (locale: OwlLocale): 'ltr' | 'rtl' =>
-  OWL_LOCALES.find((l) => l.id === locale)?.dir ?? 'ltr'
+// ENGLISH-ONLY (owner pivot, 2026-07-19): the in-app language setting is removed — the app ships
+// English and translation is an external, on-demand concern (browser full-page translate). A legacy
+// `language` key in a persisted config is tolerated and ignored.
 
 export const resolveTheme = (appearance?: AppearanceSettings): OwlThemeId => {
   const candidate = appearance?.theme
@@ -256,8 +246,6 @@ export type AppConfig = {
   shariah: ShariahDefaults
   /** UI appearance (PALETTES 2026-07-16): absent = the emerald default. */
   appearance?: AppearanceSettings
-  /** UI language (i18n S1, 2026-07-17): absent = English. */
-  language?: OwlLocale
   savings?: SavingsSleeveConfig
   /** Phase 4 (book alignment): valuation knobs (required_return). Absent → defaults (15%). */
   valuation?: Partial<ValuationConfig>

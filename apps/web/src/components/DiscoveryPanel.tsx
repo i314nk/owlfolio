@@ -10,10 +10,9 @@ import type {
 } from '@owlfolio/ledger/projections/discovery13fProjection'
 import { CLONER_LIST } from '@owlfolio/workflow/discovery13f'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { shortManagerName, titleCaseEntityName } from '../lib/entityName'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import { DiscoveryCandidateActions } from './DiscoveryCandidateActions'
 import { RunDiscoveryButton } from './RunDiscoveryButton'
 
@@ -33,12 +32,9 @@ export type DiscoveryPanelProps = {
   /** Tickers currently WATCHED — flagged, routed to the watchlist instead of triage. */
   watchedTickers: string[]
   /** i18n: the page chrome language (issuer/manager data stays as filed). */
-  locale?: OwlLocale
 }
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const mono2xs = { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.05em' } as const
 
@@ -112,8 +108,7 @@ export function investorInitials(managerName: string): string {
  * performance numbers, no auto-promotion, no prices. Server component (createElement, no JSX);
  * triage actions stay in the client component.
  */
-export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, watchedTickers, locale = 'en' }: DiscoveryPanelProps) {
-  panelLocale = locale
+export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, watchedTickers }: DiscoveryPanelProps) {
   const discovered = candidates.filter((c) => c.status === 'discovered')
   const queued = candidates.filter((c) => c.status === 'queued_for_quick_screen')
   const resolved = candidates.filter((c) => c.status === 'rejected' || c.status === 'promoted_to_research_case')
@@ -137,9 +132,9 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
     createElement(
       'section',
       { 'aria-label': 'Manager portfolios', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `${dt('si_portfolios')} · ${quarters.length}`),
+      createElement('p', { className: 'owl-section-accent' }, `${t('si_portfolios')} · ${quarters.length}`),
       quarters.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_portfolios'))
+        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, t('si_empty_portfolios'))
         : createElement('div', { className: 'owl-row-list' }, ...quarters.map((q) => createManagerCard(q))),
       ...createUnfiledManagerNotes(quarters),
     ),
@@ -147,9 +142,9 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
     createElement(
       'section',
       { 'aria-label': 'Screening queue', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-      createElement('p', { className: 'owl-section-accent' }, `${dt('si_screening')} · ${queued.length}`),
+      createElement('p', { className: 'owl-section-accent' }, `${t('si_screening')} · ${queued.length}`),
       queued.length === 0
-        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_screening'))
+        ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, t('si_empty_screening'))
         : createElement(
             'div',
             { className: 'owl-row-list' },
@@ -165,7 +160,7 @@ export function DiscoveryPanel({ candidates, runStatus, quarters, heldTickers, w
         createElement(
           'summary',
           { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
-          `${dt('si_resolved')} · ${resolved.length}`,
+          `${t('si_resolved')} · ${resolved.length}`,
         ),
         resolved.length === 0
           ? createElement('p', { className: 'owl-row-helper', style: { margin: '0.5rem 0 0' } }, 'No resolved candidates.')
@@ -183,16 +178,16 @@ function createSummaryHeader(runStatusLine: string) {
   return createElement(
     'section',
     { 'aria-label': 'What the superinvestors page is', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, dt('si_title')),
+    createElement('p', { className: 'owl-section-accent' }, t('si_title')),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0, maxWidth: '52rem' } },
-      dt('si_what'),
+      t('si_what'),
     ),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0, maxWidth: '52rem' } },
-      dt('si_limits'),
+      t('si_limits'),
     ),
     createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, runStatusLine),
     createElement(RunDiscoveryButton),
@@ -284,11 +279,11 @@ function createActionMatrixSection(
   return createElement(
     'section',
     { 'aria-label': 'Manager actions', className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, `${dt('si_actions')} · ${matrix.length}`),
+    createElement('p', { className: 'owl-section-accent' }, `${t('si_actions')} · ${matrix.length}`),
     createElement(
       'p',
       { className: 'owl-row-helper', style: { margin: 0 } },
-      dt('si_actions_help'),
+      t('si_actions_help'),
     ),
     createElement(
       'p',
@@ -303,7 +298,7 @@ function createActionMatrixSection(
         )
       : null,
     matrix.length === 0
-      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, dt('si_empty_actions'))
+      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, t('si_empty_actions'))
       : createElement(
           'div',
           // Bounded viewport + sticky header: the column initials stay pinned while the rows scroll,

@@ -1,20 +1,17 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
-import type { OwlLocale } from '@owlfolio/shared/appConfig'
 
 import { OwlButtonLink, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { createPriceLadderElement } from './PriceLadder'
 import { ReReviewButton } from './ReReviewButton'
 import { RerunAnalysisButton } from './RerunAnalysisButton'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import { recordedThesis } from '../lib/thesisDisplay'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { titleCaseEntityName } from '../lib/entityName'
 import { StatusBadge } from './StatusBadge'
 
 // i18n: render-scoped locale — the panel's helpers run synchronously inside its render call.
-let panelLocale: OwlLocale = 'en'
-const dt = (key: MessageKey): string => t(panelLocale, key)
 
 const HOLDING_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
   urgent: 'danger',
@@ -62,7 +59,6 @@ export type PortfolioPanelProps = {
   /** Open agent observations + drafts per holding (tranche / concentration / Shariah grace / sell-review). */
   alerts?: MonitorAlert[]
   /** i18n: the page chrome language (row data stays as recorded). */
-  locale?: OwlLocale
 }
 
 
@@ -79,15 +75,14 @@ export type PortfolioPanelProps = {
 // (ticker, YOUR entry price as the anchor, the dossier link, check-ins, sell advisories). The money
 // layer (cost basis, values, weights, returns, capital, manual valuations) is removed; the entry
 // price survives as the one manual field so sell advisories and pullback reviews have their anchor.
-export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [], shariahEnabled = true, locale = 'en' }: PortfolioPanelProps) {
-  panelLocale = locale
+export function PortfolioPanel({ holdings, mode = 'personal-local', alerts = [], shariahEnabled = true }: PortfolioPanelProps) {
   return createElement(
     Fragment,
     null,
     createElement(RouteHeader, {
-      kicker: dt('pl_kicker'),
-      title: dt('pl_title'),
-      description: holdings.length === 1 ? dt('pl_desc_one') : dt('pl_desc_many').replace('{count}', String(holdings.length)),
+      kicker: t('pl_kicker'),
+      title: t('pl_title'),
+      description: holdings.length === 1 ? t('pl_desc_one') : t('pl_desc_many').replace('{count}', String(holdings.length)),
     }),
     createElement('hr', { className: 'owl-rule' }),
     ...(holdings.length === 0
@@ -181,18 +176,18 @@ function createPortfolioEmptyState() {
   return createElement(
     'section',
     { key: 'portfolio-empty-state', 'aria-label': 'Empty portfolio', className: 'owl-section-card owl-workflow-card' },
-    createElement('p', { className: 'owl-section-accent' }, dt('pl_kicker')),
-    createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, dt('pl_empty_title')),
+    createElement('p', { className: 'owl-section-accent' }, t('pl_kicker')),
+    createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, t('pl_empty_title')),
     createElement(
       'p',
       { className: 'owl-body', style: { margin: '0.3rem 0 0' } },
-      dt('pl_empty_body'),
+      t('pl_empty_body'),
     ),
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '1rem' } },
-      createElement(OwlButtonLink, { href: '/watchlist', variant: 'primary' }, dt('pl_go_watchlist')),
-      createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 800 } }, dt('pl_empty_hint')),
+      createElement(OwlButtonLink, { href: '/watchlist', variant: 'primary' }, t('pl_go_watchlist')),
+      createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 800 } }, t('pl_empty_hint')),
     ),
   )
 }

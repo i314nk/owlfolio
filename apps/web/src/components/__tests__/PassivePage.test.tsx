@@ -28,11 +28,11 @@ describe('PassivePage source', () => {
     expect(dictionary).toContain('does not track, recommend, or execute')
   })
 
-  it('routes the chrome through the dictionary and shows the english-content note off-English (long-form page pattern)', () => {
-    expect(source).toContain("t(locale, 'ps_kicker')")
-    expect(source).toContain("t(locale, 'ps_title')")
-    expect(source).toContain("t(locale, 'ps_desc')")
-    expect(source).toContain('englishContentNote')
-    expect(source).toContain('resolveLocale')
+  it('routes the chrome through the English copy table (single-arg t; no locale plumbing)', () => {
+    const source = readFileSync('apps/web/src/app/passive/page.tsx', 'utf8')
+    expect(source).toContain("t('ps_kicker')")
+    // ENGLISH-ONLY (owner pivot, 2026-07-19): no locale resolution and no english-content banner.
+    expect(source).not.toContain('resolveLocale')
+    expect(source).not.toContain('english-content-note')
   })
 })

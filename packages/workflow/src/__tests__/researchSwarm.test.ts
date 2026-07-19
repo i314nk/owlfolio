@@ -276,16 +276,6 @@ function swarmFakeProvider() {
           proposed_sources: [src('src_qs_1')],
         }
       }
-      if (schemaName === 'ArabicDossierProse') {
-        return {
-          decision_reason: 'سبب القرار بالعربية',
-          thesis_summary: 'أطروحة الاستثمار بالعربية',
-          evidence_summary: 'ملخص الأدلة بالعربية',
-          valuation_rationale: 'منطق التقييم بالعربية',
-          shariah_rationale: 'المسوِّغ الشرعي بالعربية',
-          synthesis_summary: 'خلاصة التجميع بالعربية',
-        }
-      }
       // Synthesis + decision
       return {
         investment_verdict: 'WATCH',
@@ -1526,76 +1516,6 @@ const allVerifiedGround = async (sources: { source_id: string }[]) => ({
     availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
   })),
   verified_ids: sources.map((s) => s.source_id),
-})
-
-describe('Arabic prose rendering (task #88 — owner, 2026-07-18)', () => {
-  it("prose_locale 'ar' records the Arabic rendering on the decision payload; English fields stay authoritative", async () => {
-    const store = new InMemoryEventStore()
-    const provider = swarmFakeProvider()
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_ar', company_id: 'c', ticker: 'TST', strategy_id: 'buffett-munger',
-        actor_id: 'user_local', idempotency_key: 'ar_k', model_id: 'mock', decision_id: 'decision_ar',
-        source_ledger_path: await mkdtemp(join(tmpdir(), 'owlfolio-ar-prose-')),
-        prose_locale: 'ar',
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const decision = (await store.list()).find((e) => e.event_type === 'decision_drafted')
-    const payload = decision?.payload as Record<string, unknown>
-    const proseAr = payload['prose_ar'] as Record<string, string>
-    expect(proseAr).toBeDefined()
-    expect(proseAr['thesis_summary']).toBe('أطروحة الاستثمار بالعربية')
-    expect(proseAr['decision_reason']).toBe('سبب القرار بالعربية')
-    // The English record is untouched — still the authoritative prose.
-    expect(payload['thesis_summary']).toBe('Quality compounder')
-  })
-
-  it('without prose_locale no Arabic pass runs and no prose_ar is recorded', async () => {
-    const store = new InMemoryEventStore()
-    const provider = swarmFakeProvider()
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_en', company_id: 'c', ticker: 'TST', strategy_id: 'buffett-munger',
-        actor_id: 'user_local', idempotency_key: 'en_k', model_id: 'mock', decision_id: 'decision_en',
-        source_ledger_path: await mkdtemp(join(tmpdir(), 'owlfolio-en-prose-')),
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const decision = (await store.list()).find((e) => e.event_type === 'decision_drafted')
-    expect((decision?.payload as Record<string, unknown>)['prose_ar']).toBeUndefined()
-    const arabicCalls = (provider.structured as ReturnType<typeof vi.fn>).mock.calls
-      .filter((c) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'ArabicDossierProse')
-    expect(arabicCalls.length).toBe(0)
-  })
-
-  it('FAIL-OPEN: a failing Arabic pass never fails the run — the decision records English-only', async () => {
-    const store = new InMemoryEventStore()
-    const provider = swarmFakeProvider()
-    const baseStructured = provider.structured
-    provider.structured = vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
-      if (req.response_format?.schema_name === 'ArabicDossierProse') {
-        throw new Error('translation endpoint down')
-      }
-      return baseStructured(req as never)
-    }) as never
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_ar_fail', company_id: 'c', ticker: 'TST', strategy_id: 'buffett-munger',
-        actor_id: 'user_local', idempotency_key: 'arf_k', model_id: 'mock', decision_id: 'decision_ar_fail',
-        source_ledger_path: await mkdtemp(join(tmpdir(), 'owlfolio-arf-prose-')),
-        prose_locale: 'ar',
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const decision = (await store.list()).find((e) => e.event_type === 'decision_drafted')
-    const payload = decision?.payload as Record<string, unknown>
-    expect(payload['prose_ar']).toBeUndefined()
-    expect(payload['thesis_summary']).toBe('Quality compounder')
-  })
 })
 
 describe('E2 — FCF per-share units + shares fail-closed', () => {

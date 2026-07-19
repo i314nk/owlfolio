@@ -144,6 +144,60 @@ describe('/api/research/start', () => {
     })
   })
 
+  describe('ticker validation (owner, 2026-07-19: reject non-SEC-filers pre-spend)', () => {
+    async function writeReadyMockConfig(): Promise<void> {
+      process.env.OWLFOLIO_TEST_MODE = 'playwright'
+      await writeFile(appConfigPath, JSON.stringify({
+        ...defaultPersonalLocalAppConfig(),
+        provider: { ...defaultPersonalLocalAppConfig().provider, provider_id: 'mock-provider' },
+        ledger_path: join(tempDir, 'personal.sqlite'),
+        source_ledger_path: join(tempDir, 'source-ledger'),
+        initialized_at: '2026-06-01T00:00:00.000Z',
+      }), 'utf8')
+    }
+
+    it('an unknown ticker → 400 unknown_ticker with the SEC-filer message, and NO research case is minted', async () => {
+      await writeReadyMockConfig()
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'COSTT' }),
+      }), undefined, { resolveTicker: async () => ({ status: 'unknown' as const }) })
+      const payload = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('unknown_ticker')
+      expect(payload.error.message).toContain('SEC filers')
+      expect(payload.error.message).toContain('BRK-B')
+      expect(await researchRunRequestedCount()).toBe(0)
+    })
+
+    it('the dot form normalizes to the hyphen form the run records (BRK.B → BRK-B)', async () => {
+      await writeReadyMockConfig()
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'BRK.B' }),
+      }), undefined, { resolveTicker: async () => ({ status: 'ok' as const, ticker: 'BRK-B' }) })
+      expect(response.status).toBe(202)
+
+      const store = new SQLiteEventStore(join(tempDir, 'personal.sqlite'))
+      try {
+        const requested = (await store.list()).find((e) => e.event_type === 'research_run_requested')
+        expect((requested?.payload as { ticker?: string })?.ticker).toBe('BRK-B')
+      } finally {
+        store.close()
+      }
+    })
+
+    it('FAIL-OPEN: an SEC lookup outage does not block the run (its own grounding still fails closed)', async () => {
+      await writeReadyMockConfig()
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'KO' }),
+      }), undefined, { resolveTicker: async () => ({ status: 'unverified' as const, ticker: 'KO' }) })
+      expect(response.status).toBe(202)
+    })
+  })
+
   it('rejects a research-case-id-shaped ticker (the failed-run restart artifact) with a clear 400', async () => {
     const response = await POST(new Request('http://localhost/api/research/start', {
       method: 'POST',

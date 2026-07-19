@@ -26,17 +26,21 @@ import { AppNavigation } from '../AppNavigation'
 import { StatusBadge } from '../StatusBadge'
 
 describe('phase 3 design system primitives', () => {
-  it('renders the global app shell with product-grade operating context chips', () => {
+  it('the shell context bar carries only CONTROLS — the decorative status chips are gone (owner, 2026-07-19)', () => {
     const html = renderToStaticMarkup(createElement(AppShell, null, createElement('main', null, 'Workflow content')))
 
     expect(html).toContain('data-owl-shell="clean-sidebar"')
     expect(html).toContain('owl-shell-context-bar')
-    expect(html).toContain('Local ledger')
-    expect(html).toContain('Provider readiness')
-    expect(html).toContain('Route-aware')
-    expect(html).not.toContain('status shown below')
-    expect(html).not.toContain('LOCAL WORKSPACE')
-    expect(html).not.toContain('policy-gated')
+    // The static label/value chips said nothing actionable — removed.
+    expect(html).not.toContain('Local ledger')
+    expect(html).not.toContain('Route-aware')
+    expect(html).not.toContain('Shariah context')
+    expect(html).not.toContain('Policy visible')
+    expect(html).not.toContain('Provider readiness')
+    expect(html).not.toContain('Shown inline')
+    // The bar's real occupants: the palette switcher and the Translate control/hint.
+    expect(html).toContain('Palette')
+    expect(html).toContain('translate-hint')
     expect(html).toContain('Workflow content')
   })
 

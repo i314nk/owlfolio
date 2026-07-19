@@ -642,7 +642,7 @@ describe('CommandCenter', () => {
 
     expect(learnPageSource).toContain('Learn')
     // eyebrow is user-facing "How it works" (now via the dictionary), not internal "Operator documentation"
-    expect(learnPageSource).toContain("t(locale, 'ln_kicker')")
+    expect(learnPageSource).toContain("t('ln_kicker')")
     // The Learn page is now a tabbed brief documenting the harness specs.
     expect(learnPageSource).toContain('LearnTabs')
     // The provider readiness section retains the #providers anchor (onboarding deep-links here).
