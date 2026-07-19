@@ -8,7 +8,7 @@ import type { OwlThemeId } from '@owlfolio/shared'
 import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { PageTranslator } from './PageTranslator'
-import { t, type MessageKey } from '../lib/i18n'
+import { t } from '../lib/i18n'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
 // Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
@@ -85,12 +85,6 @@ export type SourceChipProps = {
   label?: string
 }
 
-const shellStatusItems: { label: MessageKey; value: MessageKey }[] = [
-  { label: 'ctx_local_ledger', value: 'ctx_local_ledger_value' },
-  { label: 'ctx_shariah', value: 'ctx_shariah_value' },
-  { label: 'ctx_provider', value: 'ctx_provider_value' },
-]
-
 export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher, theme = 'emerald' }: AppShellProps) {
   return createElement(
     'div',
@@ -106,12 +100,7 @@ export function AppShell({ children, isSetupComplete = true, activeModeStatus, m
       createElement(
         'div',
         { 'aria-label': 'Owner’s Manual operating context', className: 'owl-shell-context-bar' },
-        ...shellStatusItems.map((item) => createElement(
-          'span',
-          { className: 'owl-shell-context-chip', key: item.label },
-          createElement('span', { className: 'owl-shell-context-label' }, t(item.label)),
-          createElement('span', { className: 'owl-shell-context-value' }, t(item.value)),
-        )),
+        // Decorative status chips removed (owner, 2026-07-19): the bar keeps only the two CONTROLS.
         createElement(ThemeSwitcher, { current: theme }),
         createElement(PageTranslator, {}),
       ),
