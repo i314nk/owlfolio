@@ -7,25 +7,50 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-          cache: pip
+          node-version: 20
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
 
       - name: Install dependencies
-        run: pip install -e ".[dev,web]"
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: corepack pnpm typecheck
 
       - name: Lint
-        run: ruff check .
+        run: corepack pnpm lint
 
-      - name: Format check
-        run: ruff format --check .
+      - name: Unit & integration tests
+        run: corepack pnpm test
 
-      - name: Test with coverage
-        run: pytest --cov=src --cov-report=term-missing
+      - name: Production build
+        run: NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: corepack pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end suite
+        run: corepack pnpm e2e

@@ -68,35 +68,33 @@ PRs should be small, test-backed, and honest about scope. If a change modifies l
 Owlfolio distinguishes readiness from certification. Current alpha claims are bounded by the latest `data/provider-certifications/*.latest.json` reports and `docs/architecture/owlfolio-v2-provider-model-support.md`:
 
 - `mock-provider`: certified deterministic demo/test provider.
-- `openai`: experimental OpenAI Codex CLI-backed path; not certified for full workflow parity.
-- `claude`: Claude CLI-backed path, currently unsupported/not-configured in this environment when the latest report says Claude Code subscription access is disabled.
+- `openrouter`: the default personal-local provider — one API key routes to many models; experimental/fail-closed until a routed model has its own certification report.
+- `local`: an OpenAI-compatible endpoint you run yourself (Ollama / vLLM) — UNSTABLE / EXPERIMENTAL / UNTESTED; fail-closed.
 
-Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API adapters are future candidates until adapters and certification reports exist. Do not raise README/UI/docs support labels above the latest evidence.
+(The CLI/OAuth provider lane and the direct Anthropic/OpenAI/Gemini API surfaces were removed in the 2026-06/07 consolidations.) Do not raise README/UI/docs support labels above the latest evidence.
 
 ## Ledger and workflow rules
 
 - Provider-authored recommendations are drafts, not portfolio decisions.
-- User-authored events are required for watchlist confirmations, holding opens, review overrides, purification payments, and other irreversible transitions.
+- User-authored events are required for watchlist confirmations, holding opens, review overrides, and other irreversible transitions.
 - Do not infer holdings from watchlist drafts or provider recommendations.
-- Monthly accounting projections must be period/as-of bounded.
-- Purification obligations and purification payments are separate auditable events.
 - Preserve stable `event_id`, causation, correlation, actor, provider, and source metadata in projections.
 
 ## Worker rules
 
-The alpha worker is local and dry-run/mock-safe. It may define scheduled tasks and append run lifecycle events/observations for `review_reminder` and `watchlist_monitor`, but it must not auto-approve investment decisions, trades, watchlist confirmations, holding opens, Shariah overrides, accounting closes, or purification payments.
+The alpha worker is local and dry-run/mock-safe. It may define scheduled tasks and append run lifecycle events/observations, but it must not auto-approve investment decisions, trades, watchlist confirmations, holding opens, or Shariah overrides.
 
 Worker smoke commands:
 
 ```bash
 corepack pnpm worker -- --once --dry-run --define-defaults
-corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
-## Shariah/accounting/purification limitations
+## Shariah screening limitations
 
-Owlfolio is Shariah-by-design at the workflow/domain level, but alpha outputs are decision-support artifacts, not fatwas, broker statements, tax filings, or professional accounting advice. Formal scholar review, broker/custodian reconciliation, tax-grade accounting, dividend/corporate-action ingestion, and payment execution remain future work.
+Shariah screening is first-class, grounded, and optional (default ON). This is an educational project: its outputs are decision-support artifacts, never fatwas — obtain a ruling from certified Islamic scholars before acting on any Shariah conclusion. (The accounting/purification bookkeeping half was removed in the 2026-07 scale-down; the purification RATE remains dossier guidance.)
 
 ## Code style
 

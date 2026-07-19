@@ -21,11 +21,11 @@ Onboarding
   -> User-opened holding
   -> Lot entry / valuation
   -> Holding review draft and user decision
-  -> Automatic local portfolio/accounting/purification projections
+  -> Automatic local portfolio projections
   -> Audit timeline / provider status / Data Safety / worker observations
 ```
 
-Provider and worker outputs are drafts or observations. Irreversible portfolio/accounting/purification transitions remain explicit user-authored ledger events.
+Provider and worker outputs are drafts or observations. Irreversible portfolio transitions remain explicit user-authored ledger events.
 
 ## Monorepo layout
 
@@ -65,7 +65,7 @@ Primary routes:
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Command Center with setup status, workflow counts, next action, accounting/review prompts, recent activity. |
+| `/` | Command Center with setup status, workflow counts, next action, duty nudges, recent activity. |
 | `/onboarding` | Demo/personal-local setup and provider readiness flow. |
 | `/discovery` | Superinvestors (13F discovery): the owner-curated roster's latest portfolios, and buys/sells as an action heat-map — the idea source feeding research (see `architecture/superinvestors-13f-discovery.md`). |
 | `/research/new` | Secondary manual ticker intake into the strategy pipeline. |
@@ -73,8 +73,6 @@ Primary routes:
 | `/research/[caseId]` | Review a research case and draft watchlist recommendation. |
 | `/watchlist` | Confirm watchlist drafts and open holdings. |
 | `/portfolio` | Holdings, lot entry, valuations, holding review decisions. |
-| `/accounting/monthly` | Monthly accounting report from ledger projections. |
-| `/purification` | Purification obligation/payment report. |
 | `/audit` | Cross-domain ledger timeline. |
 | `/providers` | Provider readiness, catalog support, latest certification reports. |
 | `/settings/data-safety` | Local backup inventory and restore-proposal visibility; credentials/auth homes excluded. |
@@ -92,8 +90,7 @@ Key event families:
 - Scheduled task definition/run lifecycle events.
 - Provider run and certification report events.
 - Shariah evaluation/status events.
-- Purification obligation/payment events.
-- Monthly accounting snapshot events.
+- Legacy accounting/purification events (producers retired in the 2026-07 scale-down; readable in the audit timeline).
 - Cash movement events.
 
 Projection rules matter as much as event writes:
@@ -131,7 +128,7 @@ For how the research harness actually runs under the hood — the grounded two-p
 
 ## Data Safety model
 
-Runtime data is local and sensitive. Backup manifests may include ledgers, source bundles, app config metadata, provider reports, and Shariah/accounting/purification context, but must exclude credentials, API keys, provider auth homes, CLI sessions, generated builds, test artifacts, caches, and local browser state. The web Data Safety route is status/proposal evidence only; destructive restore remains operator-managed until a reviewed restore workflow exists.
+Runtime data is local and sensitive. Backup manifests may include ledgers, source bundles, app config metadata, and provider reports, but must exclude credentials, API keys, provider auth homes, CLI sessions, generated builds, test artifacts, caches, and local browser state. The web Data Safety route is status/proposal evidence only; restore is manual and operator-managed — the app never restores automatically.
 
 ## Worker model
 
@@ -143,7 +140,7 @@ corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
-The worker appends lifecycle events (`scheduled_task_run_started`, `scheduled_task_run_completed`, `scheduled_task_run_failed`) and observations. It must not auto-approve investment decisions, trades, watchlist confirmations, holding opens, Shariah overrides, accounting closes, or purification payments.
+The worker appends lifecycle events (`scheduled_task_run_started`, `scheduled_task_run_completed`, `scheduled_task_run_failed`) and observations. It must not auto-approve investment decisions, trades, watchlist confirmations, holding opens, or Shariah overrides.
 
 ## Shariah, accounting, and purification
 

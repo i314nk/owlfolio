@@ -17,7 +17,7 @@ A strategy may influence:
 - valuation and review criteria,
 - watchlist recommendation language,
 - holding-review cadence and rationale,
-- Shariah/accounting/purification policy checks where applicable.
+- Shariah policy checks where applicable.
 
 A strategy must not bypass:
 
@@ -25,13 +25,13 @@ A strategy must not bypass:
 - source-grounding requirements,
 - Shariah policy gates,
 - explicit user confirmation for watchlist and holding transitions,
-- accounting period/as-of boundaries,
-- purification obligation/payment separation.
+-,
+-.
 
 ## Provider and ledger rules
 
 - Provider-authored strategy outputs are drafts or observations.
-- User-authored events are required for confirmed watchlist items, open holdings, review overrides, and purification payments.
+- User-authored events are required for confirmed watchlist items, open holdings, and review overrides.
 - Every provider-authored proposal should preserve provider id, model id/version, support tier, source ids, and run/certification context.
 - Strategy claims should not imply provider readiness or certification beyond the latest provider report.
 
@@ -44,6 +44,6 @@ A strategy becomes first-class only after it has:
 3. Shariah policy handling and conservative fallbacks,
 4. provider certification evidence for relevant roles,
 5. UI copy that explains limits and required user review,
-6. tests spanning research, watchlist, holding review, accounting, purification, and audit projections where relevant.
+6. tests spanning research, watchlist, holdings, Shariah, and audit projections where relevant.
 
 Historical YAML examples may still be useful as design references, but they are not the active v2 runtime contract unless reintroduced through tested TypeScript packages.

@@ -1,8 +1,22 @@
 <div align="center">
 
-# Owner's Manual
+# 🦉 Owner's Manual
 
-**A local-first investment research workflow with harness-verified grounding, an append-only audit ledger, and optional Shariah screening.**
+**A local-first investment research workflow with harness-verified grounding,<br/>an append-only audit ledger, and optional Shariah screening.**
+
+[![CI](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-app%20router-black?logo=nextdotjs)
+![pnpm](https://img.shields.io/badge/pnpm-monorepo-F69220?logo=pnpm&logoColor=white)
+![tests](https://img.shields.io/badge/tests-2%2C400%2B-2ea44f)
+![local-first](https://img.shields.io/badge/data-local--first-8A2BE2)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[What it is](#what-it-is) ·
+[Screenshots](#see-it-in-action) ·
+[Install & run](#install--run-the-dashboard) ·
+[Architecture](#repository-map) ·
+[Portfolio notes](#as-a-portfolio-piece--what-this-demonstrates)
 
 *(Engine namespace: Owlfolio — `OWLFOLIO_*` env vars, `@owlfolio/*` packages, the repo name, and the `owlfolio` CLI alias keep the internal name so existing configs and ledgers keep working.)*
 

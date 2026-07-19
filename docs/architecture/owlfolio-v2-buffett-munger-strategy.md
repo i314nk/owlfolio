@@ -207,7 +207,7 @@ raise flags, but they are engine rails only — the dossier shows the book figur
 
 ## 5. Hard gates
 
-Gates are evaluated by `evaluateGates()` from the facts bundle assembled by the synthesis agent.
+Gating now lives in the research swarm itself: the grounded Shariah gate phase and the early moat gate (`moatPassesGate`) short-circuit before further spend, and the late verdict rails clamp the decision. (The early-era `evaluateGates()` facts-bundle evaluator was removed as dead code.)
 
 | Gate id | Severity | Condition | Effect if failed |
 |---|---|---|---|
@@ -291,7 +291,7 @@ Setting with `book_default` provenance until the user changes it. The interest-b
 |---|---|
 | Strategy contract schema (zod) | `packages/strategies/src/strategyContract.ts` |
 | Buffett 4-Pillar contract object + helpers | `packages/strategies/src/buffettMunger.ts` |
-| Gate evaluation | `packages/strategies/src/evaluateGates.ts` |
+| Gate evaluation | the research swarm's gate phases (`packages/workflow/src/shariahGatePhase.ts`, `moatPassesGate` in `packages/strategies/src/buffettMunger.ts`) |
 | Contract tests | `packages/strategies/src/__tests__/buffettMunger.test.ts` |
 | Research swarm entry point | `packages/workflow/src/researchSwarm.ts` |
 | Strategy workflow boundaries | `docs/STRATEGY_GUIDE.md` |
