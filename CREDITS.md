@@ -1,5 +1,9 @@
 # Credits
 
+## Strategy inspiration
+
+- **[*The New Money Strategy: The Modern Guide to Rational, Long-Term Investing*](https://www.wiley.com/en-us/The+New+Money+Strategy:+The+Modern+Guide+to+Rational,+Long-Term+Investing-p-9781394369850) — Brandon van der Kolk** (creator of the [New Money](https://www.youtube.com/channel/UCvSXMi2LebwJEM1s4bz5IBA) YouTube channel). The Buffett 4-Pillar strategy implemented in this project was formulated from this book's treatment of Warren Buffett's approach — the pillars applied in order, the margin-of-safety discipline, and the patient long-term framing. The deterministic implementation, the specific thresholds, and any errors are the project author's own; the book and channel are warmly recommended.
+
 Owner's Manual (engine namespace Owlfolio; earlier working names Owlfolio/OwlClaw) is a local-first investment workflow application built as an educational project and portfolio piece. The active v2 branch is a TypeScript/pnpm monorepo with a Next.js web app, local SQLite ledger, provider certification harness, and dry-run worker. This file lists the projects whose patterns, infrastructure, or prior art Owlfolio adopts, and credits them unambiguously.
 
 ---
