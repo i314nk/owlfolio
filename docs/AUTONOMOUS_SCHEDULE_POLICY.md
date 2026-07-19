@@ -1,6 +1,6 @@
 # Owner's Manual autonomous schedule policy
 
-This file describes the active Owner's Manual v2 alpha worker policy. The older Python/CLI/Claude scheduler note was moved to `docs/archive/AUTONOMOUS_SCHEDULE_POLICY.v0.1.md` and is historical only.
+This file describes the active Owner's Manual v2 alpha worker policy. (The pre-rework Python-era scheduler notes were removed with the v1 cleanup.)
 
 ## Alpha policy
 

@@ -1,6 +1,6 @@
 # Contributing to Owlfolio
 
-Owlfolio v2 is a TypeScript/pnpm monorepo for a local-first investment workflow app. Older Python/FastAPI/Claude-only contribution notes are historical and do not apply to this branch.
+Owner's Manual (engine namespace: Owlfolio) is a TypeScript/pnpm monorepo for a local-first investment workflow app — an educational project and portfolio piece. The pre-rework Python/FastAPI-era contribution notes no longer apply.
 
 ## Getting started
 
@@ -20,6 +20,7 @@ Open `http://127.0.0.1:3000` and complete browser onboarding. Runtime config, SQ
 apps/
   web/       Next.js local app and API routes
   worker/    local scheduled-task worker
+  cli/       read-only launch/inspect/diagnose CLI
 packages/
   ledger/    SQLite event store, event envelopes, domain contracts, projections
   providers/ provider catalog, adapters, certification runner

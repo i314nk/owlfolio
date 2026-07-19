@@ -1,6 +1,6 @@
 # Owner's Manual strategy guide
 
-This is the active Owner's Manual v2 local-use candidate strategy guidance. The older Python/Pydantic strategy-YAML runtime guide was moved to `docs/archive/STRATEGY_GUIDE.v0.1.md` and is historical only.
+This is the active Owner's Manual v2 local-use candidate strategy guidance. (The pre-rework Python/YAML strategy runtime and its guide were removed with the v1 cleanup.)
 
 ## Local-use candidate stance
 

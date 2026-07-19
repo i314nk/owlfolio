@@ -1,6 +1,6 @@
 # Credits
 
-Owlfolio (renamed from OwlClaw on 2026-04-26) is a local-first investment workflow application. The active v2 branch is a TypeScript/pnpm monorepo with a Next.js web app, local SQLite ledger, provider certification harness, and dry-run worker. This file lists the projects whose patterns, infrastructure, or prior art Owlfolio adopts, and credits them unambiguously.
+Owner's Manual (engine namespace Owlfolio; earlier working names Owlfolio/OwlClaw) is a local-first investment workflow application built as an educational project and portfolio piece. The active v2 branch is a TypeScript/pnpm monorepo with a Next.js web app, local SQLite ledger, provider certification harness, and dry-run worker. This file lists the projects whose patterns, infrastructure, or prior art Owlfolio adopts, and credits them unambiguously.
 
 ---
 
