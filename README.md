@@ -57,19 +57,19 @@
 **Setup** — the guided provider setup (OpenRouter, or a local Ollama/vLLM endpoint; one model
 runs the whole analysis) and the live Command Center with its duty nudges:
 
-![Setup: the guided provider setup and the live Command Center](docs/assets/setup-tour-202607b.gif)
+![Setup: the guided provider setup and the live Command Center](docs/assets/setup-tour-202607c.gif)
 
-**An analysis** — a real grounded dossier (Coca-Cola): the verdict, the computed price ladder,
-the cited lane findings, and the sanity rail doing its job — including the anomaly-guarded
-valuation base catching a one-off-distorted fiscal year:
+**An analysis** — a real grounded dossier (Microsoft): the pillar cards with their verdicts
+(wide moat · management · the computed IV and buy-below), the cited lane findings, and the
+adversarial inversion arguing the case against itself:
 
-![An example analysis dossier with the computed ladder and sanity facts](docs/assets/analysis-tour-202607b.gif)
+![An example analysis dossier with the computed ladder and sanity facts](docs/assets/analysis-tour-202607c.gif)
 
 **The pages** — the Command Center, Superinvestors 13F discovery, the research library, the
-watchlist zone board, the held-thesis portfolio, the pipeline observatory, the decision-trail
-audit, and the Learn docs:
+watchlist zone board and held-thesis portfolio (rows expanded into their decision cards with the
+load-up → buy → IV price ladder), the pipeline observatory, the decision-trail audit, and Learn:
 
-![A tour of the main pages](docs/assets/pages-tour-202607b.gif)
+![A tour of the main pages](docs/assets/pages-tour-202607c.gif)
 
 ---
 
