@@ -1,21 +1,25 @@
 <div align="center">
 
-# Owner's Manual v2
+# Owner's Manual
 
-**A local-first investment research workflow with harness-verified grounding and a Shariah-by-design ledger.**
+**A local-first investment research workflow with harness-verified grounding, an append-only audit ledger, and optional Shariah screening.**
 
-*(Formerly Owlfolio — the internal engine namespace (`OWLFOLIO_*` env vars, `@owlfolio/*` packages, the repo name, the `owlfolio` CLI alias) intentionally keeps that name so existing configs and ledgers keep working.)*
+*(Engine namespace: Owlfolio — `OWLFOLIO_*` env vars, `@owlfolio/*` packages, the repo name, and the `owlfolio` CLI alias keep the internal name so existing configs and ledgers keep working.)*
 
 </div>
 
-> ## ⚠️ Status: alpha, under active development
+> ## 🎓 An educational project and portfolio piece
 >
-> Owner's Manual v2 is a personal project in **active development**. It is an **alpha**:
-> features are incomplete, interfaces change without notice, and some documented
-> capabilities are deliberately gated off until they pass verification. It is a
-> local workflow tool — **not** a robo-advisor, a brokerage integration, tax
-> software, a fatwa engine, or investment advice. Run it locally, read the
-> limitations below, and treat every model output as a draft for a human to judge.
+> Owner's Manual is a **personal educational project and CV portfolio piece**: it exists to
+> learn — and to demonstrate — how to build a local-first product around grounded LLM
+> orchestration, event-sourced auditability, and a deterministic finance core. It is an
+> **alpha** under active development: features are incomplete, interfaces change without
+> notice, and some capabilities are deliberately gated off until they pass verification.
+>
+> It is **not investment advice** and not a robo-advisor, brokerage integration, tax
+> software, or a fatwa engine. Nothing it produces is a recommendation to buy or sell
+> anything. Run it locally, read the limitations below, and treat every model output as a
+> draft for a human to judge.
 
 ---
 
@@ -49,8 +53,8 @@ failure) → **Pillar 2: the moat** (structural protection, cite-checked, with
 three harness-computed tests; a below-gate moat ends the run before further
 spend) → **Pillar 3: management** (integrity & talent, DEF 14A-grounded, with
 a veto) → **Pillar 4: value the business** (a computed intrinsic value on
-free cash flow — the exit multiple anchored to named comparables — with
-rule-7/rule-8 buy thresholds) → an adversarial inversion
+free cash flow — the exit multiple anchored to named comparables — with the
+30% margin-of-safety buy threshold and the 50% load-up threshold) → an adversarial inversion
 pass → a drafted decision → watchlist/holding transitions you explicitly
 author → ongoing check-ins as new SEC filings land. Everything is recorded in an append-only
 SQLite event ledger with causation/correlation IDs, so every number and claim is
@@ -131,6 +135,32 @@ The core design rule is **"code computes, judgment proposes"**:
   price checks ride the same human-fired worker.
 - A small read-only CLI (`owners-manual start|status|doctor`; `owlfolio` compat alias) for launch/inspect/
   diagnose; all onboarding and decisions live in the browser.
+- **Duty nudges — the alert IS the schedule.** There is no autonomous
+  scheduler by design; instead the Command Center's attention rail computes,
+  from the ledger, when a configured rhythm has lapsed — a 13F discovery
+  harvest due, the monthly/quarterly thesis check-in due, the annual
+  re-analysis of held names due — and links to where *you* run it. Every
+  cadence knob in Settings is wired and notify-only: nothing initiates
+  anything automatically (locked by test).
+- **Pre-spend ticker validation.** A research case only starts for a real SEC
+  filer: the typed ticker resolves against SEC's official filer list (the same
+  universe the whole pipeline grounds in), `BRK.B` auto-normalizes to EDGAR's
+  `BRK-B`, and an SEC outage fails open (the run's own grounding still fails
+  closed).
+- **An anomaly-guarded valuation base.** The DCF's starting free cash flow is
+  the latest filed year *unless* it deviates more than 25% from the five-year
+  median (one-off tax deposits, earnout payments) — then the median is used
+  and a loud FACT flag names both figures on the dossier. Symmetric: windfall
+  years are trimmed exactly like depressed ones.
+- **A decision-trail audit view.** The audit page defaults to what matters —
+  user-authored transitions, gates, verdicts, failures — with the full raw
+  event stream one click away and trace links that always resolve.
+- **English-only UI, translation on demand.** The app ships English; any
+  language is a page translation away (the shell's Translate control drives
+  Chromium's on-device Translator API; elsewhere it points at the browser's
+  own translate — Firefox's runs fully on-device). Machine vocabulary the user
+  must type, run, or search — tickers, ids, commands, env names — is marked
+  `translate="no"` so no translator can corrupt it.
 - A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
   recording observations and drafts. It never auto-approves investment
   decisions, trades, confirmations, Shariah overrides, or payments.
@@ -188,9 +218,9 @@ disciplined value shop and a complete audit trail:
   the day it lands, keeps every thesis honestly marked (intact / weakened /
   broken), and interrupts you only when something crosses a line you defined.
 - **Trust through evidence, not claims.** Per-model certification runs you can
-  execute yourself, the golden-set qualification gate, dual-model cross-checks
-  on the judgments that matter most, and eventually a point-in-time backtester
-  — so the system's track record is a recorded artifact, not marketing.
+  execute yourself, the golden-set qualification gate, and eventually a
+  point-in-time backtester — so the system's track record is a recorded
+  artifact, not marketing.
 - **Grounded Shariah screening.** The front gate, harness-recomputed AAOIFI
   ratios, and the purification rate as dossier guidance — aiming for
   scholar-reviewable methodology, while staying honest that software is not a
@@ -359,18 +389,44 @@ corepack pnpm certify:providers
 
 Known warning: Next/Turbopack can emit an NFT/import-trace warning involving
 local filesystem helpers (`next.config.mjs` / `appConfigStore` / `onboarding`).
-The Playwright e2e suite is green (8/8) as of this branch — the two previously
-failing specs were fixed (an invalid-HTML hydration bug on the watchlist and
-portfolio pages).
+The Playwright e2e suite (9 specs) is green as of this branch.
+
+---
+
+## As a portfolio piece — what this demonstrates
+
+Beyond the product itself, this repo is a worked example of a set of engineering
+disciplines applied end-to-end:
+
+- **Event sourcing as the source of truth** — an append-only SQLite ledger with
+  stable event ids and causation/correlation chains; every screen is a
+  projection, and curated views never rewrite the record.
+- **Grounded LLM orchestration** — a multi-agent research swarm where models
+  propose and the harness verifies: SSRF-guarded fetching, SHA-256'd sources,
+  cite-checking against a hash-verified corpus, and fail-closed abstains when
+  evidence doesn't hold.
+- **A deterministic finance core** — valuation, thresholds, ratios, and the
+  purification rate are pure code with recorded provenance; models never set a
+  number anyone acts on.
+- **Fail-closed, fail-visible design** — degraded states are named on the
+  surface that shows them (gate-off chips, anomaly flags, unpriced dossiers)
+  rather than silently papered over.
+- **Test discipline** — TDD for behavior changes; ~2,400 unit/integration
+  tests plus a Playwright e2e suite and a provider certification harness, all
+  run as release gates.
+- **Honest product copy as a testable invariant** — vocabulary rules (no
+  roadmap promises, no overclaimed support levels) are locked by tests, not
+  style guides.
 
 ---
 
 ## Shariah screening limitations
 
-Owner's Manual is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
-system, or accounting firm:
+Shariah screening is a first-class, fully-grounded, **optional** feature (Settings,
+default ON) — but this is an educational project, and its output is never a fatwa:
 
-- Shariah screens are local policy/audit aids and may require human scholar review.
+- The screens are local policy/audit aids. Before acting on any Shariah
+  conclusion, obtain a ruling from certified Islamic scholars.
 - The dossier states the purification RATE as guidance ("CONDITIONAL — purify
   ~X% of dividends"); tracking and paying it is yours. Owner's Manual deliberately
   keeps no books: bookkeeping built on unverifiable manual inputs was removed
