@@ -249,7 +249,7 @@ disciplined value shop and a complete audit trail:
 
 ## Install & run the dashboard
 
-Prerequisites: **Node.js 20+** (Corepack ships with it) and **git**. No
+Prerequisites: **Node.js 22+** (the ledger uses the built-in `node:sqlite`; Corepack ships with Node) and **git**. No
 database to install — the ledger is a local SQLite file the app creates for
 you.
 
